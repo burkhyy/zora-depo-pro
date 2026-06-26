@@ -6,56 +6,49 @@ const path = require("path");
 
 const app = express();
 
-// Public klasörünü yayınla
 app.use(express.static(path.join(__dirname, "public")));
+
+const API = axios.create({
+    baseURL: process.env.API_URL,
+    headers: {
+        apikey: process.env.API_KEY,
+        apisecret: process.env.API_SECRET
+    }
+});
 
 // Ana sayfa
 app.get("/", (req, res) => {
     res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-// API bağlantı testi
+// API Test
 app.get("/test", async (req, res) => {
 
     try {
 
-        const response = await axios.get(
-            process.env.API_URL + "/auth",
-            {
-                headers: {
-                    apikey: process.env.API_KEY,
-                    apisecret: process.env.API_SECRET
-                }
-            }
-        );
+        const response = await API.get("/auth");
 
         res.json(response.data);
 
     } catch (err) {
 
         if (err.response) {
-            res.json(err.response.data);
+            res.status(err.response.status).json(err.response.data);
         } else {
-            res.json({ error: err.message });
+            res.status(500).json({ error: err.message });
         }
 
     }
 
 });
 
-// Son siparişları getir
+// Son 200 siparişi getir
 app.get("/orders", async (req, res) => {
 
     try {
 
-        const response = await axios.get(
-            process.env.API_URL + "/order/listsV2?pageStart=0&pageSize=100&orderBy=id&sort=desc",
-            {
-                headers: {
-                    apikey: process.env.API_KEY,
-                    apisecret: process.env.API_SECRET
-                }
-            }
+        const response = await API.get(
+            "/order/listsV2?pageStart=0&pageSize=200&orderBy=id&sort=desc"
         );
 
         res.json(response.data);
@@ -63,40 +56,32 @@ app.get("/orders", async (req, res) => {
     } catch (err) {
 
         if (err.response) {
-            res.json(err.response.data);
+            res.status(err.response.status).json(err.response.data);
         } else {
-            res.json({ error: err.message });
+            res.status(500).json({ error: err.message });
         }
 
     }
 
 });
 
-// Tek siparişi getir
+// Sipariş koduna göre getir
 app.get("/order/:code", async (req, res) => {
 
     try {
 
-        const response = await axios.get(
-            process.env.API_URL + "/order/listsV2?pageStart=0&pageSize=100&orderBy=id&sort=desc",
-            {
-                headers: {
-                    apikey: process.env.API_KEY,
-                    apisecret: process.env.API_SECRET
-                }
-            }
+        const response = await API.get(
+            "/order/listsV2?pageStart=0&pageSize=200&orderBy=id&sort=desc"
         );
 
         const siparis = response.data.result.list.find(
-            x => x.order.code == req.params.code
+            item => item.order.code === req.params.code
         );
 
         if (!siparis) {
-
             return res.status(404).json({
                 error: "Sipariş bulunamadı."
             });
-
         }
 
         res.json(siparis);
@@ -104,22 +89,15 @@ app.get("/order/:code", async (req, res) => {
     } catch (err) {
 
         if (err.response) {
-
             res.status(err.response.status).json(err.response.data);
-
         } else {
-
-            res.status(500).json({
-                error: err.message
-            });
-
+            res.status(500).json({ error: err.message });
         }
 
     }
 
 });
 
-// Sunucu
 app.listen(3000, () => {
-    console.log("🚀 Sunucu 3000 portunda çalışıyor.");
+    console.log("🚀 Zora Depo Pro çalışıyor : http://localhost:3000");
 });
