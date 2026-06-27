@@ -1,7 +1,7 @@
-const CACHE_NAME = "zora-depo-v2.0.0";
+const CACHE_NAME = "zora-depo-v2.1.0";
 const STATIC_ASSETS = [
     "/style.css",
-    "/app.js?v=2.0.0",
+    "/app.js?v=2.1.0",
     "/manifest.webmanifest",
     "/icons/zora-depo-192.png",
     "/icons/zora-depo-512.png"
@@ -41,6 +41,7 @@ self.addEventListener("fetch", event => {
     if (url.pathname.startsWith("/orders")
         || url.pathname.startsWith("/order/")
         || url.pathname.startsWith("/products")
+        || url.pathname.startsWith("/product-images")
         || url.pathname.startsWith("/locations")
         || url.pathname.startsWith("/shipments")
         || url.pathname.startsWith("/auth/")

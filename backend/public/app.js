@@ -25,6 +25,8 @@ let aktifSevkiyatPlatformu = "trendyol";
 let aktifGecmisPlatformu = "trendyol";
 let bildirimler = [];
 let bildirimZamanlayici = null;
+let urunGorselleri = {};
+let urunGorselleriPromise = null;
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
@@ -153,6 +155,63 @@ function urunBarkodu(urun) {
         "barcode",
         "barCode"
     ]);
+}
+
+function urunProductId(urun) {
+    return alanOku(urun, ["productId", "product.id", "id"], "");
+}
+
+function urunGorseli(urun) {
+    const dogrudan = alanOku(urun, [
+        "imageUrl",
+        "image",
+        "images.0.imagesUrl",
+        "images.0.imageUrl",
+        "images.0.url"
+    ], "");
+
+    return dogrudan || urunGorselleri[String(urunProductId(urun))] || "";
+}
+
+async function urunGorselleriniYukle() {
+    if (urunGorselleriPromise) {
+        return urunGorselleriPromise;
+    }
+
+    const ids = [...new Set(
+        siparisler.flatMap(siparis => siparis.products || []).map(urunProductId).filter(Boolean)
+    )];
+
+    if (!ids.length) {
+        return {};
+    }
+
+    urunGorselleriPromise = fetch("/product-images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids })
+    })
+        .then(response => response.ok ? response.json() : Promise.reject(new Error("Ürün görselleri alınamadı.")))
+        .then(data => {
+            urunGorselleri = { ...urunGorselleri, ...data.result };
+
+            if (aktifSekme === "orders" && !aktifSiparis) {
+                listeGoster(aktifListe);
+            } else if (aktifSiparis) {
+                urunListesiGuncelle();
+            }
+
+            return urunGorselleri;
+        })
+        .catch(err => {
+            console.error(err);
+            return urunGorselleri;
+        })
+        .finally(() => {
+            urunGorselleriPromise = null;
+        });
+
+    return urunGorselleriPromise;
 }
 
 function urunRengi(urun) {
@@ -755,6 +814,7 @@ async function yukle() {
 
         siparisler = data.result.list;
         aktifListe = siparisler;
+        urunGorselleriniYukle();
 
         if (aktifSekme === "orders") {
             listeGoster(aktifListe);
@@ -2122,6 +2182,8 @@ async function sorunluSiparislerEkraniGoster() {
                     if (!ozet[anahtar]) {
                         ozet[anahtar] = {
                             productName: item.productName,
+                            productId: item.productId,
+                            imageUrl: item.imageUrl,
                             barcode: item.barcode,
                             color: item.color,
                             size: item.size,
@@ -2166,6 +2228,11 @@ async function sorunluSiparislerEkraniGoster() {
                     <div class="shortageGrid">
                         ${eksikUrunOzeti.length ? eksikUrunOzeti.map(item => `
                             <article class="shortageCard">
+                                <div class="shortageImage">
+                                    ${item.imageUrl
+                                        ? `<img src="${temizle(item.imageUrl)}" alt="${temizle(item.productName)}" loading="lazy">`
+                                        : `<span>Görsel yok</span>`}
+                                </div>
                                 <div>
                                     <strong>${temizle(item.productName)}</strong>
                                     <span>${temizle(item.color || "-")} · ${temizle(item.size || "-")} · ${temizle(item.barcode || "Barkod yok")}</span>
@@ -2195,6 +2262,11 @@ async function sorunluSiparislerEkraniGoster() {
                             <div class="issueEntries">
                                 ${grup.issues.map(item => `
                                     <div class="issueEntry">
+                                        <div class="issueProductImage">
+                                            ${item.imageUrl
+                                                ? `<img src="${temizle(item.imageUrl)}" alt="${temizle(item.productName)}" loading="lazy">`
+                                                : `<span>Görsel yok</span>`}
+                                        </div>
                                         <div>
                                             <strong>${temizle(item.productName)}</strong>
                                             <span>${temizle(item.barcode || "-")} · ${temizle(sorunTurleri[item.issueType] || item.issueType)}${item.issueType === "missing" ? ` · ${temizle(item.missingQuantity)} adet` : ""}</span>
@@ -2243,11 +2315,17 @@ function urunListesiHtml(urunler) {
                 : tamamlandi ? "✅ Doğru ürün tamamlandı"
                     : okutulan > 0 ? "✅ Doğru ürün okutuldu" : "Bekliyor";
         const sira = acikSorun ? "!" : hizmet ? "H" : tamamlandi ? "✓" : index + 1;
+        const gorselUrl = urunGorseli(urun);
 
         return `
             <article class="productRow${durumClass}" data-product-index="${index}">
                 <div class="productMain">
                     <span class="productIndex">${temizle(sira)}</span>
+                    <div class="productImageWrap">
+                        ${gorselUrl
+                            ? `<img src="${temizle(gorselUrl)}" alt="${temizle(urunAdi(urun))}" loading="lazy">`
+                            : `<span>Görsel yok</span>`}
+                    </div>
                     <div>
                         <div class="productTitleLine">
                             <h3>${temizle(urunAdi(urun))}</h3>
@@ -2673,8 +2751,10 @@ result.addEventListener("submit", async function (event) {
                     customerName: musteriAdi(aktifSiparis),
                     platform: platformAdi(aktifSiparis),
                     productIndex: index,
+                    productId: urunProductId(urun),
                     productName: urunAdi(urun),
                     barcode: urunBarkodu(urun),
+                    imageUrl: urunGorseli(urun),
                     color: urunRengi(urun),
                     size: urunBedeni(urun),
                     missingQuantity: Number(issueForm.elements.missingQuantity.value),

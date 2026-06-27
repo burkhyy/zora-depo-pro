@@ -77,8 +77,10 @@ database.exec(`
         customer_name TEXT NOT NULL DEFAULT '',
         platform TEXT NOT NULL DEFAULT '',
         product_index INTEGER NOT NULL,
+        product_id TEXT NOT NULL DEFAULT '',
         product_name TEXT NOT NULL DEFAULT '',
         barcode TEXT NOT NULL DEFAULT '',
+        image_url TEXT NOT NULL DEFAULT '',
         product_color TEXT NOT NULL DEFAULT '',
         product_size TEXT NOT NULL DEFAULT '',
         missing_quantity INTEGER NOT NULL DEFAULT 1,
@@ -114,6 +116,12 @@ database.exec(`
         FOREIGN KEY (notification_id) REFERENCES app_notifications(id) ON DELETE CASCADE,
         FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS product_image_cache (
+        product_id TEXT PRIMARY KEY,
+        image_url TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
 `);
 
 const issueColumns = new Set(
@@ -130,6 +138,14 @@ if (!preparationColumns.has("platform")) {
 
 if (!issueColumns.has("platform")) {
     database.exec(`ALTER TABLE order_product_issues ADD COLUMN platform TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!issueColumns.has("product_id")) {
+    database.exec(`ALTER TABLE order_product_issues ADD COLUMN product_id TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!issueColumns.has("image_url")) {
+    database.exec(`ALTER TABLE order_product_issues ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`);
 }
 
 if (!issueColumns.has("product_color")) {
@@ -396,6 +412,18 @@ const API = axios.create({
         apisecret: process.env.API_SECRET
     }
 });
+const productImageCache = new Map(
+    database.prepare(`SELECT product_id, image_url FROM product_image_cache`).all()
+        .map(item => [Number(item.product_id), item.image_url])
+);
+const productPageCache = new Map();
+const productImageSave = database.prepare(`
+    INSERT INTO product_image_cache (product_id, image_url, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(product_id) DO UPDATE SET
+        image_url = excluded.image_url,
+        updated_at = CURRENT_TIMESTAMP
+`);
 
 function listeyiBul(data) {
     if (Array.isArray(data)) return data;
@@ -414,6 +442,70 @@ function apiHatasiGonder(err, res) {
     } else {
         res.status(500).json({ error: err.message });
     }
+}
+
+function urunGorselUrliniBul(product) {
+    const images = Array.isArray(product?.images) ? product.images : [];
+    const first = images[0];
+
+    if (typeof first === "string") {
+        return first;
+    }
+
+    return first?.imagesUrl || first?.imageUrl || first?.url || product?.imageUrl || product?.image || "";
+}
+
+async function urunSayfasiniGetir(pageStart) {
+    if (!productPageCache.has(pageStart)) {
+        productPageCache.set(pageStart, API.get(
+            `/product/lists?pageStart=${pageStart}&pageSize=100&orderBy=id&sort=desc`
+        ).then(response => listeyiBul(response.data)).catch(err => {
+            productPageCache.delete(pageStart);
+            throw err;
+        }));
+    }
+
+    return productPageCache.get(pageStart);
+}
+
+async function urunGorselleriniGetir(productIds) {
+    const ids = [...new Set(productIds.map(id => Number(id)).filter(Number.isFinite))];
+    const missing = ids.filter(id => !productImageCache.has(id));
+
+    if (missing.length) {
+        const firstPage = await urunSayfasiniGetir(0);
+        const highestId = Math.max(...firstPage.map(item => Number(item.id) || 0));
+        const candidateStarts = new Set([0]);
+
+        missing.forEach(id => {
+            const estimated = Math.max(0, Math.floor(Math.max(0, highestId - id) / 100) * 100);
+            candidateStarts.add(estimated);
+            candidateStarts.add(Math.max(0, estimated - 100));
+            candidateStarts.add(estimated + 100);
+        });
+
+        const pages = await Promise.all([...candidateStarts].map(urunSayfasiniGetir));
+        pages.flat().forEach(product => {
+            const id = Number(product.id);
+
+            if (Number.isFinite(id)) {
+                const imageUrl = urunGorselUrliniBul(product);
+                productImageCache.set(id, imageUrl);
+
+                if (imageUrl) {
+                    productImageSave.run(String(id), imageUrl);
+                }
+            }
+        });
+
+        missing.forEach(id => {
+            if (!productImageCache.has(id)) {
+                productImageCache.set(id, "");
+            }
+        });
+    }
+
+    return Object.fromEntries(ids.map(id => [id, productImageCache.get(id) || ""]));
 }
 
 async function urunListesiniGetir() {
@@ -556,6 +648,16 @@ app.get("/products", async (req, res) => {
     }
 });
 
+app.post("/product-images", async (req, res) => {
+    try {
+        const ids = Array.isArray(req.body.ids) ? req.body.ids.slice(0, 100) : [];
+        const result = await urunGorselleriniGetir(ids);
+        res.json({ result });
+    } catch (err) {
+        apiHatasiGonder(err, res);
+    }
+});
+
 app.get("/products/:id", async (req, res) => {
     try {
         const data = await urunDetayiniGetir(req.params.id);
@@ -674,8 +776,10 @@ function sorunKaydiniDonustur(row) {
         customerName: row.customer_name,
         platform: row.platform,
         productIndex: row.product_index,
+        productId: row.product_id,
         productName: row.product_name,
         barcode: row.barcode,
+        imageUrl: row.image_url,
         color: row.product_color,
         size: row.product_size,
         missingQuantity: row.missing_quantity,
@@ -727,8 +831,10 @@ app.post("/issues", (req, res) => {
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
     const platform = String(req.body.platform || "").trim().slice(0, 100);
     const productIndex = Number(req.body.productIndex);
+    const productId = String(req.body.productId || "").trim().slice(0, 120);
     const productName = String(req.body.productName || "").trim().slice(0, 500);
     const barcode = String(req.body.barcode || "").trim().slice(0, 120);
+    const imageUrl = String(req.body.imageUrl || "").trim().slice(0, 2000);
     const productColor = String(req.body.color || "").trim().slice(0, 120);
     const productSize = String(req.body.size || "").trim().slice(0, 120);
     const issueType = String(req.body.issueType || "").trim();
@@ -753,12 +859,12 @@ app.post("/issues", (req, res) => {
 
     const result = database.prepare(`
         INSERT INTO order_product_issues (
-            order_code, customer_name, platform, product_index, product_name, barcode,
-            product_color, product_size, missing_quantity, issue_type, note, created_by_user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            order_code, customer_name, platform, product_index, product_id, product_name, barcode,
+            image_url, product_color, product_size, missing_quantity, issue_type, note, created_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-        orderCode, customerName, platform, productIndex, productName, barcode,
-        productColor, productSize, missingQuantity, issueType, note, req.user.id
+        orderCode, customerName, platform, productIndex, productId, productName, barcode,
+        imageUrl, productColor, productSize, missingQuantity, issueType, note, req.user.id
     );
 
     const row = database.prepare(`
