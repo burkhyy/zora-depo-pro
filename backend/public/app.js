@@ -733,6 +733,8 @@ async function yukle() {
 
         if (aktifSekme === "orders") {
             listeGoster(aktifListe);
+        } else if (aktifSekme === "shipments") {
+            sevkiyatListeleriniGoster();
         }
     } catch (err) {
         result.innerHTML = `
