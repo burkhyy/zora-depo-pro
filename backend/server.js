@@ -4,6 +4,7 @@ const express = require("express");
 const axios = require("axios");
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
 const { DatabaseSync } = require("node:sqlite");
 
 const app = express();
@@ -34,6 +35,76 @@ database.exec(`
     )
 `);
 database.exec(`
+    CREATE TABLE IF NOT EXISTS app_users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        display_name TEXT NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('admin', 'worker')),
+        password_hash TEXT NOT NULL,
+        password_salt TEXT NOT NULL,
+        active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS app_sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS order_preparations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_code TEXT NOT NULL COLLATE NOCASE,
+        customer_name TEXT NOT NULL DEFAULT '',
+        started_by_user_id INTEGER NOT NULL,
+        completed_by_user_id INTEGER,
+        status TEXT NOT NULL DEFAULT 'started' CHECK (status IN ('started', 'completed')),
+        started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT,
+        FOREIGN KEY (started_by_user_id) REFERENCES app_users(id),
+        FOREIGN KEY (completed_by_user_id) REFERENCES app_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_preparations_order_code
+        ON order_preparations(order_code);
+`);
+
+function sifreHashle(password, salt = crypto.randomBytes(16).toString("hex")) {
+    return {
+        salt,
+        hash: crypto.scryptSync(password, salt, 64).toString("hex")
+    };
+}
+
+function sifreDogrula(password, salt, expectedHash) {
+    const actual = Buffer.from(sifreHashle(password, salt).hash, "hex");
+    const expected = Buffer.from(expectedHash, "hex");
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+function yoneticiHesabiniHazirla() {
+    if (!appUsername || !appPassword) {
+        return;
+    }
+
+    const existing = database.prepare(`
+        SELECT id FROM app_users WHERE username = ? COLLATE NOCASE
+    `).get(appUsername);
+
+    if (!existing) {
+        const password = sifreHashle(appPassword);
+        database.prepare(`
+            INSERT INTO app_users (
+                username, display_name, role, password_hash, password_salt
+            ) VALUES (?, ?, 'admin', ?, ?)
+        `).run(appUsername, "Zora Yönetici", password.hash, password.salt);
+    }
+}
+
+yoneticiHesabiniHazirla();
+database.exec(`
     CREATE TABLE IF NOT EXISTS order_shipments (
         order_code TEXT PRIMARY KEY COLLATE NOCASE,
         customer_name TEXT NOT NULL DEFAULT '',
@@ -53,45 +124,6 @@ app.get("/health", (req, res) => {
     res.json({ status: "ok" });
 });
 
-function sabitZamanliEsit(a, b) {
-    const aBuffer = Buffer.from(String(a));
-    const bBuffer = Buffer.from(String(b));
-
-    if (aBuffer.length !== bBuffer.length) {
-        return false;
-    }
-
-    return require("crypto").timingSafeEqual(aBuffer, bBuffer);
-}
-
-function uygulamaKimlikDogrulama(req, res, next) {
-    if (!appUsername || !appPassword) {
-        return next();
-    }
-
-    const authorization = req.headers.authorization || "";
-    const encoded = authorization.startsWith("Basic ") ? authorization.slice(6) : "";
-    let username = "";
-    let password = "";
-
-    try {
-        const decoded = Buffer.from(encoded, "base64").toString("utf8");
-        const separator = decoded.indexOf(":");
-        username = separator >= 0 ? decoded.slice(0, separator) : "";
-        password = separator >= 0 ? decoded.slice(separator + 1) : "";
-    } catch {
-        // Invalid credentials fall through to the challenge.
-    }
-
-    if (sabitZamanliEsit(username, appUsername) && sabitZamanliEsit(password, appPassword)) {
-        return next();
-    }
-
-    res.set("WWW-Authenticate", 'Basic realm="Zora Depo Pro", charset="UTF-8"');
-    return res.status(401).send("Yetkilendirme gerekli.");
-}
-
-app.use(uygulamaKimlikDogrulama);
 app.use((req, res, next) => {
     res.set({
         "X-Content-Type-Options": "nosniff",
@@ -102,6 +134,121 @@ app.use((req, res, next) => {
     next();
 });
 app.use(express.static(path.join(__dirname, "public")));
+
+function cookieDegeriniOku(req, name) {
+    const cookies = String(req.headers.cookie || "").split(";");
+
+    for (const cookie of cookies) {
+        const [key, ...value] = cookie.trim().split("=");
+
+        if (key === name) {
+            return decodeURIComponent(value.join("="));
+        }
+    }
+
+    return "";
+}
+
+function oturumKullanicisiniBul(req) {
+    const token = cookieDegeriniOku(req, "zora_session");
+
+    if (!token) {
+        return null;
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    return database.prepare(`
+        SELECT users.id, users.username, users.display_name, users.role
+        FROM app_sessions sessions
+        JOIN app_users users ON users.id = sessions.user_id
+        WHERE sessions.token_hash = ?
+          AND sessions.expires_at > CURRENT_TIMESTAMP
+          AND users.active = 1
+    `).get(tokenHash) || null;
+}
+
+function oturumGerekli(req, res, next) {
+    const user = oturumKullanicisiniBul(req);
+
+    if (!user) {
+        return res.status(401).json({ error: "Oturum gerekli." });
+    }
+
+    req.user = user;
+    next();
+}
+
+function yoneticiGerekli(req, res, next) {
+    if (req.user.role !== "admin") {
+        return res.status(403).json({ error: "Yönetici yetkisi gerekli." });
+    }
+
+    next();
+}
+
+function kullaniciyiDonustur(user) {
+    return {
+        id: user.id,
+        username: user.username,
+        displayName: user.display_name,
+        role: user.role,
+        active: user.active === undefined ? true : Boolean(user.active),
+        createdAt: user.created_at
+    };
+}
+
+app.post("/auth/login", (req, res) => {
+    const username = String(req.body.username || "").trim();
+    const password = String(req.body.password || "");
+    const user = database.prepare(`
+        SELECT * FROM app_users
+        WHERE username = ? COLLATE NOCASE AND active = 1
+    `).get(username);
+
+    if (!user || !sifreDogrula(password, user.password_salt, user.password_hash)) {
+        return res.status(401).json({ error: "Kullanıcı adı veya parola hatalı." });
+    }
+
+    database.prepare(`DELETE FROM app_sessions WHERE expires_at <= CURRENT_TIMESTAMP`).run();
+
+    const token = crypto.randomBytes(32).toString("base64url");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    database.prepare(`
+        INSERT INTO app_sessions (token_hash, user_id, expires_at)
+        VALUES (?, ?, datetime('now', '+30 days'))
+    `).run(tokenHash, user.id);
+
+    const secure = req.secure || Boolean(process.env.RAILWAY_ENVIRONMENT);
+    res.setHeader(
+        "Set-Cookie",
+        `zora_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${secure ? "; Secure" : ""}`
+    );
+    res.json({ user: kullaniciyiDonustur(user) });
+});
+
+app.post("/auth/logout", (req, res) => {
+    const token = cookieDegeriniOku(req, "zora_session");
+
+    if (token) {
+        const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+        database.prepare(`DELETE FROM app_sessions WHERE token_hash = ?`).run(tokenHash);
+    }
+
+    res.setHeader("Set-Cookie", "zora_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+    res.status(204).end();
+});
+
+app.get("/auth/me", oturumGerekli, (req, res) => {
+    res.json({ user: kullaniciyiDonustur(req.user) });
+});
+
+app.use((req, res, next) => {
+    if (req.path === "/" || req.path.includes(".")) {
+        return next();
+    }
+
+    oturumGerekli(req, res, next);
+});
 
 const API = axios.create({
     baseURL: process.env.API_URL,
@@ -277,6 +424,143 @@ app.get("/products/:id", async (req, res) => {
     } catch (err) {
         apiHatasiGonder(err, res);
     }
+});
+
+app.get("/admin/users", yoneticiGerekli, (req, res) => {
+    const users = database.prepare(`
+        SELECT id, username, display_name, role, active, created_at
+        FROM app_users
+        ORDER BY display_name, username
+    `).all();
+    res.json({ result: users.map(kullaniciyiDonustur) });
+});
+
+app.post("/admin/users", yoneticiGerekli, (req, res) => {
+    const username = String(req.body.username || "").trim();
+    const displayName = String(req.body.displayName || "").trim();
+    const passwordText = String(req.body.password || "");
+    const role = req.body.role === "admin" ? "admin" : "worker";
+
+    if (!/^[a-zA-Z0-9._-]{3,40}$/.test(username)) {
+        return res.status(400).json({ error: "Kullanıcı adı 3-40 karakter olmalı." });
+    }
+
+    if (!displayName || displayName.length > 100) {
+        return res.status(400).json({ error: "Geçerli bir ad soyad gerekli." });
+    }
+
+    if (passwordText.length < 8) {
+        return res.status(400).json({ error: "Parola en az 8 karakter olmalı." });
+    }
+
+    const password = sifreHashle(passwordText);
+
+    try {
+        const result = database.prepare(`
+            INSERT INTO app_users (
+                username, display_name, role, password_hash, password_salt
+            ) VALUES (?, ?, ?, ?, ?)
+        `).run(username, displayName, role, password.hash, password.salt);
+        const user = database.prepare(`SELECT * FROM app_users WHERE id = ?`).get(result.lastInsertRowid);
+        res.status(201).json({ result: kullaniciyiDonustur(user) });
+    } catch (err) {
+        if (String(err.message).includes("UNIQUE")) {
+            return res.status(409).json({ error: "Bu kullanıcı adı zaten kullanılıyor." });
+        }
+        throw err;
+    }
+});
+
+app.get("/admin/preparations", yoneticiGerekli, (req, res) => {
+    const rows = database.prepare(`
+        SELECT
+            preparations.id,
+            preparations.order_code,
+            preparations.customer_name,
+            preparations.status,
+            preparations.started_at,
+            preparations.completed_at,
+            starter.display_name AS started_by,
+            completer.display_name AS completed_by
+        FROM order_preparations preparations
+        JOIN app_users starter ON starter.id = preparations.started_by_user_id
+        LEFT JOIN app_users completer ON completer.id = preparations.completed_by_user_id
+        ORDER BY preparations.started_at DESC
+        LIMIT 500
+    `).all();
+
+    res.json({
+        result: rows.map(row => ({
+            id: row.id,
+            orderCode: row.order_code,
+            customerName: row.customer_name,
+            status: row.status,
+            startedBy: row.started_by,
+            completedBy: row.completed_by || "",
+            startedAt: row.started_at,
+            completedAt: row.completed_at
+        }))
+    });
+});
+
+app.post("/preparations/start", (req, res) => {
+    const orderCode = String(req.body.orderCode || "").trim();
+    const customerName = String(req.body.customerName || "").trim().slice(0, 300);
+
+    if (!orderCode) {
+        return res.status(400).json({ error: "Sipariş kodu gerekli." });
+    }
+
+    let preparation = database.prepare(`
+        SELECT * FROM order_preparations
+        WHERE order_code = ? COLLATE NOCASE AND status = 'started'
+        ORDER BY id DESC LIMIT 1
+    `).get(orderCode);
+
+    if (!preparation) {
+        const result = database.prepare(`
+            INSERT INTO order_preparations (
+                order_code, customer_name, started_by_user_id
+            ) VALUES (?, ?, ?)
+        `).run(orderCode, customerName, req.user.id);
+        preparation = database.prepare(`SELECT * FROM order_preparations WHERE id = ?`).get(result.lastInsertRowid);
+    }
+
+    res.json({ result: preparation });
+});
+
+app.post("/preparations/complete", (req, res) => {
+    const orderCode = String(req.body.orderCode || "").trim();
+    const customerName = String(req.body.customerName || "").trim().slice(0, 300);
+
+    if (!orderCode) {
+        return res.status(400).json({ error: "Sipariş kodu gerekli." });
+    }
+
+    let preparation = database.prepare(`
+        SELECT * FROM order_preparations
+        WHERE order_code = ? COLLATE NOCASE AND status = 'started'
+        ORDER BY id DESC LIMIT 1
+    `).get(orderCode);
+
+    if (!preparation) {
+        const result = database.prepare(`
+            INSERT INTO order_preparations (
+                order_code, customer_name, started_by_user_id
+            ) VALUES (?, ?, ?)
+        `).run(orderCode, customerName, req.user.id);
+        preparation = { id: result.lastInsertRowid };
+    }
+
+    database.prepare(`
+        UPDATE order_preparations
+        SET status = 'completed',
+            completed_by_user_id = ?,
+            completed_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(req.user.id, preparation.id);
+
+    res.json({ result: { id: preparation.id, status: "completed" } });
 });
 
 function rafKaydiniDonustur(row) {

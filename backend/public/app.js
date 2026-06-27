@@ -13,6 +13,7 @@ let apiUrunleriPromise = null;
 let rafKayitListesi = [];
 let rafKayitlariPromise = null;
 let sevkiyatKayitlari = [];
+let aktifKullanici = null;
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
@@ -30,6 +31,7 @@ const durumlar = {
 const searchInput = document.getElementById("search");
 const result = document.getElementById("result");
 const tabButtons = document.querySelectorAll("[data-tab]");
+const userBar = document.getElementById("userBar");
 
 function temizle(deger) {
     return String(deger ?? "")
@@ -577,6 +579,72 @@ function barkodIsle(okunanBarkod) {
     }
 }
 
+function girisEkraniGoster(hata = "") {
+    scannerDurdur();
+    aktifKullanici = null;
+    document.body.className = "loginMode";
+    document.querySelector(".topTabs").hidden = true;
+    document.querySelector(".searchBox").hidden = true;
+    userBar.hidden = true;
+    result.innerHTML = `
+        <section class="loginPanel">
+            <div class="loginIcon">Z</div>
+            <p class="eyebrow">Zora Depo Pro</p>
+            <h2>Oturum açın</h2>
+            <p class="loginIntro">Sipariş hazırlamaya devam etmek için kullanıcı hesabınızı kullanın.</p>
+            ${hata ? `<div class="loginError">${temizle(hata)}</div>` : ""}
+            <form id="loginForm">
+                <label>
+                    <span>Kullanıcı adı</span>
+                    <input name="username" autocomplete="username" required>
+                </label>
+                <label>
+                    <span>Parola</span>
+                    <input name="password" type="password" autocomplete="current-password" required>
+                </label>
+                <button class="openOrderButton" type="submit">Giriş Yap</button>
+            </form>
+        </section>
+    `;
+}
+
+function kullaniciArayuzunuGuncelle() {
+    const adminMi = aktifKullanici?.role === "admin";
+    const usersTab = document.querySelector('[data-tab="users"]');
+    usersTab.hidden = !adminMi;
+    document.querySelector(".topTabs").classList.toggle("adminTabs", adminMi);
+    document.querySelector(".topTabs").hidden = false;
+    document.querySelector(".searchBox").hidden = false;
+    userBar.hidden = false;
+    userBar.innerHTML = `
+        <div>
+            <strong>${temizle(aktifKullanici.displayName)}</strong>
+            <span>${adminMi ? "Yönetici" : "Depo Personeli"}</span>
+        </div>
+        <button type="button" id="logoutButton">Çıkış</button>
+    `;
+}
+
+async function oturumuBaslat() {
+    try {
+        const response = await fetch("/auth/me");
+
+        if (!response.ok) {
+            girisEkraniGoster();
+            return;
+        }
+
+        const data = await response.json();
+        aktifKullanici = data.user;
+        document.body.classList.remove("loginMode");
+        kullaniciArayuzunuGuncelle();
+        await yukle();
+    } catch (err) {
+        girisEkraniGoster("Sunucuya bağlanılamadı.");
+        console.error(err);
+    }
+}
+
 async function yukle() {
     try {
         const response = await fetch("/orders");
@@ -608,6 +676,7 @@ function listeGoster(liste) {
     document.body.classList.remove("detailMode");
     document.body.classList.remove("locationMode");
     document.body.classList.remove("shipmentMode");
+    document.body.classList.remove("adminMode");
     sekmeDurumuGuncelle();
 
     result.innerHTML = "";
@@ -1226,6 +1295,7 @@ function rafEkraniGoster() {
     searchInput.disabled = true;
     document.body.classList.remove("detailMode");
     document.body.classList.remove("shipmentMode");
+    document.body.classList.remove("adminMode");
     document.body.classList.add("locationMode");
     sekmeDurumuGuncelle();
 
@@ -1381,7 +1451,7 @@ async function sevkiyatEkraniGoster() {
     aktifSekme = "shipments";
     aktifSiparis = null;
     searchInput.disabled = true;
-    document.body.classList.remove("detailMode", "locationMode");
+    document.body.classList.remove("detailMode", "locationMode", "adminMode");
     document.body.classList.add("shipmentMode");
     sekmeDurumuGuncelle();
 
@@ -1468,6 +1538,119 @@ function sevkiyatEtiketiGoster(siparis) {
     barkodEtiketiGoster(kayit);
 }
 
+function tarihSaatGoster(deger) {
+    if (!deger) {
+        return "-";
+    }
+
+    const tarih = new Date(`${deger.replace(" ", "T")}Z`);
+    return Number.isNaN(tarih.getTime())
+        ? deger
+        : tarih.toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
+}
+
+async function yonetimEkraniGoster() {
+    if (aktifKullanici?.role !== "admin") {
+        return;
+    }
+
+    scannerDurdur();
+    aktifSekme = "users";
+    searchInput.disabled = true;
+    document.body.classList.remove("detailMode", "locationMode", "shipmentMode");
+    document.body.classList.add("adminMode");
+    sekmeDurumuGuncelle();
+    result.innerHTML = `<div class="loading">Kullanıcılar ve işlem geçmişi yükleniyor...</div>`;
+
+    try {
+        const [usersResponse, historyResponse] = await Promise.all([
+            fetch("/admin/users"),
+            fetch("/admin/preparations")
+        ]);
+        const usersData = await usersResponse.json();
+        const historyData = await historyResponse.json();
+
+        if (!usersResponse.ok || !historyResponse.ok) {
+            throw new Error(usersData.error || historyData.error || "Yönetim verileri alınamadı.");
+        }
+
+        result.innerHTML = `
+            <section class="adminTool">
+                <div class="locationHeader">
+                    <div>
+                        <p class="eyebrow">Yönetim</p>
+                        <h2>Kullanıcılar ve hazırlama geçmişi</h2>
+                    </div>
+                </div>
+                <div class="adminLayout">
+                    <section class="userCreatePanel">
+                        <div class="sectionTitle">
+                            <h3>Yeni Kullanıcı</h3>
+                        </div>
+                        <form id="createUserForm">
+                            <label><span>Ad Soyad</span><input name="displayName" required maxlength="100"></label>
+                            <label><span>Kullanıcı Adı</span><input name="username" required minlength="3" maxlength="40"></label>
+                            <label><span>Parola</span><input name="password" type="password" required minlength="8"></label>
+                            <label>
+                                <span>Rol</span>
+                                <select name="role">
+                                    <option value="worker">Depo Personeli</option>
+                                    <option value="admin">Yönetici</option>
+                                </select>
+                            </label>
+                            <button class="saveLocationButton" type="submit">Kullanıcı Oluştur</button>
+                        </form>
+                        <div class="userList">
+                            ${usersData.result.map(user => `
+                                <div>
+                                    <strong>${temizle(user.displayName)}</strong>
+                                    <span>@${temizle(user.username)} · ${user.role === "admin" ? "Yönetici" : "Personel"}</span>
+                                </div>
+                            `).join("")}
+                        </div>
+                    </section>
+                    <section class="activityPanel">
+                        <div class="sectionTitle">
+                            <h3>Sipariş Hazırlama Geçmişi</h3>
+                            <span>${temizle(historyData.result.length)} kayıt</span>
+                        </div>
+                        <div class="activityTableWrap">
+                            <table class="activityTable">
+                                <thead>
+                                    <tr>
+                                        <th>Sipariş</th>
+                                        <th>Müşteri</th>
+                                        <th>Başlatan</th>
+                                        <th>Başlangıç</th>
+                                        <th>Tamamlayan</th>
+                                        <th>Tamamlanma</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${historyData.result.length ? historyData.result.map(item => `
+                                        <tr>
+                                            <td><strong>${temizle(item.orderCode)}</strong></td>
+                                            <td>${temizle(item.customerName)}</td>
+                                            <td>${temizle(item.startedBy)}</td>
+                                            <td>${temizle(tarihSaatGoster(item.startedAt))}</td>
+                                            <td>${temizle(item.completedBy || "-")}</td>
+                                            <td>${temizle(tarihSaatGoster(item.completedAt))}</td>
+                                        </tr>
+                                    `).join("") : `
+                                        <tr><td colspan="6">Henüz hazırlama kaydı yok.</td></tr>
+                                    `}
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+            </section>
+        `;
+    } catch (err) {
+        result.innerHTML = `<div class="notfound">${temizle(err.message)}</div>`;
+    }
+}
+
 function urunListesiHtml(urunler) {
     if (!urunler.length) {
         return `
@@ -1548,6 +1731,7 @@ function siparisDetayGoster(siparis) {
     sonOkunanBarkod = "";
     sonOkumaZamani = 0;
     searchInput.disabled = true;
+    document.body.classList.remove("adminMode", "locationMode", "shipmentMode");
     document.body.classList.add("detailMode");
 
     const urunler = siparis.products || [];
@@ -1619,6 +1803,7 @@ function siparisDetayGoster(siparis) {
 
 function siparisHazirEkraniGoster() {
     sevkiyatDurumuKaydet(aktifSiparis, "ready").catch(err => console.error(err));
+    hazirlamaKaydiGonder("complete", aktifSiparis).catch(err => console.error(err));
     result.innerHTML = `
         <section class="completeScreen">
             <div class="completeIcon">🎉</div>
@@ -1628,6 +1813,22 @@ function siparisHazirEkraniGoster() {
             <button class="openOrderButton" type="button" id="backToList">Yeni Sipariş Ara</button>
         </section>
     `;
+}
+
+async function hazirlamaKaydiGonder(islem, siparis) {
+    const response = await fetch(`/preparations/${islem}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            orderCode: siparisKodu(siparis),
+            customerName: musteriAdi(siparis)
+        })
+    });
+
+    if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Hazırlama kaydı yazılamadı.");
+    }
 }
 
 function siparisSec(kod) {
@@ -1642,6 +1843,7 @@ function siparisSec(kod) {
         return;
     }
 
+    hazirlamaKaydiGonder("start", siparis).catch(err => console.error(err));
     siparisDetayGoster(siparis);
 }
 
@@ -1771,6 +1973,70 @@ result.addEventListener("click", async function (event) {
 });
 
 result.addEventListener("submit", async function (event) {
+    const loginForm = event.target.closest("#loginForm");
+
+    if (loginForm) {
+        event.preventDefault();
+        const button = loginForm.querySelector("button");
+        button.disabled = true;
+
+        try {
+            const response = await fetch("/auth/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    username: loginForm.elements.username.value,
+                    password: loginForm.elements.password.value
+                })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Giriş yapılamadı.");
+            }
+
+            aktifKullanici = data.user;
+            document.body.classList.remove("loginMode");
+            kullaniciArayuzunuGuncelle();
+            await yukle();
+        } catch (err) {
+            girisEkraniGoster(err.message);
+        }
+        return;
+    }
+
+    const createUserForm = event.target.closest("#createUserForm");
+
+    if (createUserForm) {
+        event.preventDefault();
+        const button = createUserForm.querySelector("button");
+        button.disabled = true;
+
+        try {
+            const response = await fetch("/admin/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    displayName: createUserForm.elements.displayName.value,
+                    username: createUserForm.elements.username.value,
+                    password: createUserForm.elements.password.value,
+                    role: createUserForm.elements.role.value
+                })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Kullanıcı oluşturulamadı.");
+            }
+
+            await yonetimEkraniGoster();
+        } catch (err) {
+            button.disabled = false;
+            alert(err.message);
+        }
+        return;
+    }
+
     const form = event.target.closest("[data-location-form]");
 
     if (!form) {
@@ -1821,7 +2087,9 @@ tabButtons.forEach(button => {
             return;
         }
 
-        if (this.dataset.tab === "shipments") {
+        if (this.dataset.tab === "users") {
+            yonetimEkraniGoster();
+        } else if (this.dataset.tab === "shipments") {
             sevkiyatEkraniGoster();
         } else {
             rafEkraniGoster();
@@ -1829,6 +2097,15 @@ tabButtons.forEach(button => {
     });
 });
 
+document.addEventListener("click", async event => {
+    if (!event.target.closest("#logoutButton")) {
+        return;
+    }
+
+    await fetch("/auth/logout", { method: "POST" }).catch(() => {});
+    girisEkraniGoster();
+});
+
 window.addEventListener("beforeunload", scannerDurdur);
 
-yukle();
+oturumuBaslat();
