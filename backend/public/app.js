@@ -2298,6 +2298,77 @@ function sorunBildirmeFormuGoster(index) {
     `);
 }
 
+function eksikKalanUrunleriGetir() {
+    return (aktifSiparis?.products || []).map((urun, index) => ({
+        urun,
+        index,
+        eksikAdet: Math.max(0, urunAdedi(urun) - okutulanAdet(index))
+    })).filter(item =>
+        !hizmetUrunuMu(item.urun)
+        && item.eksikAdet > 0
+        && !urununAcikSorunu(item.index)
+    );
+}
+
+function eksikteBekletmeFormuGoster() {
+    const eksikUrunler = eksikKalanUrunleriGetir();
+
+    if (!eksikUrunler.length) {
+        mesajGoster("warning", "Eksik ürün bulunamadı", "Tüm ürünler okutulmuş veya daha önce sorun kaydı açılmış.");
+        return;
+    }
+
+    document.getElementById("issueDialog")?.remove();
+    result.insertAdjacentHTML("beforeend", `
+        <div class="issueDialog" id="issueDialog" role="dialog" aria-modal="true" aria-labelledby="holdOrderDialogTitle">
+            <form class="issueDialogCard holdOrderDialogCard" id="holdOrderForm">
+                <div class="issueDialogHeader">
+                    <div>
+                        <p class="eyebrow">Eksik Sipariş</p>
+                        <h3 id="holdOrderDialogTitle">Siparişi eksikte beklemeye al</h3>
+                        <span>${temizle(musteriAdi(aktifSiparis))} · ${temizle(siparisKodu(aktifSiparis))}</span>
+                    </div>
+                    <button type="button" class="issueCloseButton" data-close-issue aria-label="Kapat">×</button>
+                </div>
+                <p class="holdOrderIntro">Aşağıdaki okutulmamış ürünler eksik olarak kaydedilecek:</p>
+                <div class="holdOrderProducts">
+                    ${eksikUrunler.map(item => `
+                        <div>
+                            <span>${temizle(urunAdi(item.urun))}</span>
+                            <small>${temizle(urunRengi(item.urun))} · ${temizle(urunBedeni(item.urun))} · ${temizle(urunBarkodu(item.urun))}</small>
+                            <strong>${temizle(item.eksikAdet)} adet eksik</strong>
+                        </div>
+                    `).join("")}
+                </div>
+                <label>
+                    <span>Açıklama</span>
+                    <textarea name="note" maxlength="1000" placeholder="İsteğe bağlı not"></textarea>
+                </label>
+                <div class="issueDialogActions">
+                    <button type="button" class="issueCancelButton" data-close-issue>İptal</button>
+                    <button type="submit" class="issueSaveButton">Eksikte Beklemeye Al</button>
+                </div>
+            </form>
+        </div>
+    `);
+}
+
+function eksigeAlindiEkraniGoster(eksikAdet) {
+    scannerDurdur();
+    result.innerHTML = `
+        <section class="completeScreen holdCompleteScreen">
+            <div class="holdCompleteIcon">!</div>
+            <p class="eyebrow">Eksikte Bekliyor</p>
+            <h2>${temizle(musteriAdi(aktifSiparis))}</h2>
+            <p><strong>${temizle(eksikAdet)} adet</strong> eksik ürün kaydı oluşturuldu.</p>
+            <div class="holdCompleteActions">
+                <button class="openOrderButton" type="button" id="openIssueOrders">Eksik Siparişlere Git</button>
+                <button class="secondaryOrderButton" type="button" id="backToList">Yeni Sipariş Ara</button>
+            </div>
+        </section>
+    `;
+}
+
 function sorunDuzenlemeFormuGoster(issue) {
     document.getElementById("issueDialog")?.remove();
     result.insertAdjacentHTML("beforeend", `
@@ -2540,7 +2611,7 @@ function urunListesiHtml(urunler) {
                 </div>
                 <div class="productActions">
                     <span class="productState">${temizle(durumMetni)}</span>
-                    ${hizmet ? "" : `<button class="reportIssueButton${acikSorun ? " active" : ""}" type="button" data-report-issue="${index}">${acikSorun ? "Sorun Kaydı Açık" : "Sorun Bildir"}</button>`}
+                    ${hizmet ? "" : `<button class="reportIssueButton${acikSorun ? " active" : ""}" type="button" data-report-issue="${index}">${acikSorun ? "Sorun Kaydı Açık" : "Eksik / Sorun Bildir"}</button>`}
                 </div>
             </article>
         `;
@@ -2628,6 +2699,11 @@ function siparisDetayGoster(siparis) {
                 <strong>Barkod okutmaya başlamak için kamerayı açın.</strong>
                 <span>HZMBDL hizmet ürünleri doğrulamaya dahil edilmez.</span>
             </div>
+
+            <button class="holdOrderButton" type="button" id="holdOrderButton">
+                <strong>Eksikte Beklemeye Al</strong>
+                <span>Okutulmamış ürünleri eksik olarak kaydet</span>
+            </button>
 
             <div class="sectionTitle">
                 <h3>Siparişteki Ürünler</h3>
@@ -2785,6 +2861,21 @@ result.addEventListener("click", async function (event) {
 
     if (sorunKapatButonu) {
         document.getElementById("issueDialog")?.remove();
+        return;
+    }
+
+    const eksikteBekletButonu = event.target.closest("#holdOrderButton");
+
+    if (eksikteBekletButonu) {
+        eksikteBekletmeFormuGoster();
+        return;
+    }
+
+    const eksikSiparislereGitButonu = event.target.closest("#openIssueOrders");
+
+    if (eksikSiparislereGitButonu) {
+        aktifEksikPlatformu = platformAnahtari(platformAdi(aktifSiparis));
+        await sorunluSiparislerEkraniGoster();
         return;
     }
 
@@ -3101,6 +3192,69 @@ result.addEventListener("submit", async function (event) {
         } catch (err) {
             button.disabled = false;
             alert(err.message);
+        }
+        return;
+    }
+
+    const holdOrderForm = event.target.closest("#holdOrderForm");
+
+    if (holdOrderForm) {
+        event.preventDefault();
+        const eksikUrunler = eksikKalanUrunleriGetir();
+        const button = holdOrderForm.querySelector(".issueSaveButton");
+
+        if (!aktifSiparis || !eksikUrunler.length) {
+            document.getElementById("issueDialog")?.remove();
+            mesajGoster("warning", "Eksik ürün bulunamadı", "Sipariş ürünlerini yeniden kontrol edin.");
+            return;
+        }
+
+        button.disabled = true;
+        button.textContent = "Kaydediliyor...";
+
+        try {
+            const olusturulanlar = [];
+
+            for (const item of eksikUrunler) {
+                const response = await fetch("/issues", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        orderCode: siparisKodu(aktifSiparis),
+                        customerName: musteriAdi(aktifSiparis),
+                        platform: platformAdi(aktifSiparis),
+                        productIndex: item.index,
+                        productId: urunProductId(item.urun),
+                        productName: urunAdi(item.urun),
+                        barcode: urunBarkodu(item.urun),
+                        imageUrl: urunGorseli(item.urun),
+                        color: urunRengi(item.urun),
+                        size: urunBedeni(item.urun),
+                        missingQuantity: item.eksikAdet,
+                        issueType: "missing",
+                        note: holdOrderForm.elements.note.value
+                    })
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || `${urunAdi(item.urun)} kaydedilemedi.`);
+                }
+
+                olusturulanlar.push(data.result);
+            }
+
+            aktifSiparisSorunlari.push(...olusturulanlar);
+            await sevkiyatDurumuKaydet(aktifSiparis, "pending");
+            document.getElementById("issueDialog")?.remove();
+            eksigeAlindiEkraniGoster(
+                olusturulanlar.reduce((toplam, item) => toplam + Number(item.missingQuantity || 1), 0)
+            );
+        } catch (err) {
+            aktifSiparisSorunlari = await siparisSorunlariniGetir(siparisKodu(aktifSiparis)).catch(() => aktifSiparisSorunlari);
+            document.getElementById("issueDialog")?.remove();
+            urunListesiGuncelle();
+            alert(`Eksik kayıt işlemi tamamlanamadı: ${err.message}`);
         }
         return;
     }
