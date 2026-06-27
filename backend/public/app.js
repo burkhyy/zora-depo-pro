@@ -15,6 +15,8 @@ let rafKayitlariPromise = null;
 let sevkiyatKayitlari = [];
 let aktifKullanici = null;
 let yonetimHazirlamaKayitlari = [];
+let aktifSiparisSorunlari = [];
+let acikSorunKayitlari = [];
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
@@ -575,6 +577,11 @@ function barkodIsle(okunanBarkod) {
     urunListesiGuncelle();
 
     if (tumGercekUrunlerTamamlandiMi()) {
+        if (aktifSiparisSorunlari.some(item => item.status === "open")) {
+            mesajGoster("warning", "Sipariş beklemeye alındı", "Açık ürün sorunu çözülmeden sipariş tamamlanamaz.");
+            return;
+        }
+
         scannerDurdur();
         siparisHazirEkraniGoster();
     }
@@ -678,6 +685,7 @@ function listeGoster(liste) {
     document.body.classList.remove("locationMode");
     document.body.classList.remove("shipmentMode");
     document.body.classList.remove("adminMode");
+    document.body.classList.remove("issueMode");
     sekmeDurumuGuncelle();
 
     result.innerHTML = "";
@@ -1297,6 +1305,7 @@ function rafEkraniGoster() {
     document.body.classList.remove("detailMode");
     document.body.classList.remove("shipmentMode");
     document.body.classList.remove("adminMode");
+    document.body.classList.remove("issueMode");
     document.body.classList.add("locationMode");
     sekmeDurumuGuncelle();
 
@@ -1452,7 +1461,7 @@ async function sevkiyatEkraniGoster() {
     aktifSekme = "shipments";
     aktifSiparis = null;
     searchInput.disabled = true;
-    document.body.classList.remove("detailMode", "locationMode", "adminMode");
+    document.body.classList.remove("detailMode", "locationMode", "adminMode", "issueMode");
     document.body.classList.add("shipmentMode");
     sekmeDurumuGuncelle();
 
@@ -1635,7 +1644,7 @@ async function yonetimEkraniGoster() {
     scannerDurdur();
     aktifSekme = "users";
     searchInput.disabled = true;
-    document.body.classList.remove("detailMode", "locationMode", "shipmentMode");
+    document.body.classList.remove("detailMode", "locationMode", "shipmentMode", "issueMode");
     document.body.classList.add("adminMode");
     sekmeDurumuGuncelle();
     result.innerHTML = `<div class="loading">Kullanıcılar ve işlem geçmişi yükleniyor...</div>`;
@@ -1751,6 +1760,151 @@ async function yonetimEkraniGoster() {
     }
 }
 
+const sorunTurleri = {
+    missing: "Eksik",
+    damaged: "Hasarlı",
+    stock_mismatch: "Yanlış stok"
+};
+
+function urununAcikSorunu(index) {
+    return aktifSiparisSorunlari.find(item => item.productIndex === index && item.status === "open");
+}
+
+async function siparisSorunlariniGetir(orderCode) {
+    const response = await fetch(`/issues?orderCode=${encodeURIComponent(orderCode)}&status=open`);
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(data.error || "Sipariş sorunları alınamadı.");
+    }
+
+    return data.result;
+}
+
+function sorunBildirmeFormuGoster(index) {
+    const urun = aktifSiparis?.products?.[index];
+
+    if (!urun) {
+        return;
+    }
+
+    const mevcut = urununAcikSorunu(index);
+
+    if (mevcut) {
+        mesajGoster("warning", "Bu ürün beklemede", `${sorunTurleri[mevcut.issueType]} kaydı zaten açık.`);
+        return;
+    }
+
+    document.getElementById("issueDialog")?.remove();
+    result.insertAdjacentHTML("beforeend", `
+        <div class="issueDialog" id="issueDialog" role="dialog" aria-modal="true" aria-labelledby="issueDialogTitle">
+            <form class="issueDialogCard" id="issueForm" data-product-index="${temizle(index)}">
+                <div class="issueDialogHeader">
+                    <div>
+                        <p class="eyebrow">Ürün Sorunu</p>
+                        <h3 id="issueDialogTitle">${temizle(urunAdi(urun))}</h3>
+                        <span>${temizle(urunBarkodu(urun))} · ${temizle(urunRengi(urun))} · ${temizle(urunBedeni(urun))}</span>
+                    </div>
+                    <button type="button" class="issueCloseButton" data-close-issue aria-label="Kapat">×</button>
+                </div>
+                <label>
+                    <span>Sorun Türü</span>
+                    <select name="issueType" required>
+                        <option value="missing">Eksik</option>
+                        <option value="damaged">Hasarlı</option>
+                        <option value="stock_mismatch">Yanlış stok</option>
+                    </select>
+                </label>
+                <label>
+                    <span>Açıklama</span>
+                    <textarea name="note" maxlength="1000" placeholder="İsteğe bağlı not"></textarea>
+                </label>
+                <div class="issueDialogActions">
+                    <button type="button" class="issueCancelButton" data-close-issue>İptal</button>
+                    <button type="submit" class="issueSaveButton">Sorunu Kaydet</button>
+                </div>
+            </form>
+        </div>
+    `);
+}
+
+async function sorunluSiparislerEkraniGoster() {
+    scannerDurdur();
+    aktifSekme = "issues";
+    searchInput.disabled = true;
+    document.body.classList.remove("detailMode", "locationMode", "shipmentMode", "adminMode");
+    document.body.classList.add("issueMode");
+    sekmeDurumuGuncelle();
+    result.innerHTML = `<div class="loading">Sorunlu siparişler yükleniyor...</div>`;
+
+    try {
+        const response = await fetch("/issues?status=open");
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || "Sorunlu siparişler alınamadı.");
+        }
+
+        acikSorunKayitlari = data.result;
+        const siparisGruplari = Object.values(acikSorunKayitlari.reduce((gruplar, item) => {
+            if (!gruplar[item.orderCode]) {
+                gruplar[item.orderCode] = {
+                    orderCode: item.orderCode,
+                    customerName: item.customerName,
+                    issues: []
+                };
+            }
+            gruplar[item.orderCode].issues.push(item);
+            return gruplar;
+        }, {}));
+
+        result.innerHTML = `
+            <section class="issueTool">
+                <div class="locationHeader">
+                    <div>
+                        <p class="eyebrow">Bekleyen İşler</p>
+                        <h2>Sorunlu Siparişler</h2>
+                        <p>${temizle(siparisGruplari.length)} sipariş · ${temizle(acikSorunKayitlari.length)} açık sorun</p>
+                    </div>
+                </div>
+                <div class="issueOrderList">
+                    ${siparisGruplari.length ? siparisGruplari.map(grup => `
+                        <article class="issueOrderCard">
+                            <div class="issueOrderHeader">
+                                <div>
+                                    <h3>${temizle(grup.customerName || "Müşteri")}</h3>
+                                    <p>${temizle(grup.orderCode)}</p>
+                                </div>
+                                <button type="button" data-issue-order="${temizle(grup.orderCode)}">Siparişi Aç</button>
+                            </div>
+                            <div class="issueEntries">
+                                ${grup.issues.map(item => `
+                                    <div class="issueEntry">
+                                        <div>
+                                            <strong>${temizle(item.productName)}</strong>
+                                            <span>${temizle(item.barcode || "-")} · ${temizle(sorunTurleri[item.issueType] || item.issueType)}</span>
+                                            ${item.note ? `<p>${temizle(item.note)}</p>` : ""}
+                                            <small>${temizle(item.createdBy)} · ${temizle(tarihSaatGoster(item.createdAt))}</small>
+                                        </div>
+                                        <button type="button" data-resolve-issue="${temizle(item.id)}">Çözüldü</button>
+                                    </div>
+                                `).join("")}
+                            </div>
+                        </article>
+                    `).join("") : `
+                        <div class="issueEmpty">
+                            <strong>Açık sorun kaydı yok</strong>
+                            <span>Tüm siparişler hazırlama akışında devam edebilir.</span>
+                        </div>
+                    `}
+                </div>
+            </section>
+        `;
+    } catch (err) {
+        result.innerHTML = `<div class="notfound">${temizle(err.message)}</div>`;
+    }
+}
+
 function urunListesiHtml(urunler) {
     if (!urunler.length) {
         return `
@@ -1765,10 +1919,15 @@ function urunListesiHtml(urunler) {
         const gereken = hizmet ? 0 : urunAdedi(urun);
         const okutulan = hizmet ? 0 : okutulanAdet(index);
         const tamamlandi = urunTamamlandiMi(urun, index);
+        const acikSorun = urununAcikSorunu(index);
         const kismenOkutuldu = !hizmet && okutulan > 0 && !tamamlandi;
-        const durumClass = hizmet ? " service" : tamamlandi ? " scanned" : kismenOkutuldu ? " partial" : "";
-        const durumMetni = hizmet ? "Doğrulama dışı" : tamamlandi ? "✅ Doğru ürün tamamlandı" : okutulan > 0 ? "✅ Doğru ürün okutuldu" : "Bekliyor";
-        const sira = hizmet ? "H" : tamamlandi ? "✓" : index + 1;
+        const durumClass = acikSorun ? " issue" : hizmet ? " service" : tamamlandi ? " scanned" : kismenOkutuldu ? " partial" : "";
+        const durumMetni = acikSorun
+            ? `Beklemede · ${sorunTurleri[acikSorun.issueType]}`
+            : hizmet ? "Doğrulama dışı"
+                : tamamlandi ? "✅ Doğru ürün tamamlandı"
+                    : okutulan > 0 ? "✅ Doğru ürün okutuldu" : "Bekliyor";
+        const sira = acikSorun ? "!" : hizmet ? "H" : tamamlandi ? "✓" : index + 1;
 
         return `
             <article class="productRow${durumClass}" data-product-index="${index}">
@@ -1801,7 +1960,10 @@ function urunListesiHtml(urunler) {
                         </dl>
                     </div>
                 </div>
-                <span class="productState">${temizle(durumMetni)}</span>
+                <div class="productActions">
+                    <span class="productState">${temizle(durumMetni)}</span>
+                    ${hizmet ? "" : `<button class="reportIssueButton${acikSorun ? " active" : ""}" type="button" data-report-issue="${index}">${acikSorun ? "Sorun Kaydı Açık" : "Sorun Bildir"}</button>`}
+                </div>
             </article>
         `;
     }).join("");
@@ -1831,7 +1993,7 @@ function siparisDetayGoster(siparis) {
     sonOkunanBarkod = "";
     sonOkumaZamani = 0;
     searchInput.disabled = true;
-    document.body.classList.remove("adminMode", "locationMode", "shipmentMode");
+    document.body.classList.remove("adminMode", "locationMode", "shipmentMode", "issueMode");
     document.body.classList.add("detailMode");
 
     const urunler = siparis.products || [];
@@ -1931,7 +2093,7 @@ async function hazirlamaKaydiGonder(islem, siparis) {
     }
 }
 
-function siparisSec(kod) {
+async function siparisSec(kod) {
     const siparis = siparisler.find(item => siparisKodu(item) === kod);
 
     if (!siparis) {
@@ -1941,6 +2103,13 @@ function siparisSec(kod) {
             </div>
         `;
         return;
+    }
+
+    try {
+        aktifSiparisSorunlari = await siparisSorunlariniGetir(kod);
+    } catch (err) {
+        aktifSiparisSorunlari = [];
+        console.error(err);
     }
 
     hazirlamaKaydiGonder("start", siparis).catch(err => console.error(err));
@@ -1961,6 +2130,50 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const sorunKapatButonu = event.target.closest("[data-close-issue]");
+
+    if (sorunKapatButonu) {
+        document.getElementById("issueDialog")?.remove();
+        return;
+    }
+
+    const sorunBildirButonu = event.target.closest("[data-report-issue]");
+
+    if (sorunBildirButonu) {
+        sorunBildirmeFormuGoster(Number(sorunBildirButonu.dataset.reportIssue));
+        return;
+    }
+
+    const sorunluSiparisButonu = event.target.closest("[data-issue-order]");
+
+    if (sorunluSiparisButonu) {
+        await siparisSec(sorunluSiparisButonu.dataset.issueOrder);
+        return;
+    }
+
+    const sorunCozButonu = event.target.closest("[data-resolve-issue]");
+
+    if (sorunCozButonu) {
+        sorunCozButonu.disabled = true;
+
+        try {
+            const response = await fetch(`/issues/${encodeURIComponent(sorunCozButonu.dataset.resolveIssue)}/resolve`, {
+                method: "PATCH"
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Sorun kaydı kapatılamadı.");
+            }
+
+            await sorunluSiparislerEkraniGoster();
+        } catch (err) {
+            sorunCozButonu.disabled = false;
+            alert(err.message);
+        }
+        return;
+    }
+
     const filtreTemizleButonu = event.target.closest("#clearActivityFilters");
 
     if (filtreTemizleButonu) {
@@ -2087,6 +2300,51 @@ result.addEventListener("click", async function (event) {
 });
 
 result.addEventListener("submit", async function (event) {
+    const issueForm = event.target.closest("#issueForm");
+
+    if (issueForm) {
+        event.preventDefault();
+        const index = Number(issueForm.dataset.productIndex);
+        const urun = aktifSiparis?.products?.[index];
+        const button = issueForm.querySelector(".issueSaveButton");
+
+        if (!urun || !aktifSiparis) {
+            return;
+        }
+
+        button.disabled = true;
+
+        try {
+            const response = await fetch("/issues", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    orderCode: siparisKodu(aktifSiparis),
+                    customerName: musteriAdi(aktifSiparis),
+                    productIndex: index,
+                    productName: urunAdi(urun),
+                    barcode: urunBarkodu(urun),
+                    issueType: issueForm.elements.issueType.value,
+                    note: issueForm.elements.note.value
+                })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Sorun kaydı oluşturulamadı.");
+            }
+
+            aktifSiparisSorunlari.push(data.result);
+            document.getElementById("issueDialog")?.remove();
+            urunListesiGuncelle();
+            mesajGoster("warning", "Sipariş beklemeye alındı", `${urunAdi(urun)} · ${sorunTurleri[data.result.issueType]}`);
+        } catch (err) {
+            button.disabled = false;
+            alert(err.message);
+        }
+        return;
+    }
+
     const loginForm = event.target.closest("#loginForm");
 
     if (loginForm) {
@@ -2222,6 +2480,8 @@ tabButtons.forEach(button => {
 
         if (this.dataset.tab === "users") {
             yonetimEkraniGoster();
+        } else if (this.dataset.tab === "issues") {
+            sorunluSiparislerEkraniGoster();
         } else if (this.dataset.tab === "shipments") {
             sevkiyatEkraniGoster();
         } else {

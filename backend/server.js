@@ -69,6 +69,27 @@ database.exec(`
 
     CREATE INDEX IF NOT EXISTS idx_preparations_order_code
         ON order_preparations(order_code);
+
+    CREATE TABLE IF NOT EXISTS order_product_issues (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_code TEXT NOT NULL COLLATE NOCASE,
+        customer_name TEXT NOT NULL DEFAULT '',
+        product_index INTEGER NOT NULL,
+        product_name TEXT NOT NULL DEFAULT '',
+        barcode TEXT NOT NULL DEFAULT '',
+        issue_type TEXT NOT NULL CHECK (issue_type IN ('missing', 'damaged', 'stock_mismatch')),
+        note TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+        created_by_user_id INTEGER NOT NULL,
+        resolved_by_user_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        resolved_at TEXT,
+        FOREIGN KEY (created_by_user_id) REFERENCES app_users(id),
+        FOREIGN KEY (resolved_by_user_id) REFERENCES app_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_product_issues_order_status
+        ON order_product_issues(order_code, status);
 `);
 
 function sifreHashle(password, salt = crypto.randomBytes(16).toString("hex")) {
@@ -505,6 +526,121 @@ app.get("/admin/preparations", yoneticiGerekli, (req, res) => {
             completedAt: row.completed_at
         }))
     });
+});
+
+function sorunKaydiniDonustur(row) {
+    return {
+        id: row.id,
+        orderCode: row.order_code,
+        customerName: row.customer_name,
+        productIndex: row.product_index,
+        productName: row.product_name,
+        barcode: row.barcode,
+        issueType: row.issue_type,
+        note: row.note,
+        status: row.status,
+        createdBy: row.created_by,
+        resolvedBy: row.resolved_by || "",
+        createdAt: row.created_at,
+        resolvedAt: row.resolved_at
+    };
+}
+
+app.get("/issues", (req, res) => {
+    const orderCode = String(req.query.orderCode || "").trim();
+    const status = String(req.query.status || "open").trim();
+    const conditions = [];
+    const params = [];
+
+    if (orderCode) {
+        conditions.push("issues.order_code = ? COLLATE NOCASE");
+        params.push(orderCode);
+    }
+
+    if (status === "open" || status === "resolved") {
+        conditions.push("issues.status = ?");
+        params.push(status);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = database.prepare(`
+        SELECT
+            issues.*,
+            creator.display_name AS created_by,
+            resolver.display_name AS resolved_by
+        FROM order_product_issues issues
+        JOIN app_users creator ON creator.id = issues.created_by_user_id
+        LEFT JOIN app_users resolver ON resolver.id = issues.resolved_by_user_id
+        ${where}
+        ORDER BY issues.created_at DESC
+        LIMIT 500
+    `).all(...params);
+
+    res.json({ result: rows.map(sorunKaydiniDonustur) });
+});
+
+app.post("/issues", (req, res) => {
+    const orderCode = String(req.body.orderCode || "").trim().slice(0, 120);
+    const customerName = String(req.body.customerName || "").trim().slice(0, 300);
+    const productIndex = Number(req.body.productIndex);
+    const productName = String(req.body.productName || "").trim().slice(0, 500);
+    const barcode = String(req.body.barcode || "").trim().slice(0, 120);
+    const issueType = String(req.body.issueType || "").trim();
+    const note = String(req.body.note || "").trim().slice(0, 1000);
+
+    if (!orderCode || !Number.isInteger(productIndex) || productIndex < 0 || !["missing", "damaged", "stock_mismatch"].includes(issueType)) {
+        return res.status(400).json({ error: "Sipariş, ürün ve sorun türü zorunludur." });
+    }
+
+    const existing = database.prepare(`
+        SELECT id FROM order_product_issues
+        WHERE order_code = ? COLLATE NOCASE AND product_index = ? AND status = 'open'
+    `).get(orderCode, productIndex);
+
+    if (existing) {
+        return res.status(409).json({ error: "Bu ürün için zaten açık bir sorun kaydı var." });
+    }
+
+    const result = database.prepare(`
+        INSERT INTO order_product_issues (
+            order_code, customer_name, product_index, product_name, barcode,
+            issue_type, note, created_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(orderCode, customerName, productIndex, productName, barcode, issueType, note, req.user.id);
+
+    const row = database.prepare(`
+        SELECT issues.*, creator.display_name AS created_by, NULL AS resolved_by
+        FROM order_product_issues issues
+        JOIN app_users creator ON creator.id = issues.created_by_user_id
+        WHERE issues.id = ?
+    `).get(result.lastInsertRowid);
+
+    res.status(201).json({ result: sorunKaydiniDonustur(row) });
+});
+
+app.patch("/issues/:id/resolve", (req, res) => {
+    const id = Number(req.params.id);
+    const issue = database.prepare(`SELECT * FROM order_product_issues WHERE id = ?`).get(id);
+
+    if (!issue) {
+        return res.status(404).json({ error: "Sorun kaydı bulunamadı." });
+    }
+
+    database.prepare(`
+        UPDATE order_product_issues
+        SET status = 'resolved', resolved_by_user_id = ?, resolved_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(req.user.id, id);
+
+    const row = database.prepare(`
+        SELECT issues.*, creator.display_name AS created_by, resolver.display_name AS resolved_by
+        FROM order_product_issues issues
+        JOIN app_users creator ON creator.id = issues.created_by_user_id
+        LEFT JOIN app_users resolver ON resolver.id = issues.resolved_by_user_id
+        WHERE issues.id = ?
+    `).get(id);
+
+    res.json({ result: sorunKaydiniDonustur(row) });
 });
 
 app.post("/preparations/start", (req, res) => {
