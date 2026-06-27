@@ -79,6 +79,117 @@ h1{
     cursor:pointer;
 }
 
+.userBar .notificationShell{
+    position:relative;
+    display:block;
+    text-align:left;
+}
+
+.notificationButton{
+    position:relative;
+    width:42px;
+    padding:0 !important;
+    font-size:17px;
+}
+
+.notificationButton span{
+    position:absolute;
+    top:-6px;
+    right:-6px;
+    min-width:20px;
+    min-height:20px;
+    display:grid;
+    place-items:center;
+    border-radius:999px;
+    padding:2px 5px;
+    background:#d92d20;
+    color:#fff;
+    font-size:10px;
+    font-weight:900;
+}
+
+.userBar .notificationPanel{
+    position:absolute;
+    z-index:900;
+    top:44px;
+    right:0;
+    width:min(360px, calc(100vw - 24px));
+    max-height:460px;
+    overflow:hidden;
+    border:1px solid #d0d5dd;
+    border-radius:8px;
+    background:#fff;
+    box-shadow:0 16px 36px rgba(16,24,40,.18);
+    text-align:left;
+}
+
+.userBar .notificationHeader{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:13px;
+    border-bottom:1px solid #e4e7ec;
+    text-align:left;
+}
+
+.notificationHeader span{
+    color:#667085;
+    font-size:11px;
+}
+
+.notificationList{
+    max-height:400px;
+    overflow:auto;
+}
+
+.userBar .notificationItem{
+    width:100%;
+    min-height:0;
+    display:block;
+    border:0;
+    border-bottom:1px solid #eef2f6;
+    border-radius:0;
+    padding:12px 13px;
+    background:#fff;
+    color:#101828;
+    text-align:left;
+}
+
+.notificationItem.unread{
+    border-left:4px solid #1570ef;
+    background:#eff8ff;
+}
+
+.notificationItem strong,
+.notificationItem span,
+.notificationItem small{
+    display:block;
+}
+
+.notificationItem strong{
+    font-size:13px;
+}
+
+.notificationItem span{
+    margin-top:3px;
+    color:#475467;
+    font-size:12px;
+}
+
+.notificationItem small{
+    margin-top:5px;
+    color:#98a2b3;
+    font-size:10px;
+}
+
+.notificationEmpty{
+    padding:22px 13px;
+    color:#667085;
+    font-size:13px;
+    text-align:center;
+}
+
 .tabButton{
     border:0;
     border-radius:9px;

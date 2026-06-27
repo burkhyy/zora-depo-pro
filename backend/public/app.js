@@ -18,6 +18,8 @@ let yonetimHazirlamaKayitlari = [];
 let aktifSiparisSorunlari = [];
 let acikSorunKayitlari = [];
 let aktifSevkiyatListesi = "pending";
+let bildirimler = [];
+let bildirimZamanlayici = null;
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
@@ -590,6 +592,10 @@ function barkodIsle(okunanBarkod) {
 
 function girisEkraniGoster(hata = "") {
     scannerDurdur();
+    if (bildirimZamanlayici) {
+        clearInterval(bildirimZamanlayici);
+        bildirimZamanlayici = null;
+    }
     aktifKullanici = null;
     document.body.className = "loginMode";
     document.querySelector(".topTabs").hidden = true;
@@ -630,7 +636,69 @@ function kullaniciArayuzunuGuncelle() {
             <strong>${temizle(aktifKullanici.displayName)}</strong>
             <span>${adminMi ? "Yönetici" : "Depo Personeli"}</span>
         </div>
+        <div class="notificationShell">
+            <button class="notificationButton" type="button" id="notificationButton" aria-label="Bildirimler">
+                🔔 <span id="notificationCount" hidden>0</span>
+            </button>
+            <div class="notificationPanel" id="notificationPanel" hidden></div>
+        </div>
         <button type="button" id="logoutButton">Çıkış</button>
+    `;
+    bildirimleriGetir();
+
+    if (!bildirimZamanlayici) {
+        bildirimZamanlayici = window.setInterval(bildirimleriGetir, 60000);
+    }
+}
+
+async function bildirimleriGetir() {
+    if (!aktifKullanici) {
+        return;
+    }
+
+    try {
+        const response = await fetch("/notifications");
+        const data = await response.json();
+
+        if (!response.ok) {
+            return;
+        }
+
+        bildirimler = data.result;
+        bildirimPaneliniGuncelle();
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function bildirimPaneliniGuncelle() {
+    const panel = document.getElementById("notificationPanel");
+    const sayac = document.getElementById("notificationCount");
+    const okunmamis = bildirimler.filter(item => !item.read).length;
+
+    if (sayac) {
+        sayac.textContent = okunmamis > 99 ? "99+" : okunmamis;
+        sayac.hidden = okunmamis === 0;
+    }
+
+    if (!panel) {
+        return;
+    }
+
+    panel.innerHTML = `
+        <div class="notificationHeader">
+            <strong>Bildirimler</strong>
+            <span>${okunmamis} okunmamış</span>
+        </div>
+        <div class="notificationList">
+            ${bildirimler.length ? bildirimler.map(item => `
+                <button type="button" class="notificationItem${item.read ? "" : " unread"}" data-notification-order="${temizle(item.orderCode)}">
+                    <strong>${temizle(item.title)}</strong>
+                    <span>${temizle(item.message)}</span>
+                    <small>${temizle(tarihSaatGoster(item.createdAt))}</small>
+                </button>
+            `).join("") : `<div class="notificationEmpty">Henüz bildirim yok.</div>`}
+        </div>
     `;
 }
 
@@ -2685,11 +2753,55 @@ tabButtons.forEach(button => {
 });
 
 document.addEventListener("click", async event => {
+    const bildirimButonu = event.target.closest("#notificationButton");
+    const bildirimPaneli = document.getElementById("notificationPanel");
+
+    if (bildirimButonu) {
+        const aciliyor = bildirimPaneli?.hidden;
+
+        if (bildirimPaneli) {
+            bildirimPaneli.hidden = !aciliyor;
+        }
+
+        if (aciliyor && bildirimler.some(item => !item.read)) {
+            bildirimler = bildirimler.map(item => ({ ...item, read: true }));
+            bildirimPaneliniGuncelle();
+            if (bildirimPaneli) {
+                bildirimPaneli.hidden = false;
+            }
+            fetch("/notifications/read", { method: "POST" }).catch(() => {});
+        }
+        return;
+    }
+
+    const bildirimKaydi = event.target.closest("[data-notification-order]");
+
+    if (bildirimKaydi) {
+        const orderCode = bildirimKaydi.dataset.notificationOrder;
+
+        if (bildirimPaneli) {
+            bildirimPaneli.hidden = true;
+        }
+
+        if (orderCode && siparisler.some(item => siparisKodu(item) === orderCode)) {
+            await siparisSec(orderCode);
+        }
+        return;
+    }
+
+    if (!event.target.closest(".notificationShell") && bildirimPaneli) {
+        bildirimPaneli.hidden = true;
+    }
+
     if (!event.target.closest("#logoutButton")) {
         return;
     }
 
     await fetch("/auth/logout", { method: "POST" }).catch(() => {});
+    if (bildirimZamanlayici) {
+        clearInterval(bildirimZamanlayici);
+        bildirimZamanlayici = null;
+    }
     girisEkraniGoster();
 });
 

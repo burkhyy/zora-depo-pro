@@ -93,6 +93,25 @@ database.exec(`
 
     CREATE INDEX IF NOT EXISTS idx_product_issues_order_status
         ON order_product_issues(order_code, status);
+
+    CREATE TABLE IF NOT EXISTS app_notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL DEFAULT '',
+        order_code TEXT NOT NULL DEFAULT '',
+        audience TEXT NOT NULL DEFAULT 'all' CHECK (audience IN ('all', 'admin')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS notification_reads (
+        notification_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (notification_id, user_id),
+        FOREIGN KEY (notification_id) REFERENCES app_notifications(id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES app_users(id) ON DELETE CASCADE
+    );
 `);
 
 const issueColumns = new Set(
@@ -288,6 +307,62 @@ app.use((req, res, next) => {
     }
 
     oturumGerekli(req, res, next);
+});
+
+function bildirimOlustur(type, title, message, orderCode = "", audience = "all") {
+    database.prepare(`
+        INSERT INTO app_notifications (type, title, message, order_code, audience)
+        VALUES (?, ?, ?, ?, ?)
+    `).run(type, title, message, orderCode, audience);
+}
+
+app.get("/notifications", (req, res) => {
+    const rows = database.prepare(`
+        SELECT
+            notifications.*,
+            CASE WHEN reads.notification_id IS NULL THEN 0 ELSE 1 END AS is_read
+        FROM app_notifications notifications
+        LEFT JOIN notification_reads reads
+            ON reads.notification_id = notifications.id AND reads.user_id = ?
+        WHERE notifications.audience = 'all'
+            OR (notifications.audience = 'admin' AND ? = 'admin')
+        ORDER BY notifications.created_at DESC
+        LIMIT 50
+    `).all(req.user.id, req.user.role);
+
+    res.json({
+        result: rows.map(row => ({
+            id: row.id,
+            type: row.type,
+            title: row.title,
+            message: row.message,
+            orderCode: row.order_code,
+            createdAt: row.created_at,
+            read: Boolean(row.is_read)
+        }))
+    });
+});
+
+app.post("/notifications/read", (req, res) => {
+    const visibleIds = database.prepare(`
+        SELECT id FROM app_notifications
+        WHERE audience = 'all' OR (audience = 'admin' AND ? = 'admin')
+    `).all(req.user.role);
+    const insert = database.prepare(`
+        INSERT OR IGNORE INTO notification_reads (notification_id, user_id)
+        VALUES (?, ?)
+    `);
+
+    database.exec("BEGIN");
+    try {
+        visibleIds.forEach(item => insert.run(item.id, req.user.id));
+        database.exec("COMMIT");
+    } catch (err) {
+        database.exec("ROLLBACK");
+        throw err;
+    }
+
+    res.status(204).end();
 });
 
 const API = axios.create({
@@ -665,6 +740,19 @@ app.post("/issues", (req, res) => {
         WHERE issues.id = ?
     `).get(result.lastInsertRowid);
 
+    const issueLabels = {
+        missing: "Eksik ürün",
+        damaged: "Hasarlı ürün",
+        stock_mismatch: "Yanlış stok"
+    };
+    bildirimOlustur(
+        "issue_opened",
+        issueLabels[issueType],
+        `${customerName || orderCode} · ${productName}${issueType === "missing" ? ` · ${missingQuantity} adet` : ""}`,
+        orderCode,
+        "admin"
+    );
+
     res.status(201).json({ result: sorunKaydiniDonustur(row) });
 });
 
@@ -689,6 +777,14 @@ app.patch("/issues/:id/resolve", (req, res) => {
         LEFT JOIN app_users resolver ON resolver.id = issues.resolved_by_user_id
         WHERE issues.id = ?
     `).get(id);
+
+    bildirimOlustur(
+        "issue_resolved",
+        "Ürün sorunu çözüldü",
+        `${issue.customer_name || issue.order_code} · ${issue.product_name}`,
+        issue.order_code,
+        "all"
+    );
 
     res.json({ result: sorunKaydiniDonustur(row) });
 });
@@ -749,6 +845,14 @@ app.post("/preparations/complete", (req, res) => {
             completed_at = CURRENT_TIMESTAMP
         WHERE id = ?
     `).run(req.user.id, preparation.id);
+
+    bildirimOlustur(
+        "order_completed",
+        "Sipariş hazırlandı",
+        `${customerName || orderCode} · ${req.user.display_name}`,
+        orderCode,
+        "admin"
+    );
 
     res.json({ result: { id: preparation.id, status: "completed" } });
 });
