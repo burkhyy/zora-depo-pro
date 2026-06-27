@@ -8,6 +8,13 @@
 
     <title>Zora Depo Pro</title>
 
+    <meta name="theme-color" content="#101828">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Zora Depo">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/zora-depo.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/icons/zora-depo-192.png">
     <link rel="stylesheet" href="style.css">
 
 </head>
@@ -16,14 +23,20 @@
 
 <div class="container">
 
-    <h1>📦 Zora Depo Pro</h1>
+    <h1>Zora Depo Pro v1.4</h1>
+
+    <nav class="topTabs" aria-label="Ana menü">
+        <button class="tabButton active" type="button" data-tab="orders">Sipariş Hazırla</button>
+        <button class="tabButton" type="button" data-tab="locations">Raf Bul / İade Yerleştir</button>
+        <button class="tabButton" type="button" data-tab="shipments">Sevkiyat Takibi</button>
+    </nav>
 
     <div class="searchBox">
 
         <input
             type="text"
             id="search"
-            placeholder="Müşteri Adı, Soyadı veya Sipariş No..."
+            placeholder="Müşteri adı, soyadı veya sipariş no..."
             autocomplete="off"
         >
 
@@ -41,7 +54,14 @@
 
 </div>
 
-<script src="app.js"></script>
+<script src="https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<script src="app.js?v=1.5.2"></script>
+<script>
+if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js"));
+}
+</script>
 
 </body>
 
