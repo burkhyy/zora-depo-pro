@@ -1591,7 +1591,12 @@ async function sevkiyatDurumuKaydet(siparis, status) {
 
 function sevkiyatKarti(siparis, kayit, shipped = false) {
     const code = siparisKodu(siparis);
-    const status = shipped ? "Kargoya Verildi" : kayit?.status === "ready" ? "Kargoya Hazır" : "Eksikte Bekliyor";
+    const hazirMi = kayit?.status === "ready";
+    const status = shipped
+        ? "Kargoya Verildi"
+        : hazirMi
+            ? "Kargoya Hazır"
+            : kayit?.status === "pending" ? "Eksikte Bekliyor" : "Hazırlanmadı";
 
     return `
         <article class="shipmentCard ${shipped ? "shipped" : "pending"}">
@@ -1609,8 +1614,8 @@ function sevkiyatKarti(siparis, kayit, shipped = false) {
                         Geri Al
                     </button>
                 ` : `
-                    <button type="button" class="markShippedButton" data-mark-shipped="${temizle(code)}">
-                        Kargoya Verildi
+                    <button type="button" class="markShippedButton${hazirMi ? "" : " blocked"}" data-mark-shipped="${temizle(code)}" ${hazirMi ? "" : "disabled"} title="${hazirMi ? "Siparişi kargoya verilenlere taşı" : "Önce siparişteki tüm ürünler hazırlanmalıdır"}">
+                        ${hazirMi ? "Kargoya Verildi" : "Önce Hazırla"}
                     </button>
                 `}
             </div>
@@ -1798,7 +1803,9 @@ async function sevkiyatBarkoduIsle(okunan) {
         mesajGoster("success", "Sipariş kargoya verildi", `${musteriAdi(siparis)} · ${siparisKodu(siparis)}`);
         bildirimSesi("success");
     } catch (err) {
-        mesajGoster("error", "Sevkiyat kaydedilemedi", err.message);
+        scannerDurdur();
+        mesajGoster("error", "Kargo çıkışı engellendi", err.message);
+        bildirimSesi("error");
     }
 }
 

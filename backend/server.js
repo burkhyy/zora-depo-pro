@@ -1348,6 +1348,43 @@ app.put("/shipments/:orderCode", (req, res) => {
         return res.status(400).json({ error: "Gecersiz sevkiyat durumu." });
     }
 
+    if (status === "shipped") {
+        const existingShipment = database.prepare(`
+            SELECT status FROM order_shipments
+            WHERE order_code = ? COLLATE NOCASE
+        `).get(orderCode);
+
+        if (!existingShipment) {
+            return res.status(409).json({
+                error: "Bu siparis henuz hazirlanmamis. Once urun barkodlarini dogrulayin."
+            });
+        }
+
+        if (existingShipment.status === "shipped") {
+            return res.status(409).json({
+                error: "Bu siparis daha once kargoya verildi."
+            });
+        }
+
+        if (existingShipment.status !== "ready") {
+            return res.status(409).json({
+                error: "Siparis eksikte bekliyor. Eksik urunler tamamlanmadan kargoya verilemez."
+            });
+        }
+
+        const openIssue = database.prepare(`
+            SELECT id FROM order_product_issues
+            WHERE order_code = ? COLLATE NOCASE AND status = 'open'
+            LIMIT 1
+        `).get(orderCode);
+
+        if (openIssue) {
+            return res.status(409).json({
+                error: "Sipariste acik eksik veya sorun kaydi var. Sorun cozulmeden kargoya verilemez."
+            });
+        }
+    }
+
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
     const platform = String(req.body.platform || "").trim().slice(0, 100);
 

@@ -2052,6 +2052,14 @@ h1{
     color:#fff;
 }
 
+.markShippedButton.blocked,
+.markShippedButton:disabled{
+    border-color:#d0d5dd;
+    background:#eaecf0;
+    color:#667085;
+    cursor:not-allowed;
+}
+
 .undoShippedButton{
     min-height:36px;
     border:1px solid #b54708;
