@@ -58,6 +58,7 @@ database.exec(`
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_code TEXT NOT NULL COLLATE NOCASE,
         customer_name TEXT NOT NULL DEFAULT '',
+        platform TEXT NOT NULL DEFAULT '',
         started_by_user_id INTEGER NOT NULL,
         completed_by_user_id INTEGER,
         status TEXT NOT NULL DEFAULT 'started' CHECK (status IN ('started', 'completed')),
@@ -74,6 +75,7 @@ database.exec(`
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         order_code TEXT NOT NULL COLLATE NOCASE,
         customer_name TEXT NOT NULL DEFAULT '',
+        platform TEXT NOT NULL DEFAULT '',
         product_index INTEGER NOT NULL,
         product_name TEXT NOT NULL DEFAULT '',
         barcode TEXT NOT NULL DEFAULT '',
@@ -118,6 +120,18 @@ const issueColumns = new Set(
     database.prepare(`PRAGMA table_info(order_product_issues)`).all().map(column => column.name)
 );
 
+const preparationColumns = new Set(
+    database.prepare(`PRAGMA table_info(order_preparations)`).all().map(column => column.name)
+);
+
+if (!preparationColumns.has("platform")) {
+    database.exec(`ALTER TABLE order_preparations ADD COLUMN platform TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!issueColumns.has("platform")) {
+    database.exec(`ALTER TABLE order_product_issues ADD COLUMN platform TEXT NOT NULL DEFAULT ''`);
+}
+
 if (!issueColumns.has("product_color")) {
     database.exec(`ALTER TABLE order_product_issues ADD COLUMN product_color TEXT NOT NULL DEFAULT ''`);
 }
@@ -129,6 +143,16 @@ if (!issueColumns.has("product_size")) {
 if (!issueColumns.has("missing_quantity")) {
     database.exec(`ALTER TABLE order_product_issues ADD COLUMN missing_quantity INTEGER NOT NULL DEFAULT 1`);
 }
+
+database.exec(`
+    UPDATE order_preparations
+    SET platform = CASE WHEN UPPER(order_code) LIKE 'TY%' THEN 'Trendyol' ELSE 'Zorabutik' END
+    WHERE platform = '';
+
+    UPDATE order_product_issues
+    SET platform = CASE WHEN UPPER(order_code) LIKE 'TY%' THEN 'Trendyol' ELSE 'Zorabutik' END
+    WHERE platform = '';
+`);
 
 function sifreHashle(password, salt = crypto.randomBytes(16).toString("hex")) {
     return {
@@ -592,6 +616,7 @@ function hazirlamaGecmisiGetir() {
             preparations.id,
             preparations.order_code,
             preparations.customer_name,
+            preparations.platform,
             preparations.status,
             preparations.started_at,
             preparations.completed_at,
@@ -610,6 +635,7 @@ function hazirlamaGecmisiGetir() {
         id: row.id,
         orderCode: row.order_code,
         customerName: row.customer_name,
+        platform: row.platform,
         status: row.status,
         startedBy: row.started_by,
         startedByUserId: row.started_by_user_id,
@@ -646,6 +672,7 @@ function sorunKaydiniDonustur(row) {
         id: row.id,
         orderCode: row.order_code,
         customerName: row.customer_name,
+        platform: row.platform,
         productIndex: row.product_index,
         productName: row.product_name,
         barcode: row.barcode,
@@ -698,6 +725,7 @@ app.get("/issues", (req, res) => {
 app.post("/issues", (req, res) => {
     const orderCode = String(req.body.orderCode || "").trim().slice(0, 120);
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
+    const platform = String(req.body.platform || "").trim().slice(0, 100);
     const productIndex = Number(req.body.productIndex);
     const productName = String(req.body.productName || "").trim().slice(0, 500);
     const barcode = String(req.body.barcode || "").trim().slice(0, 120);
@@ -725,11 +753,11 @@ app.post("/issues", (req, res) => {
 
     const result = database.prepare(`
         INSERT INTO order_product_issues (
-            order_code, customer_name, product_index, product_name, barcode,
+            order_code, customer_name, platform, product_index, product_name, barcode,
             product_color, product_size, missing_quantity, issue_type, note, created_by_user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
-        orderCode, customerName, productIndex, productName, barcode,
+        orderCode, customerName, platform, productIndex, productName, barcode,
         productColor, productSize, missingQuantity, issueType, note, req.user.id
     );
 
@@ -748,7 +776,7 @@ app.post("/issues", (req, res) => {
     bildirimOlustur(
         "issue_opened",
         issueLabels[issueType],
-        `${customerName || orderCode} · ${productName}${issueType === "missing" ? ` · ${missingQuantity} adet` : ""}`,
+        `${platform || "Platform yok"} · ${customerName || orderCode} · ${productName}${issueType === "missing" ? ` · ${missingQuantity} adet` : ""}`,
         orderCode,
         "admin"
     );
@@ -781,7 +809,7 @@ app.patch("/issues/:id/resolve", (req, res) => {
     bildirimOlustur(
         "issue_resolved",
         "Ürün sorunu çözüldü",
-        `${issue.customer_name || issue.order_code} · ${issue.product_name}`,
+        `${issue.platform || "Platform yok"} · ${issue.customer_name || issue.order_code} · ${issue.product_name}`,
         issue.order_code,
         "all"
     );
@@ -792,6 +820,7 @@ app.patch("/issues/:id/resolve", (req, res) => {
 app.post("/preparations/start", (req, res) => {
     const orderCode = String(req.body.orderCode || "").trim();
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
+    const platform = String(req.body.platform || "").trim().slice(0, 100);
 
     if (!orderCode) {
         return res.status(400).json({ error: "Sipariş kodu gerekli." });
@@ -806,10 +835,13 @@ app.post("/preparations/start", (req, res) => {
     if (!preparation) {
         const result = database.prepare(`
             INSERT INTO order_preparations (
-                order_code, customer_name, started_by_user_id
-            ) VALUES (?, ?, ?)
-        `).run(orderCode, customerName, req.user.id);
+                order_code, customer_name, platform, started_by_user_id
+            ) VALUES (?, ?, ?, ?)
+        `).run(orderCode, customerName, platform, req.user.id);
         preparation = database.prepare(`SELECT * FROM order_preparations WHERE id = ?`).get(result.lastInsertRowid);
+    } else if (!preparation.platform && platform) {
+        database.prepare(`UPDATE order_preparations SET platform = ? WHERE id = ?`).run(platform, preparation.id);
+        preparation.platform = platform;
     }
 
     res.json({ result: preparation });
@@ -818,6 +850,7 @@ app.post("/preparations/start", (req, res) => {
 app.post("/preparations/complete", (req, res) => {
     const orderCode = String(req.body.orderCode || "").trim();
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
+    const platform = String(req.body.platform || "").trim().slice(0, 100);
 
     if (!orderCode) {
         return res.status(400).json({ error: "Sipariş kodu gerekli." });
@@ -832,24 +865,25 @@ app.post("/preparations/complete", (req, res) => {
     if (!preparation) {
         const result = database.prepare(`
             INSERT INTO order_preparations (
-                order_code, customer_name, started_by_user_id
-            ) VALUES (?, ?, ?)
-        `).run(orderCode, customerName, req.user.id);
+                order_code, customer_name, platform, started_by_user_id
+            ) VALUES (?, ?, ?, ?)
+        `).run(orderCode, customerName, platform, req.user.id);
         preparation = { id: result.lastInsertRowid };
     }
 
     database.prepare(`
         UPDATE order_preparations
         SET status = 'completed',
+            platform = CASE WHEN platform = '' THEN ? ELSE platform END,
             completed_by_user_id = ?,
             completed_at = CURRENT_TIMESTAMP
         WHERE id = ?
-    `).run(req.user.id, preparation.id);
+    `).run(platform, req.user.id, preparation.id);
 
     bildirimOlustur(
         "order_completed",
         "Sipariş hazırlandı",
-        `${customerName || orderCode} · ${req.user.display_name}`,
+        `${platform || "Platform yok"} · ${customerName || orderCode} · ${req.user.display_name}`,
         orderCode,
         "admin"
     );

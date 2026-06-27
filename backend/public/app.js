@@ -19,6 +19,10 @@ let aktifSiparisSorunlari = [];
 let acikSorunKayitlari = [];
 let aktifSevkiyatListesi = "pending";
 let sevkiyatAramaMetni = "";
+let aktifSiparisPlatformu = "trendyol";
+let aktifEksikPlatformu = "trendyol";
+let aktifSevkiyatPlatformu = "trendyol";
+let aktifGecmisPlatformu = "trendyol";
 let bildirimler = [];
 let bildirimZamanlayici = null;
 const apiUrunDetayCache = new Map();
@@ -73,6 +77,27 @@ function siparisKodu(item) {
 
 function platformAdi(item) {
     return alanOku(item, ["order.platform", "platform"]);
+}
+
+function platformAnahtari(deger) {
+    const metin = aramaNormalize(deger);
+    return metin.includes("trendyol") ? "trendyol" : "zorabutik";
+}
+
+function platformSekmeleriHtml(scope, aktif, kayitlar, platformOkuyucu) {
+    const trendyolSayisi = kayitlar.filter(item => platformAnahtari(platformOkuyucu(item)) === "trendyol").length;
+    const zorabutikSayisi = kayitlar.filter(item => platformAnahtari(platformOkuyucu(item)) === "zorabutik").length;
+
+    return `
+        <div class="platformTabs" role="tablist" aria-label="Platform seçimi">
+            <button type="button" role="tab" data-platform-scope="${temizle(scope)}" data-platform-value="trendyol" aria-selected="${aktif === "trendyol"}" class="${aktif === "trendyol" ? "active" : ""}">
+                Trendyol <span>${temizle(trendyolSayisi)}</span>
+            </button>
+            <button type="button" role="tab" data-platform-scope="${temizle(scope)}" data-platform-value="zorabutik" aria-selected="${aktif === "zorabutik"}" class="${aktif === "zorabutik" ? "active" : ""}">
+                Zorabutik <span>${temizle(zorabutikSayisi)}</span>
+            </button>
+        </div>
+    `;
 }
 
 function siparisDurumu(item) {
@@ -761,19 +786,20 @@ function listeGoster(liste) {
     document.body.classList.remove("historyMode");
     sekmeDurumuGuncelle();
 
-    result.innerHTML = "";
+    const platformListesi = liste.filter(item => platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu);
+    result.innerHTML = platformSekmeleriHtml("orders", aktifSiparisPlatformu, liste, platformAdi);
 
-    if (liste.length === 0) {
-        result.innerHTML = `
+    if (platformListesi.length === 0) {
+        result.innerHTML += `
             <div class="notfound">
-                Sipariş bulunamadı.
+                Bu platformda sipariş bulunamadı.
             </div>
         `;
 
         return;
     }
 
-    liste.forEach(item => {
+    platformListesi.forEach(item => {
         const kod = siparisKodu(item);
         const urunSayisi = (item.products || []).length;
 
@@ -1524,8 +1550,19 @@ function sevkiyatListeleriniGoster() {
         siparisKodu(siparis),
         platformAdi(siparis)
     ].join(" ")).includes(arama);
-    const bekleyen = bekleyenTum.filter(siparisAramayaUyuyor);
-    const verilen = verilenTum.filter(item => siparisAramayaUyuyor(item.siparis));
+    const platformaUyuyor = siparis => platformAnahtari(platformAdi(siparis)) === aktifSevkiyatPlatformu;
+    const bekleyen = bekleyenTum.filter(platformaUyuyor).filter(siparisAramayaUyuyor);
+    const verilen = verilenTum.filter(item => platformaUyuyor(item.siparis)).filter(item => siparisAramayaUyuyor(item.siparis));
+    const platformAlani = document.getElementById("shipmentPlatformTabs");
+
+    if (platformAlani) {
+        platformAlani.innerHTML = platformSekmeleriHtml(
+            "shipments",
+            aktifSevkiyatPlatformu,
+            [...bekleyenTum, ...verilenTum.map(item => item.siparis)],
+            platformAdi
+        );
+    }
 
     bekleyenAlan.innerHTML = bekleyen.length
         ? bekleyen.map(item => sevkiyatKarti(item, kayitMap.get(siparisKodu(item).toUpperCase()))).join("")
@@ -1576,6 +1613,7 @@ async function sevkiyatEkraniGoster() {
     document.body.classList.add("shipmentMode");
     aktifSevkiyatListesi = "pending";
     sevkiyatAramaMetni = "";
+    aktifSevkiyatPlatformu = "trendyol";
     sekmeDurumuGuncelle();
 
     result.innerHTML = `
@@ -1594,6 +1632,9 @@ async function sevkiyatEkraniGoster() {
             <div class="scanMessage info" id="scanMessage">
                 <strong>Kargoya verilen siparişin sevkiyat barkodunu okutun.</strong>
                 <span>Sipariş otomatik olarak Kargoya Verilenler listesine taşınır.</span>
+            </div>
+            <div id="shipmentPlatformTabs">
+                ${platformSekmeleriHtml("shipments", aktifSevkiyatPlatformu, [], platformAdi)}
             </div>
             <label class="shipmentSearch">
                 <span>Sevkiyatta Ara</span>
@@ -1706,13 +1747,14 @@ function yerelTarihAnahtari(deger) {
 
 function hazirlamaGecmisiSatirlari(kayitlar) {
     if (!kayitlar.length) {
-        return `<tr><td colspan="7" class="emptyActivity">Arama ölçütlerine uygun hazırlama kaydı bulunamadı.</td></tr>`;
+        return `<tr><td colspan="8" class="emptyActivity">Arama ölçütlerine uygun hazırlama kaydı bulunamadı.</td></tr>`;
     }
 
     return kayitlar.map(item => `
         <tr>
             <td><strong>${temizle(item.orderCode)}</strong></td>
             <td>${temizle(item.customerName)}</td>
+            <td><span class="platformBadge ${platformAnahtari(item.platform)}">${temizle(item.platform || "-")}</span></td>
             <td>${temizle(item.startedBy)}</td>
             <td>${temizle(tarihSaatGoster(item.startedAt))}</td>
             <td>${temizle(item.completedBy || "-")}</td>
@@ -1733,6 +1775,7 @@ function hazirlamaGecmisiniFiltrele() {
         const ortakMetin = aramaMetni([
             item.orderCode,
             item.customerName,
+            item.platform,
             item.startedBy,
             item.completedBy
         ].join(" "));
@@ -1742,6 +1785,7 @@ function hazirlamaGecmisiniFiltrele() {
             || String(item.completedByUserId) === personel;
 
         return (!arama || ortakMetin.includes(arama))
+            && platformAnahtari(item.platform) === aktifGecmisPlatformu
             && personelUyuyor
             && (!durum || item.status === durum)
             && (!baslangic || kayitTarihi >= baslangic)
@@ -1787,6 +1831,7 @@ async function hazirlamaGecmisiEkraniGoster() {
                         <p>Hazırlanan siparişleri, personeli ve işlem saatlerini görüntüleyin.</p>
                     </div>
                 </div>
+                ${platformSekmeleriHtml("history", aktifGecmisPlatformu, data.result, item => item.platform)}
                 <div class="sectionTitle">
                     <h3>Hazırlama Kayıtları</h3>
                     <span id="activityResultCount">${temizle(data.result.length)} / ${temizle(data.result.length)} kayıt</span>
@@ -1827,6 +1872,7 @@ async function hazirlamaGecmisiEkraniGoster() {
                             <tr>
                                 <th>Sipariş</th>
                                 <th>Müşteri</th>
+                                <th>Platform</th>
                                 <th>Başlatan</th>
                                 <th>Başlangıç</th>
                                 <th>Tamamlayan</th>
@@ -1841,6 +1887,7 @@ async function hazirlamaGecmisiEkraniGoster() {
                 </div>
             </section>
         `;
+        hazirlamaGecmisiniFiltrele();
     } catch (err) {
         result.innerHTML = `<div class="notfound">${temizle(err.message)}</div>`;
     }
@@ -1909,6 +1956,7 @@ async function yonetimEkraniGoster() {
                         </div>
                     </section>
                     <section class="activityPanel">
+                        ${platformSekmeleriHtml("history", aktifGecmisPlatformu, historyData.result, item => item.platform)}
                         <div class="sectionTitle">
                             <h3>Sipariş Hazırlama Geçmişi</h3>
                             <span id="activityResultCount">${temizle(historyData.result.length)} / ${temizle(historyData.result.length)} kayıt</span>
@@ -1949,6 +1997,7 @@ async function yonetimEkraniGoster() {
                                     <tr>
                                         <th>Sipariş</th>
                                         <th>Müşteri</th>
+                                        <th>Platform</th>
                                         <th>Başlatan</th>
                                         <th>Başlangıç</th>
                                         <th>Tamamlayan</th>
@@ -1965,6 +2014,7 @@ async function yonetimEkraniGoster() {
                 </div>
             </section>
         `;
+        hazirlamaGecmisiniFiltrele();
     } catch (err) {
         result.innerHTML = `<div class="notfound">${temizle(err.message)}</div>`;
     }
@@ -2062,8 +2112,9 @@ async function sorunluSiparislerEkraniGoster() {
         }
 
         acikSorunKayitlari = data.result;
+        const platformSorunlari = acikSorunKayitlari.filter(item => platformAnahtari(item.platform) === aktifEksikPlatformu);
         const eksikUrunOzeti = Object.values(
-            acikSorunKayitlari
+            platformSorunlari
                 .filter(item => item.issueType === "missing")
                 .reduce((ozet, item) => {
                     const anahtar = item.barcode || `${item.productName}|${item.color}|${item.size}`;
@@ -2084,11 +2135,12 @@ async function sorunluSiparislerEkraniGoster() {
                     return ozet;
                 }, {})
         ).sort((a, b) => b.missingQuantity - a.missingQuantity);
-        const siparisGruplari = Object.values(acikSorunKayitlari.reduce((gruplar, item) => {
+        const siparisGruplari = Object.values(platformSorunlari.reduce((gruplar, item) => {
             if (!gruplar[item.orderCode]) {
                 gruplar[item.orderCode] = {
                     orderCode: item.orderCode,
                     customerName: item.customerName,
+                    platform: item.platform,
                     issues: []
                 };
             }
@@ -2102,9 +2154,10 @@ async function sorunluSiparislerEkraniGoster() {
                     <div>
                         <p class="eyebrow">Bekleyen İşler</p>
                         <h2>Eksik Siparişler</h2>
-                        <p>${temizle(siparisGruplari.length)} sipariş · ${temizle(acikSorunKayitlari.length)} açık sorun</p>
+                        <p>${temizle(siparisGruplari.length)} sipariş · ${temizle(platformSorunlari.length)} açık sorun</p>
                     </div>
                 </div>
+                ${platformSekmeleriHtml("issues", aktifEksikPlatformu, acikSorunKayitlari, item => item.platform)}
                 <section class="shortageSummary">
                     <div class="sectionTitle">
                         <h3>Eksik Ürün Özeti</h3>
@@ -2135,7 +2188,7 @@ async function sorunluSiparislerEkraniGoster() {
                             <div class="issueOrderHeader">
                                 <div>
                                     <h3>${temizle(grup.customerName || "Müşteri")}</h3>
-                                    <p>${temizle(grup.orderCode)}</p>
+                                    <p>${temizle(grup.orderCode)} · ${temizle(grup.platform || "-")}</p>
                                 </div>
                                 <button type="button" data-issue-order="${temizle(grup.orderCode)}">Siparişi Aç</button>
                             </div>
@@ -2345,7 +2398,8 @@ async function hazirlamaKaydiGonder(islem, siparis) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             orderCode: siparisKodu(siparis),
-            customerName: musteriAdi(siparis)
+            customerName: musteriAdi(siparis),
+            platform: platformAdi(siparis)
         })
     });
 
@@ -2392,6 +2446,33 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const platformButonu = event.target.closest("[data-platform-scope]");
+
+    if (platformButonu) {
+        const scope = platformButonu.dataset.platformScope;
+        const platform = platformButonu.dataset.platformValue;
+
+        if (scope === "orders") {
+            aktifSiparisPlatformu = platform;
+            listeGoster(aktifListe);
+        } else if (scope === "issues") {
+            aktifEksikPlatformu = platform;
+            await sorunluSiparislerEkraniGoster();
+        } else if (scope === "shipments") {
+            aktifSevkiyatPlatformu = platform;
+            sevkiyatListeleriniGoster();
+        } else if (scope === "history") {
+            aktifGecmisPlatformu = platform;
+            document.querySelectorAll('[data-platform-scope="history"]').forEach(button => {
+                const aktif = button.dataset.platformValue === platform;
+                button.classList.toggle("active", aktif);
+                button.setAttribute("aria-selected", String(aktif));
+            });
+            hazirlamaGecmisiniFiltrele();
+        }
+        return;
+    }
+
     const sevkiyatSekmeButonu = event.target.closest("[data-shipment-view]");
 
     if (sevkiyatSekmeButonu) {
@@ -2590,6 +2671,7 @@ result.addEventListener("submit", async function (event) {
                 body: JSON.stringify({
                     orderCode: siparisKodu(aktifSiparis),
                     customerName: musteriAdi(aktifSiparis),
+                    platform: platformAdi(aktifSiparis),
                     productIndex: index,
                     productName: urunAdi(urun),
                     barcode: urunBarkodu(urun),
@@ -2763,16 +2845,20 @@ tabButtons.forEach(button => {
         }
 
         if (this.dataset.tab === "orders") {
+            aktifSiparisPlatformu = "trendyol";
             searchInput.value = "";
             listeGoster(siparisler);
             return;
         }
 
         if (this.dataset.tab === "users") {
+            aktifGecmisPlatformu = "trendyol";
             yonetimEkraniGoster();
         } else if (this.dataset.tab === "history") {
+            aktifGecmisPlatformu = "trendyol";
             hazirlamaGecmisiEkraniGoster();
         } else if (this.dataset.tab === "issues") {
+            aktifEksikPlatformu = "trendyol";
             sorunluSiparislerEkraniGoster();
         } else if (this.dataset.tab === "shipments") {
             sevkiyatEkraniGoster();
