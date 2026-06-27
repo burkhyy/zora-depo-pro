@@ -954,6 +954,25 @@ function barkodEtiketiGoster(kayit) {
         fontSize: 16,
         margin: 0
     });
+
+    modal.querySelectorAll(".closePrintModal").forEach(button => {
+        button.addEventListener("click", () => modal.remove());
+    });
+
+    const yazdirButonu = modal.querySelector("#printBarcodeNow");
+    yazdirButonu.addEventListener("click", () => {
+        yazdirButonu.disabled = true;
+        yazdirButonu.textContent = "Yazdırılıyor...";
+
+        requestAnimationFrame(() => {
+            try {
+                window.print();
+            } finally {
+                yazdirButonu.disabled = false;
+                yazdirButonu.textContent = "Yazdır";
+            }
+        });
+    });
 }
 
 function urunKaydiniBarkodlaBul(barkod) {
@@ -1736,16 +1755,6 @@ result.addEventListener("click", async function (event) {
         if (kayit) {
             barkodEtiketiGoster(kayit);
         }
-        return;
-    }
-
-    if (event.target.closest(".closePrintModal")) {
-        document.getElementById("barcodePrintModal")?.remove();
-        return;
-    }
-
-    if (event.target.closest("#printBarcodeNow")) {
-        window.print();
         return;
     }
 
