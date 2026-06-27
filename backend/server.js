@@ -77,6 +77,9 @@ database.exec(`
         product_index INTEGER NOT NULL,
         product_name TEXT NOT NULL DEFAULT '',
         barcode TEXT NOT NULL DEFAULT '',
+        product_color TEXT NOT NULL DEFAULT '',
+        product_size TEXT NOT NULL DEFAULT '',
+        missing_quantity INTEGER NOT NULL DEFAULT 1,
         issue_type TEXT NOT NULL CHECK (issue_type IN ('missing', 'damaged', 'stock_mismatch')),
         note TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
@@ -91,6 +94,22 @@ database.exec(`
     CREATE INDEX IF NOT EXISTS idx_product_issues_order_status
         ON order_product_issues(order_code, status);
 `);
+
+const issueColumns = new Set(
+    database.prepare(`PRAGMA table_info(order_product_issues)`).all().map(column => column.name)
+);
+
+if (!issueColumns.has("product_color")) {
+    database.exec(`ALTER TABLE order_product_issues ADD COLUMN product_color TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!issueColumns.has("product_size")) {
+    database.exec(`ALTER TABLE order_product_issues ADD COLUMN product_size TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!issueColumns.has("missing_quantity")) {
+    database.exec(`ALTER TABLE order_product_issues ADD COLUMN missing_quantity INTEGER NOT NULL DEFAULT 1`);
+}
 
 function sifreHashle(password, salt = crypto.randomBytes(16).toString("hex")) {
     return {
@@ -536,6 +555,9 @@ function sorunKaydiniDonustur(row) {
         productIndex: row.product_index,
         productName: row.product_name,
         barcode: row.barcode,
+        color: row.product_color,
+        size: row.product_size,
+        missingQuantity: row.missing_quantity,
         issueType: row.issue_type,
         note: row.note,
         status: row.status,
@@ -585,8 +607,14 @@ app.post("/issues", (req, res) => {
     const productIndex = Number(req.body.productIndex);
     const productName = String(req.body.productName || "").trim().slice(0, 500);
     const barcode = String(req.body.barcode || "").trim().slice(0, 120);
+    const productColor = String(req.body.color || "").trim().slice(0, 120);
+    const productSize = String(req.body.size || "").trim().slice(0, 120);
     const issueType = String(req.body.issueType || "").trim();
     const note = String(req.body.note || "").trim().slice(0, 1000);
+    const requestedMissingQuantity = Number(req.body.missingQuantity);
+    const missingQuantity = issueType === "missing" && Number.isInteger(requestedMissingQuantity) && requestedMissingQuantity > 0
+        ? Math.min(requestedMissingQuantity, 999)
+        : 1;
 
     if (!orderCode || !Number.isInteger(productIndex) || productIndex < 0 || !["missing", "damaged", "stock_mismatch"].includes(issueType)) {
         return res.status(400).json({ error: "Sipariş, ürün ve sorun türü zorunludur." });
@@ -604,9 +632,12 @@ app.post("/issues", (req, res) => {
     const result = database.prepare(`
         INSERT INTO order_product_issues (
             order_code, customer_name, product_index, product_name, barcode,
-            issue_type, note, created_by_user_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(orderCode, customerName, productIndex, productName, barcode, issueType, note, req.user.id);
+            product_color, product_size, missing_quantity, issue_type, note, created_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        orderCode, customerName, productIndex, productName, barcode,
+        productColor, productSize, missingQuantity, issueType, note, req.user.id
+    );
 
     const row = database.prepare(`
         SELECT issues.*, creator.display_name AS created_by, NULL AS resolved_by

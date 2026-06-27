@@ -1795,6 +1795,8 @@ function sorunBildirmeFormuGoster(index) {
         return;
     }
 
+    const eksikAdet = Math.max(1, urunAdedi(urun) - okutulanAdet(index));
+
     document.getElementById("issueDialog")?.remove();
     result.insertAdjacentHTML("beforeend", `
         <div class="issueDialog" id="issueDialog" role="dialog" aria-modal="true" aria-labelledby="issueDialogTitle">
@@ -1814,6 +1816,10 @@ function sorunBildirmeFormuGoster(index) {
                         <option value="damaged">Hasarlı</option>
                         <option value="stock_mismatch">Yanlış stok</option>
                     </select>
+                </label>
+                <label id="missingQuantityField">
+                    <span>Eksik Adet</span>
+                    <input name="missingQuantity" type="number" min="1" max="${temizle(urunAdedi(urun))}" value="${temizle(eksikAdet)}" required>
                 </label>
                 <label>
                     <span>Açıklama</span>
@@ -1846,6 +1852,28 @@ async function sorunluSiparislerEkraniGoster() {
         }
 
         acikSorunKayitlari = data.result;
+        const eksikUrunOzeti = Object.values(
+            acikSorunKayitlari
+                .filter(item => item.issueType === "missing")
+                .reduce((ozet, item) => {
+                    const anahtar = item.barcode || `${item.productName}|${item.color}|${item.size}`;
+
+                    if (!ozet[anahtar]) {
+                        ozet[anahtar] = {
+                            productName: item.productName,
+                            barcode: item.barcode,
+                            color: item.color,
+                            size: item.size,
+                            missingQuantity: 0,
+                            orderCodes: new Set()
+                        };
+                    }
+
+                    ozet[anahtar].missingQuantity += Number(item.missingQuantity) || 1;
+                    ozet[anahtar].orderCodes.add(item.orderCode);
+                    return ozet;
+                }, {})
+        ).sort((a, b) => b.missingQuantity - a.missingQuantity);
         const siparisGruplari = Object.values(acikSorunKayitlari.reduce((gruplar, item) => {
             if (!gruplar[item.orderCode]) {
                 gruplar[item.orderCode] = {
@@ -1863,9 +1891,33 @@ async function sorunluSiparislerEkraniGoster() {
                 <div class="locationHeader">
                     <div>
                         <p class="eyebrow">Bekleyen İşler</p>
-                        <h2>Sorunlu Siparişler</h2>
+                        <h2>Eksik Siparişler</h2>
                         <p>${temizle(siparisGruplari.length)} sipariş · ${temizle(acikSorunKayitlari.length)} açık sorun</p>
                     </div>
+                </div>
+                <section class="shortageSummary">
+                    <div class="sectionTitle">
+                        <h3>Eksik Ürün Özeti</h3>
+                        <span>${temizle(eksikUrunOzeti.reduce((toplam, item) => toplam + item.missingQuantity, 0))} adet eksik</span>
+                    </div>
+                    <div class="shortageGrid">
+                        ${eksikUrunOzeti.length ? eksikUrunOzeti.map(item => `
+                            <article class="shortageCard">
+                                <div>
+                                    <strong>${temizle(item.productName)}</strong>
+                                    <span>${temizle(item.color || "-")} · ${temizle(item.size || "-")} · ${temizle(item.barcode || "Barkod yok")}</span>
+                                    <small>${temizle(item.orderCodes.size)} siparişte eksik</small>
+                                </div>
+                                <b>${temizle(item.missingQuantity)} adet</b>
+                            </article>
+                        `).join("") : `
+                            <div class="shortageEmpty">Eksik olarak işaretlenmiş ürün yok.</div>
+                        `}
+                    </div>
+                </section>
+                <div class="sectionTitle issueOrdersTitle">
+                    <h3>Bekleyen Siparişler</h3>
+                    <span>Eksik, hasarlı ve yanlış stok kayıtları</span>
                 </div>
                 <div class="issueOrderList">
                     ${siparisGruplari.length ? siparisGruplari.map(grup => `
@@ -1882,7 +1934,7 @@ async function sorunluSiparislerEkraniGoster() {
                                     <div class="issueEntry">
                                         <div>
                                             <strong>${temizle(item.productName)}</strong>
-                                            <span>${temizle(item.barcode || "-")} · ${temizle(sorunTurleri[item.issueType] || item.issueType)}</span>
+                                            <span>${temizle(item.barcode || "-")} · ${temizle(sorunTurleri[item.issueType] || item.issueType)}${item.issueType === "missing" ? ` · ${temizle(item.missingQuantity)} adet` : ""}</span>
                                             ${item.note ? `<p>${temizle(item.note)}</p>` : ""}
                                             <small>${temizle(item.createdBy)} · ${temizle(tarihSaatGoster(item.createdAt))}</small>
                                         </div>
@@ -2324,6 +2376,9 @@ result.addEventListener("submit", async function (event) {
                     productIndex: index,
                     productName: urunAdi(urun),
                     barcode: urunBarkodu(urun),
+                    color: urunRengi(urun),
+                    size: urunBedeni(urun),
+                    missingQuantity: Number(issueForm.elements.missingQuantity.value),
                     issueType: issueForm.elements.issueType.value,
                     note: issueForm.elements.note.value
                 })
@@ -2461,6 +2516,18 @@ result.addEventListener("input", function (event) {
 });
 
 result.addEventListener("change", function (event) {
+    if (event.target.name === "issueType") {
+        const alan = document.getElementById("missingQuantityField");
+        const input = alan?.querySelector("input");
+        const eksikMi = event.target.value === "missing";
+
+        if (alan && input) {
+            alan.hidden = !eksikMi;
+            input.required = eksikMi;
+        }
+        return;
+    }
+
     if (["activityUserFilter", "activityStatusFilter", "activityDateFrom", "activityDateTo"].includes(event.target.id)) {
         hazirlamaGecmisiniFiltrele();
     }

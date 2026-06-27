@@ -777,6 +777,7 @@ h1{
 }
 
 .issueDialogCard select,
+.issueDialogCard input,
 .issueDialogCard textarea{
     width:100%;
     border:1px solid #d0d5dd;
@@ -842,6 +843,71 @@ h1{
 .issueEntries{
     display:grid;
     gap:12px;
+}
+
+.shortageSummary{
+    margin-bottom:22px;
+    border:1px solid #fdb022;
+    border-radius:8px;
+    padding:14px;
+    background:#fffcf5;
+}
+
+.shortageGrid{
+    display:grid;
+    grid-template-columns:repeat(2, minmax(0, 1fr));
+    gap:9px;
+}
+
+.shortageCard{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    min-width:0;
+    border:1px solid #fedf89;
+    border-radius:7px;
+    padding:11px;
+    background:#fff;
+}
+
+.shortageCard div{
+    min-width:0;
+}
+
+.shortageCard strong,
+.shortageCard span,
+.shortageCard small{
+    display:block;
+    overflow-wrap:anywhere;
+}
+
+.shortageCard strong{
+    color:#101828;
+    font-size:14px;
+}
+
+.shortageCard span,
+.shortageCard small{
+    margin-top:3px;
+    color:#667085;
+    font-size:11px;
+}
+
+.shortageCard b{
+    flex:0 0 auto;
+    color:#b42318;
+    font-size:18px;
+}
+
+.shortageEmpty{
+    grid-column:1 / -1;
+    color:#667085;
+    font-size:13px;
+}
+
+.issueOrdersTitle{
+    margin-top:4px;
 }
 
 .issueOrderCard{
@@ -1627,7 +1693,8 @@ h1{
     .scannerControls,
     .productRow,
     .issueOrderHeader,
-    .issueEntry{
+    .issueEntry,
+    .shortageCard{
         align-items:stretch;
         flex-direction:column;
     }
@@ -1642,6 +1709,10 @@ h1{
     .issueEntry button{
         width:100%;
         text-align:center;
+    }
+
+    .shortageGrid{
+        grid-template-columns:1fr;
     }
 
     .scanButton{
