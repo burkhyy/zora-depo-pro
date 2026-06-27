@@ -1989,7 +1989,15 @@ result.addEventListener("submit", async function (event) {
                     password: loginForm.elements.password.value
                 })
             });
-            const data = await response.json();
+            const contentType = response.headers.get("content-type") || "";
+
+            if (!contentType.includes("application/json")) {
+                throw new Error("Sunucu gecici olarak hazir degil. Sayfayi yenileyip tekrar deneyin.");
+            }
+
+            const data = await response.json().catch(() => {
+                throw new Error("Sunucudan gecersiz bir yanit alindi. Lutfen tekrar deneyin.");
+            });
 
             if (!response.ok) {
                 throw new Error(data.error || "Giriş yapılamadı.");
