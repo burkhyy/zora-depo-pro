@@ -18,6 +18,7 @@ let yonetimHazirlamaKayitlari = [];
 let aktifSiparisSorunlari = [];
 let acikSorunKayitlari = [];
 let aktifSevkiyatListesi = "pending";
+let sevkiyatAramaMetni = "";
 let bildirimler = [];
 let bildirimZamanlayici = null;
 const apiUrunDetayCache = new Map();
@@ -1499,11 +1500,11 @@ function sevkiyatListeleriniGoster() {
 
     const kayitMap = new Map(sevkiyatKayitlari.map(item => [item.orderCode.toUpperCase(), item]));
     const kapanmisDurumlar = ["Kargolandı", "Teslim Edildi", "İade", "İptal"];
-    const bekleyen = siparisler.filter(item => {
+    const bekleyenTum = siparisler.filter(item => {
         const kayit = kayitMap.get(siparisKodu(item).toUpperCase());
         return kayit?.status !== "shipped" && !kapanmisDurumlar.includes(siparisDurumu(item));
     });
-    const verilen = sevkiyatKayitlari
+    const verilenTum = sevkiyatKayitlari
         .filter(item => item.status === "shipped")
         .map(kayit => {
             const siparis = siparisler.find(item => siparisKodu(item).toUpperCase() === kayit.orderCode.toUpperCase());
@@ -1515,6 +1516,14 @@ function sevkiyatListeleriniGoster() {
                 kayit
             };
         });
+    const arama = aramaMetni(sevkiyatAramaMetni);
+    const siparisAramayaUyuyor = siparis => !arama || aramaMetni([
+        musteriAdi(siparis),
+        siparisKodu(siparis),
+        platformAdi(siparis)
+    ].join(" ")).includes(arama);
+    const bekleyen = bekleyenTum.filter(siparisAramayaUyuyor);
+    const verilen = verilenTum.filter(item => siparisAramayaUyuyor(item.siparis));
 
     bekleyenAlan.innerHTML = bekleyen.length
         ? bekleyen.map(item => sevkiyatKarti(item, kayitMap.get(siparisKodu(item).toUpperCase()))).join("")
@@ -1525,6 +1534,13 @@ function sevkiyatListeleriniGoster() {
 
     document.getElementById("pendingShipmentCount").textContent = bekleyen.length;
     document.getElementById("shippedShipmentCount").textContent = verilen.length;
+    const toplamBilgisi = document.getElementById("shipmentSearchSummary");
+
+    if (toplamBilgisi) {
+        toplamBilgisi.textContent = arama
+            ? `${bekleyen.length + verilen.length} eşleşme bulundu`
+            : "Müşteri adı, sipariş no veya platform ile arayın.";
+    }
     sevkiyatAltSekmesiniGoster(aktifSevkiyatListesi);
 }
 
@@ -1557,6 +1573,7 @@ async function sevkiyatEkraniGoster() {
     document.body.classList.remove("detailMode", "locationMode", "adminMode", "issueMode", "historyMode");
     document.body.classList.add("shipmentMode");
     aktifSevkiyatListesi = "pending";
+    sevkiyatAramaMetni = "";
     sekmeDurumuGuncelle();
 
     result.innerHTML = `
@@ -1576,6 +1593,11 @@ async function sevkiyatEkraniGoster() {
                 <strong>Kargoya verilen siparişin sevkiyat barkodunu okutun.</strong>
                 <span>Sipariş otomatik olarak Kargoya Verilenler listesine taşınır.</span>
             </div>
+            <label class="shipmentSearch">
+                <span>Sevkiyatta Ara</span>
+                <input id="shipmentSearch" type="search" placeholder="Müşteri adı, sipariş no veya platform..." autocomplete="off">
+                <small id="shipmentSearchSummary">Müşteri adı, sipariş no veya platform ile arayın.</small>
+            </label>
             <div class="shipmentViewTabs" role="tablist" aria-label="Sevkiyat listeleri">
                 <button class="active" type="button" role="tab" aria-selected="true" data-shipment-view="pending">
                     Eksikte Bekleyenler <span id="pendingShipmentCount">0</span>
@@ -2695,6 +2717,12 @@ result.addEventListener("submit", async function (event) {
 });
 
 result.addEventListener("input", function (event) {
+    if (event.target.id === "shipmentSearch") {
+        sevkiyatAramaMetni = event.target.value;
+        sevkiyatListeleriniGoster();
+        return;
+    }
+
     if (event.target.id === "activitySearch") {
         hazirlamaGecmisiniFiltrele();
         return;

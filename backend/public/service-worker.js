@@ -1,7 +1,7 @@
-const CACHE_NAME = "zora-depo-v1.12.0";
+const CACHE_NAME = "zora-depo-v1.13.0";
 const STATIC_ASSETS = [
     "/style.css",
-    "/app.js?v=1.12.0",
+    "/app.js?v=1.13.0",
     "/manifest.webmanifest",
     "/icons/zora-depo-192.png",
     "/icons/zora-depo-512.png"
