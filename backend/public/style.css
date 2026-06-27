@@ -1153,6 +1153,7 @@ h1{
     display:grid;
     grid-template-columns:280px minmax(0, 1fr);
     gap:22px;
+    min-width:0;
 }
 
 .userCreatePanel{
@@ -1178,7 +1179,98 @@ h1{
 }
 
 .activityTableWrap{
+    max-width:100%;
     overflow:auto;
+}
+
+.activityPanel{
+    min-width:0;
+}
+
+.activityFilters{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(130px, 1fr));
+    align-items:end;
+    gap:10px;
+    margin-bottom:14px;
+    padding:12px;
+    border:1px solid #e4e7ec;
+    border-radius:8px;
+    background:#f9fafb;
+}
+
+.activityFilters > *{
+    min-width:0;
+}
+
+.activitySearchField{
+    grid-column:span 2;
+}
+
+.activityFilters label{
+    display:grid;
+    gap:5px;
+}
+
+.activityFilters label span{
+    color:#475467;
+    font-size:11px;
+    font-weight:800;
+    text-transform:uppercase;
+}
+
+.activityFilters input,
+.activityFilters select{
+    width:100%;
+    min-height:40px;
+    border:1px solid #d0d5dd;
+    border-radius:7px;
+    padding:0 10px;
+    background:#fff;
+    color:#101828;
+    font-size:13px;
+}
+
+.activityFilters input:focus,
+.activityFilters select:focus{
+    border-color:#1570ef;
+    outline:2px solid #d1e9ff;
+}
+
+#clearActivityFilters{
+    min-height:40px;
+    border:1px solid #98a2b3;
+    border-radius:7px;
+    padding:0 12px;
+    background:#fff;
+    color:#344054;
+    font-size:12px;
+    font-weight:800;
+    cursor:pointer;
+    white-space:nowrap;
+}
+
+.activityStatus{
+    display:inline-block;
+    border-radius:999px;
+    padding:5px 8px;
+    font-size:11px;
+    font-weight:800;
+}
+
+.activityStatus.started{
+    background:#fffaeb;
+    color:#b54708;
+}
+
+.activityStatus.completed{
+    background:#ecfdf3;
+    color:#067647;
+}
+
+.emptyActivity{
+    color:#667085;
+    text-align:center !important;
 }
 
 .activityTable{
@@ -1250,6 +1342,15 @@ h1{
         border-bottom:1px solid #e4e7ec;
         padding:0 0 22px;
     }
+
+    .activityFilters{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+    }
+
+    .activitySearchField,
+    #clearActivityFilters{
+        grid-column:1 / -1;
+    }
 }
 
 @media (max-width:640px){
@@ -1260,6 +1361,15 @@ h1{
 
     h1{
         font-size:26px;
+    }
+
+    .activityFilters{
+        grid-template-columns:1fr;
+    }
+
+    .activitySearchField,
+    #clearActivityFilters{
+        grid-column:auto;
     }
 
     .cardTop,

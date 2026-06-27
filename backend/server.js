@@ -480,6 +480,8 @@ app.get("/admin/preparations", yoneticiGerekli, (req, res) => {
             preparations.status,
             preparations.started_at,
             preparations.completed_at,
+            preparations.started_by_user_id,
+            preparations.completed_by_user_id,
             starter.display_name AS started_by,
             completer.display_name AS completed_by
         FROM order_preparations preparations
@@ -496,7 +498,9 @@ app.get("/admin/preparations", yoneticiGerekli, (req, res) => {
             customerName: row.customer_name,
             status: row.status,
             startedBy: row.started_by,
+            startedByUserId: row.started_by_user_id,
             completedBy: row.completed_by || "",
+            completedByUserId: row.completed_by_user_id,
             startedAt: row.started_at,
             completedAt: row.completed_at
         }))

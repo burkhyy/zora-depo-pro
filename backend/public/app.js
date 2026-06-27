@@ -14,6 +14,7 @@ let rafKayitListesi = [];
 let rafKayitlariPromise = null;
 let sevkiyatKayitlari = [];
 let aktifKullanici = null;
+let yonetimHazirlamaKayitlari = [];
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
@@ -1549,6 +1550,83 @@ function tarihSaatGoster(deger) {
         : tarih.toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
 }
 
+function aramaMetni(deger) {
+    return String(deger ?? "").toLocaleLowerCase("tr-TR").trim();
+}
+
+function yerelTarihAnahtari(deger) {
+    if (!deger) {
+        return "";
+    }
+
+    const tarih = new Date(`${deger.replace(" ", "T")}Z`);
+
+    if (Number.isNaN(tarih.getTime())) {
+        return String(deger).slice(0, 10);
+    }
+
+    const yil = tarih.getFullYear();
+    const ay = String(tarih.getMonth() + 1).padStart(2, "0");
+    const gun = String(tarih.getDate()).padStart(2, "0");
+    return `${yil}-${ay}-${gun}`;
+}
+
+function hazirlamaGecmisiSatirlari(kayitlar) {
+    if (!kayitlar.length) {
+        return `<tr><td colspan="7" class="emptyActivity">Arama ölçütlerine uygun hazırlama kaydı bulunamadı.</td></tr>`;
+    }
+
+    return kayitlar.map(item => `
+        <tr>
+            <td><strong>${temizle(item.orderCode)}</strong></td>
+            <td>${temizle(item.customerName)}</td>
+            <td>${temizle(item.startedBy)}</td>
+            <td>${temizle(tarihSaatGoster(item.startedAt))}</td>
+            <td>${temizle(item.completedBy || "-")}</td>
+            <td>${temizle(tarihSaatGoster(item.completedAt))}</td>
+            <td><span class="activityStatus ${item.status === "completed" ? "completed" : "started"}">${item.status === "completed" ? "Tamamlandı" : "Hazırlanıyor"}</span></td>
+        </tr>
+    `).join("");
+}
+
+function hazirlamaGecmisiniFiltrele() {
+    const arama = aramaMetni(document.getElementById("activitySearch")?.value);
+    const personel = document.getElementById("activityUserFilter")?.value || "";
+    const durum = document.getElementById("activityStatusFilter")?.value || "";
+    const baslangic = document.getElementById("activityDateFrom")?.value || "";
+    const bitis = document.getElementById("activityDateTo")?.value || "";
+
+    const filtrelenen = yonetimHazirlamaKayitlari.filter(item => {
+        const ortakMetin = aramaMetni([
+            item.orderCode,
+            item.customerName,
+            item.startedBy,
+            item.completedBy
+        ].join(" "));
+        const kayitTarihi = yerelTarihAnahtari(item.startedAt);
+        const personelUyuyor = !personel
+            || String(item.startedByUserId) === personel
+            || String(item.completedByUserId) === personel;
+
+        return (!arama || ortakMetin.includes(arama))
+            && personelUyuyor
+            && (!durum || item.status === durum)
+            && (!baslangic || kayitTarihi >= baslangic)
+            && (!bitis || kayitTarihi <= bitis);
+    });
+
+    const govde = document.getElementById("activityTableBody");
+    const sayac = document.getElementById("activityResultCount");
+
+    if (govde) {
+        govde.innerHTML = hazirlamaGecmisiSatirlari(filtrelenen);
+    }
+
+    if (sayac) {
+        sayac.textContent = `${filtrelenen.length} / ${yonetimHazirlamaKayitlari.length} kayıt`;
+    }
+}
+
 async function yonetimEkraniGoster() {
     if (aktifKullanici?.role !== "admin") {
         return;
@@ -1573,6 +1651,8 @@ async function yonetimEkraniGoster() {
         if (!usersResponse.ok || !historyResponse.ok) {
             throw new Error(usersData.error || historyData.error || "Yönetim verileri alınamadı.");
         }
+
+        yonetimHazirlamaKayitlari = historyData.result;
 
         result.innerHTML = `
             <section class="adminTool">
@@ -1612,7 +1692,37 @@ async function yonetimEkraniGoster() {
                     <section class="activityPanel">
                         <div class="sectionTitle">
                             <h3>Sipariş Hazırlama Geçmişi</h3>
-                            <span>${temizle(historyData.result.length)} kayıt</span>
+                            <span id="activityResultCount">${temizle(historyData.result.length)} / ${temizle(historyData.result.length)} kayıt</span>
+                        </div>
+                        <div class="activityFilters">
+                            <label class="activitySearchField">
+                                <span>Arama</span>
+                                <input id="activitySearch" type="search" placeholder="Sipariş no, müşteri veya personel">
+                            </label>
+                            <label>
+                                <span>Personel</span>
+                                <select id="activityUserFilter">
+                                    <option value="">Tüm personel</option>
+                                    ${usersData.result.map(user => `<option value="${temizle(user.id)}">${temizle(user.displayName)}</option>`).join("")}
+                                </select>
+                            </label>
+                            <label>
+                                <span>Durum</span>
+                                <select id="activityStatusFilter">
+                                    <option value="">Tüm durumlar</option>
+                                    <option value="started">Hazırlanıyor</option>
+                                    <option value="completed">Tamamlandı</option>
+                                </select>
+                            </label>
+                            <label>
+                                <span>Başlangıç</span>
+                                <input id="activityDateFrom" type="date">
+                            </label>
+                            <label>
+                                <span>Bitiş</span>
+                                <input id="activityDateTo" type="date">
+                            </label>
+                            <button id="clearActivityFilters" type="button">Filtreleri Temizle</button>
                         </div>
                         <div class="activityTableWrap">
                             <table class="activityTable">
@@ -1624,21 +1734,11 @@ async function yonetimEkraniGoster() {
                                         <th>Başlangıç</th>
                                         <th>Tamamlayan</th>
                                         <th>Tamamlanma</th>
+                                        <th>Durum</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    ${historyData.result.length ? historyData.result.map(item => `
-                                        <tr>
-                                            <td><strong>${temizle(item.orderCode)}</strong></td>
-                                            <td>${temizle(item.customerName)}</td>
-                                            <td>${temizle(item.startedBy)}</td>
-                                            <td>${temizle(tarihSaatGoster(item.startedAt))}</td>
-                                            <td>${temizle(item.completedBy || "-")}</td>
-                                            <td>${temizle(tarihSaatGoster(item.completedAt))}</td>
-                                        </tr>
-                                    `).join("") : `
-                                        <tr><td colspan="6">Henüz hazırlama kaydı yok.</td></tr>
-                                    `}
+                                <tbody id="activityTableBody">
+                                    ${hazirlamaGecmisiSatirlari(historyData.result)}
                                 </tbody>
                             </table>
                         </div>
@@ -1861,6 +1961,20 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const filtreTemizleButonu = event.target.closest("#clearActivityFilters");
+
+    if (filtreTemizleButonu) {
+        ["activitySearch", "activityUserFilter", "activityStatusFilter", "activityDateFrom", "activityDateTo"].forEach(id => {
+            const alan = document.getElementById(id);
+
+            if (alan) {
+                alan.value = "";
+            }
+        });
+        hazirlamaGecmisiniFiltrele();
+        return;
+    }
+
     const geriButonu = event.target.closest("#backToList");
 
     if (geriButonu) {
@@ -2075,12 +2189,23 @@ result.addEventListener("submit", async function (event) {
 });
 
 result.addEventListener("input", function (event) {
+    if (event.target.id === "activitySearch") {
+        hazirlamaGecmisiniFiltrele();
+        return;
+    }
+
     if (event.target.id !== "locationSearch") {
         return;
     }
 
     const sonuclar = rafKaydiAra(event.target.value);
     rafAramaSonuclariGoster(sonuclar);
+});
+
+result.addEventListener("change", function (event) {
+    if (["activityUserFilter", "activityStatusFilter", "activityDateFrom", "activityDateTo"].includes(event.target.id)) {
+        hazirlamaGecmisiniFiltrele();
+    }
 });
 
 tabButtons.forEach(button => {
