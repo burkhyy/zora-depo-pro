@@ -5,6 +5,8 @@ const axios = require("axios");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
+const ExcelJS = require("exceljs");
+const PDFDocument = require("pdfkit");
 const { DatabaseSync } = require("node:sqlite");
 
 const app = express();
@@ -160,6 +162,16 @@ if (!issueColumns.has("missing_quantity")) {
     database.exec(`ALTER TABLE order_product_issues ADD COLUMN missing_quantity INTEGER NOT NULL DEFAULT 1`);
 }
 
+function eskiBildirimleriTemizle() {
+    database.exec(`
+        DELETE FROM notification_reads
+        WHERE notification_id IN (
+            SELECT id FROM app_notifications WHERE created_at < datetime('now', '-30 days')
+        );
+        DELETE FROM app_notifications WHERE created_at < datetime('now', '-30 days');
+    `);
+}
+
 database.exec(`
     UPDATE order_preparations
     SET platform = CASE WHEN UPPER(order_code) LIKE 'TY%' THEN 'Trendyol' ELSE 'Zorabutik' END
@@ -168,7 +180,10 @@ database.exec(`
     UPDATE order_product_issues
     SET platform = CASE WHEN UPPER(order_code) LIKE 'TY%' THEN 'Trendyol' ELSE 'Zorabutik' END
     WHERE platform = '';
+
 `);
+eskiBildirimleriTemizle();
+setInterval(eskiBildirimleriTemizle, 24 * 60 * 60 * 1000).unref();
 
 function sifreHashle(password, salt = crypto.randomBytes(16).toString("hex")) {
     return {
@@ -350,6 +365,7 @@ app.use((req, res, next) => {
 });
 
 function bildirimOlustur(type, title, message, orderCode = "", audience = "all") {
+    eskiBildirimleriTemizle();
     database.prepare(`
         INSERT INTO app_notifications (type, title, message, order_code, audience)
         VALUES (?, ?, ?, ?, ?)
@@ -424,6 +440,18 @@ const productImageSave = database.prepare(`
         image_url = excluded.image_url,
         updated_at = CURRENT_TIMESTAMP
 `);
+const upstreamStatus = {
+    healthy: null,
+    lastSuccessAt: null,
+    lastErrorAt: null,
+    message: "Henüz kontrol edilmedi."
+};
+
+function apiDurumunuGuncelle(healthy, message = "") {
+    upstreamStatus.healthy = healthy;
+    upstreamStatus.message = message || (healthy ? "Qukasoft API bağlantısı çalışıyor." : "Qukasoft API bağlantısı kurulamadı.");
+    upstreamStatus[healthy ? "lastSuccessAt" : "lastErrorAt"] = new Date().toISOString();
+}
 
 function listeyiBul(data) {
     if (Array.isArray(data)) return data;
@@ -611,10 +639,25 @@ app.get("/orders", async (req, res) => {
             "/order/listsV2?pageStart=0&pageSize=200&orderBy=id&sort=desc"
         );
 
+        apiDurumunuGuncelle(true);
         res.json(response.data);
     } catch (err) {
+        apiDurumunuGuncelle(false, err.response?.data?.error || err.message);
         apiHatasiGonder(err, res);
     }
+});
+
+app.get("/api-status", (req, res) => {
+    res.json({
+        healthy: upstreamStatus.healthy,
+        message: upstreamStatus.message,
+        lastSuccessAt: upstreamStatus.lastSuccessAt,
+        lastErrorAt: upstreamStatus.lastErrorAt,
+        platforms: {
+            trendyol: upstreamStatus.healthy,
+            zorabutik: upstreamStatus.healthy
+        }
+    });
 });
 
 app.get("/order/:code", async (req, res) => {
@@ -712,6 +755,46 @@ app.post("/admin/users", yoneticiGerekli, (req, res) => {
     }
 });
 
+app.patch("/admin/users/:id", yoneticiGerekli, (req, res) => {
+    const id = Number(req.params.id);
+    const user = database.prepare(`SELECT * FROM app_users WHERE id = ?`).get(id);
+
+    if (!user) {
+        return res.status(404).json({ error: "Kullanıcı bulunamadı." });
+    }
+
+    if (req.body.active !== undefined) {
+        const active = req.body.active ? 1 : 0;
+
+        if (id === req.user.id && !active) {
+            return res.status(400).json({ error: "Kendi yönetici hesabınızı devre dışı bırakamazsınız." });
+        }
+
+        database.prepare(`UPDATE app_users SET active = ? WHERE id = ?`).run(active, id);
+
+        if (!active) {
+            database.prepare(`DELETE FROM app_sessions WHERE user_id = ?`).run(id);
+        }
+    }
+
+    if (req.body.password !== undefined) {
+        const passwordText = String(req.body.password || "");
+
+        if (passwordText.length < 8) {
+            return res.status(400).json({ error: "Parola en az 8 karakter olmalı." });
+        }
+
+        const password = sifreHashle(passwordText);
+        database.prepare(`
+            UPDATE app_users SET password_hash = ?, password_salt = ? WHERE id = ?
+        `).run(password.hash, password.salt, id);
+        database.prepare(`DELETE FROM app_sessions WHERE user_id = ? AND user_id != ?`).run(id, req.user.id);
+    }
+
+    const updated = database.prepare(`SELECT * FROM app_users WHERE id = ?`).get(id);
+    res.json({ result: kullaniciyiDonustur(updated) });
+});
+
 function hazirlamaGecmisiGetir() {
     const rows = database.prepare(`
         SELECT
@@ -767,6 +850,127 @@ app.get("/preparations", (req, res) => {
             displayName: user.display_name
         }))
     });
+});
+
+function raporKayitlariniFiltrele(query) {
+    const platform = String(query.platform || "").trim().toLocaleLowerCase("tr-TR");
+    const dateFrom = String(query.dateFrom || "").trim();
+    const dateTo = String(query.dateTo || "").trim();
+
+    return hazirlamaGecmisiGetir().filter(item => {
+        const itemPlatform = String(item.platform || "").toLocaleLowerCase("tr-TR");
+        const startedAt = new Date(`${String(item.startedAt || "").replace(" ", "T")}Z`);
+        const itemDate = Number.isNaN(startedAt.getTime())
+            ? String(item.startedAt || "").slice(0, 10)
+            : new Date(startedAt.getTime() + 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+        return (!platform || itemPlatform === platform)
+            && (!dateFrom || itemDate >= dateFrom)
+            && (!dateTo || itemDate <= dateTo);
+    });
+}
+
+app.get("/preparations/summary", (req, res) => {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.date || ""))
+        ? String(req.query.date)
+        : new Date().toISOString().slice(0, 10);
+    const platform = String(req.query.platform || "").trim();
+    const platformCondition = platform ? "AND preparations.platform = ? COLLATE NOCASE" : "";
+    const params = platform ? [date, platform] : [date];
+    const rows = database.prepare(`
+        SELECT
+            users.id,
+            users.display_name,
+            COUNT(preparations.id) AS total_count,
+            SUM(CASE WHEN preparations.status = 'completed' THEN 1 ELSE 0 END) AS completed_count,
+            AVG(CASE
+                WHEN preparations.status = 'completed'
+                THEN (julianday(preparations.completed_at) - julianday(preparations.started_at)) * 1440
+                ELSE NULL
+            END) AS average_minutes
+        FROM app_users users
+        LEFT JOIN order_preparations preparations
+            ON (preparations.completed_by_user_id = users.id OR (
+                preparations.completed_by_user_id IS NULL AND preparations.started_by_user_id = users.id
+            ))
+            AND date(preparations.started_at, '+3 hours') = date(?)
+            ${platformCondition}
+        WHERE users.active = 1
+        GROUP BY users.id, users.display_name
+        ORDER BY completed_count DESC, users.display_name COLLATE NOCASE
+    `).all(...params);
+
+    res.json({
+        date,
+        result: rows.map(row => ({
+            userId: row.id,
+            displayName: row.display_name,
+            totalCount: row.total_count,
+            completedCount: row.completed_count || 0,
+            pendingCount: row.total_count - (row.completed_count || 0),
+            averageMinutes: row.average_minutes === null ? null : Math.round(row.average_minutes * 10) / 10
+        }))
+    });
+});
+
+app.get("/reports/preparations.xlsx", async (req, res) => {
+    const records = raporKayitlariniFiltrele(req.query);
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Hazirlama Gecmisi");
+    sheet.columns = [
+        { header: "Siparis No", key: "orderCode", width: 22 },
+        { header: "Musteri", key: "customerName", width: 28 },
+        { header: "Platform", key: "platform", width: 14 },
+        { header: "Baslatan", key: "startedBy", width: 22 },
+        { header: "Baslangic", key: "startedAt", width: 20 },
+        { header: "Tamamlayan", key: "completedBy", width: 22 },
+        { header: "Tamamlanma", key: "completedAt", width: 20 },
+        { header: "Durum", key: "status", width: 14 }
+    ];
+    records.forEach(item => sheet.addRow({
+        ...item,
+        completedBy: item.completedBy || "-",
+        completedAt: item.completedAt || "-",
+        status: item.status === "completed" ? "Tamamlandi" : "Hazirlaniyor"
+    }));
+    sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF175CD3" } };
+    sheet.views = [{ state: "frozen", ySplit: 1 }];
+    const buffer = await workbook.xlsx.writeBuffer();
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", 'attachment; filename="hazirlama-gecmisi.xlsx"');
+    res.send(Buffer.from(buffer));
+});
+
+app.get("/reports/preparations.pdf", (req, res) => {
+    const records = raporKayitlariniFiltrele(req.query);
+    const doc = new PDFDocument({ size: "A4", margin: 38 });
+    const fontCandidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:\\Windows\\Fonts\\arial.ttf"
+    ];
+    const fontPath = fontCandidates.find(candidate => fs.existsSync(candidate));
+
+    if (fontPath) {
+        doc.font(fontPath);
+    }
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", 'attachment; filename="hazirlama-gecmisi.pdf"');
+    doc.pipe(res);
+    doc.fontSize(18).text("Zora Depo Pro - Hazırlama Geçmişi");
+    doc.moveDown(0.4).fontSize(9).fillColor("#667085").text(`Kayıt sayısı: ${records.length}`);
+    doc.moveDown(0.8).fillColor("#111827");
+    records.forEach((item, index) => {
+        if (doc.y > 740) {
+            doc.addPage();
+        }
+        doc.fontSize(10).text(`${index + 1}. ${item.orderCode} · ${item.platform} · ${item.customerName}`, { continued: false });
+        doc.fontSize(8).fillColor("#475467").text(
+            `${item.startedBy} | ${item.startedAt} | ${item.completedBy || "-"} | ${item.completedAt || "-"} | ${item.status === "completed" ? "Tamamlandı" : "Hazırlanıyor"}`
+        );
+        doc.moveDown(0.5).fillColor("#111827");
+    });
+    doc.end();
 });
 
 function sorunKaydiniDonustur(row) {
@@ -888,6 +1092,49 @@ app.post("/issues", (req, res) => {
     );
 
     res.status(201).json({ result: sorunKaydiniDonustur(row) });
+});
+
+app.patch("/issues/:id", (req, res) => {
+    const id = Number(req.params.id);
+    const issue = database.prepare(`SELECT * FROM order_product_issues WHERE id = ? AND status = 'open'`).get(id);
+
+    if (!issue) {
+        return res.status(404).json({ error: "Açık sorun kaydı bulunamadı." });
+    }
+
+    const issueType = String(req.body.issueType || issue.issue_type).trim();
+    const note = String(req.body.note ?? issue.note).trim().slice(0, 1000);
+    const requestedQuantity = Number(req.body.missingQuantity);
+    const missingQuantity = issueType === "missing" && Number.isInteger(requestedQuantity) && requestedQuantity > 0
+        ? Math.min(requestedQuantity, 999)
+        : 1;
+
+    if (!["missing", "damaged", "stock_mismatch"].includes(issueType)) {
+        return res.status(400).json({ error: "Geçersiz sorun türü." });
+    }
+
+    database.prepare(`
+        UPDATE order_product_issues
+        SET issue_type = ?, note = ?, missing_quantity = ?
+        WHERE id = ?
+    `).run(issueType, note, missingQuantity, id);
+
+    const row = database.prepare(`
+        SELECT issues.*, creator.display_name AS created_by, resolver.display_name AS resolved_by
+        FROM order_product_issues issues
+        JOIN app_users creator ON creator.id = issues.created_by_user_id
+        LEFT JOIN app_users resolver ON resolver.id = issues.resolved_by_user_id
+        WHERE issues.id = ?
+    `).get(id);
+
+    bildirimOlustur(
+        "issue_updated",
+        "Ürün sorunu güncellendi",
+        `${issue.platform || "Platform yok"} · ${issue.customer_name || issue.order_code} · ${issue.product_name}`,
+        issue.order_code,
+        "admin"
+    );
+    res.json({ result: sorunKaydiniDonustur(row) });
 });
 
 app.patch("/issues/:id/resolve", (req, res) => {
@@ -1122,8 +1369,7 @@ app.put("/shipments/:orderCode", (req, res) => {
             END,
             shipped_at = CASE
                 WHEN excluded.status = 'shipped' THEN CURRENT_TIMESTAMP
-                WHEN excluded.status = 'pending' THEN NULL
-                ELSE order_shipments.shipped_at
+                ELSE NULL
             END,
             updated_at = CURRENT_TIMESTAMP
     `).run(orderCode, customerName, platform, status, status, status);

@@ -1954,6 +1954,161 @@ h1{
     color:#fff;
 }
 
+.undoShippedButton{
+    min-height:36px;
+    border:1px solid #b54708;
+    border-radius:7px;
+    background:#fff7ed;
+    color:#9a3412;
+    padding:0 11px;
+    font-size:12px;
+    font-weight:900;
+    cursor:pointer;
+}
+
+.apiStatusBanner{
+    margin:10px 0 14px;
+    padding:12px 14px;
+    border:1px solid #fda29b;
+    border-radius:7px;
+    background:#fff1f0;
+    color:#912018;
+}
+
+.apiStatusBanner strong,
+.apiStatusBanner span{
+    display:block;
+}
+
+.apiStatusBanner span{
+    margin-top:3px;
+    font-size:13px;
+}
+
+.issueEntryActions,
+.userActions,
+.reportActions{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-wrap:wrap;
+}
+
+.editIssueButton,
+.userActions button{
+    min-height:36px;
+    border:1px solid #98a2b3;
+    border-radius:7px;
+    background:#fff;
+    color:#344054;
+    padding:0 11px;
+    font-weight:800;
+    cursor:pointer;
+}
+
+.userListItem{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+}
+
+.userListItem.inactive{
+    opacity:.72;
+    background:#f2f4f7;
+}
+
+.userActions .deactivateUserButton{
+    border-color:#f04438;
+    color:#b42318;
+}
+
+.performanceHeader{
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:16px;
+    margin:22px 0 12px;
+}
+
+.performanceHeader h3{
+    margin:0 0 4px;
+}
+
+.performanceHeader span{
+    color:#667085;
+    font-size:13px;
+}
+
+.performanceHeader label{
+    display:grid;
+    gap:5px;
+    font-weight:800;
+}
+
+.performanceHeader input{
+    min-height:40px;
+    border:1px solid #d0d5dd;
+    border-radius:7px;
+    padding:0 10px;
+}
+
+.performanceSummary{
+    display:grid;
+    grid-template-columns:repeat(3, minmax(0, 1fr));
+    gap:10px;
+    margin-bottom:24px;
+}
+
+.performanceCard{
+    border:1px solid #d0d5dd;
+    border-radius:7px;
+    padding:13px;
+    background:#f9fafb;
+}
+
+.performanceCard > strong{
+    display:block;
+    margin-bottom:9px;
+}
+
+.performanceCard div{
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    padding-top:6px;
+    color:#475467;
+    font-size:13px;
+}
+
+.performanceCard b{
+    color:#101828;
+}
+
+.reportActions{
+    justify-content:flex-end;
+}
+
+.reportDownloadButton{
+    display:inline-flex;
+    align-items:center;
+    min-height:36px;
+    border:1px solid #1570ef;
+    border-radius:7px;
+    background:#1570ef;
+    color:#fff;
+    padding:0 11px;
+    text-decoration:none;
+    font-size:13px;
+    font-weight:900;
+}
+
+.reportDownloadButton.secondary{
+    background:#fff;
+    color:#344054;
+    border-color:#98a2b3;
+}
+
 @media (max-width:820px){
     .infoGrid{
         grid-template-columns:repeat(2, minmax(0, 1fr));
@@ -1985,6 +2140,10 @@ h1{
         grid-template-columns:repeat(2, minmax(0, 1fr));
     }
 
+    .performanceSummary{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+    }
+
     .activitySearchField,
     #clearActivityFilters{
         grid-column:1 / -1;
@@ -2008,6 +2167,20 @@ h1{
     .activitySearchField,
     #clearActivityFilters{
         grid-column:auto;
+    }
+
+    .performanceHeader,
+    .userListItem{
+        align-items:stretch;
+        flex-direction:column;
+    }
+
+    .performanceSummary{
+        grid-template-columns:1fr;
+    }
+
+    .reportActions{
+        justify-content:flex-start;
     }
 
     .cardTop,

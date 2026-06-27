@@ -25,6 +25,7 @@ let aktifSevkiyatPlatformu = "trendyol";
 let aktifGecmisPlatformu = "trendyol";
 let bildirimler = [];
 let bildirimZamanlayici = null;
+let apiDurumZamanlayici = null;
 let urunGorselleri = {};
 let urunGorselleriPromise = null;
 const apiUrunDetayCache = new Map();
@@ -45,6 +46,7 @@ const searchInput = document.getElementById("search");
 const result = document.getElementById("result");
 const tabButtons = document.querySelectorAll("[data-tab]");
 const userBar = document.getElementById("userBar");
+const apiStatusBanner = document.getElementById("apiStatusBanner");
 
 function temizle(deger) {
     return String(deger ?? "")
@@ -681,6 +683,11 @@ function girisEkraniGoster(hata = "") {
         clearInterval(bildirimZamanlayici);
         bildirimZamanlayici = null;
     }
+    if (apiDurumZamanlayici) {
+        clearInterval(apiDurumZamanlayici);
+        apiDurumZamanlayici = null;
+    }
+    apiStatusBanner.hidden = true;
     aktifKullanici = null;
     document.body.className = "loginMode";
     document.querySelector(".topTabs").hidden = true;
@@ -730,9 +737,38 @@ function kullaniciArayuzunuGuncelle() {
         <button type="button" id="logoutButton">Çıkış</button>
     `;
     bildirimleriGetir();
+    apiDurumunuGetir();
 
     if (!bildirimZamanlayici) {
         bildirimZamanlayici = window.setInterval(bildirimleriGetir, 60000);
+    }
+    if (!apiDurumZamanlayici) {
+        apiDurumZamanlayici = window.setInterval(apiDurumunuGetir, 60000);
+    }
+}
+
+async function apiDurumunuGetir() {
+    if (!aktifKullanici) {
+        return;
+    }
+
+    try {
+        const response = await fetch("/api-status");
+        const data = await response.json();
+
+        if (!response.ok || data.healthy !== false) {
+            apiStatusBanner.hidden = true;
+            return;
+        }
+
+        const zaman = data.lastErrorAt ? tarihSaatGoster(data.lastErrorAt) : "";
+        apiStatusBanner.innerHTML = `
+            <strong>Qukasoft API bağlantısı kesildi.</strong>
+            <span>Trendyol ve Zorabutik siparişleri şu anda güncellenemiyor.${zaman ? ` Son hata: ${temizle(zaman)}` : ""}</span>
+        `;
+        apiStatusBanner.hidden = false;
+    } catch (err) {
+        apiStatusBanner.hidden = true;
     }
 }
 
@@ -1568,7 +1604,11 @@ function sevkiyatKarti(siparis, kayit, shipped = false) {
                 <button type="button" class="printShipmentButton" data-print-shipment="${temizle(code)}">
                     Sevkiyat Barkodu
                 </button>
-                ${shipped ? "" : `
+                ${shipped ? `
+                    <button type="button" class="undoShippedButton" data-undo-shipped="${temizle(code)}">
+                        Geri Al
+                    </button>
+                ` : `
                     <button type="button" class="markShippedButton" data-mark-shipped="${temizle(code)}">
                         Kargoya Verildi
                     </button>
@@ -1862,6 +1902,53 @@ function hazirlamaGecmisiniFiltrele() {
     if (sayac) {
         sayac.textContent = `${filtrelenen.length} / ${yonetimHazirlamaKayitlari.length} kayıt`;
     }
+
+    raporLinkleriniGuncelle();
+}
+
+function raporLinkleriniGuncelle() {
+    const params = new URLSearchParams({
+        platform: aktifGecmisPlatformu === "trendyol" ? "Trendyol" : "Zorabutik"
+    });
+    const baslangic = document.getElementById("activityDateFrom")?.value;
+    const bitis = document.getElementById("activityDateTo")?.value;
+
+    if (baslangic) params.set("dateFrom", baslangic);
+    if (bitis) params.set("dateTo", bitis);
+
+    document.getElementById("excelReportLink")?.setAttribute("href", `/reports/preparations.xlsx?${params}`);
+    document.getElementById("pdfReportLink")?.setAttribute("href", `/reports/preparations.pdf?${params}`);
+}
+
+async function performansOzetiniGetir() {
+    const alan = document.getElementById("performanceSummary");
+    const bugun = new Date();
+    const varsayilanTarih = `${bugun.getFullYear()}-${String(bugun.getMonth() + 1).padStart(2, "0")}-${String(bugun.getDate()).padStart(2, "0")}`;
+    const tarih = document.getElementById("performanceDate")?.value || varsayilanTarih;
+
+    if (!alan) return;
+    alan.innerHTML = `<div class="loading">Günlük performans hesaplanıyor...</div>`;
+
+    try {
+        const params = new URLSearchParams({
+            date: tarih,
+            platform: aktifGecmisPlatformu === "trendyol" ? "Trendyol" : "Zorabutik"
+        });
+        const response = await fetch(`/preparations/summary?${params}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Performans özeti alınamadı.");
+
+        alan.innerHTML = data.result.length ? data.result.map(item => `
+            <article class="performanceCard">
+                <strong>${temizle(item.displayName)}</strong>
+                <div><span>Hazırlanan</span><b>${temizle(item.completedCount)}</b></div>
+                <div><span>Devam eden</span><b>${temizle(item.pendingCount)}</b></div>
+                <div><span>Ort. süre</span><b>${item.averageMinutes == null ? "-" : `${temizle(item.averageMinutes)} dk`}</b></div>
+            </article>
+        `).join("") : `<div class="emptyActivity">Bu tarih için personel kaydı bulunmuyor.</div>`;
+    } catch (err) {
+        alan.innerHTML = `<div class="notfound">${temizle(err.message)}</div>`;
+    }
 }
 
 async function hazirlamaGecmisiEkraniGoster() {
@@ -1892,9 +1979,24 @@ async function hazirlamaGecmisiEkraniGoster() {
                     </div>
                 </div>
                 ${platformSekmeleriHtml("history", aktifGecmisPlatformu, data.result, item => item.platform)}
+                <div class="performanceHeader">
+                    <div>
+                        <h3>Günlük Hazırlama Performansı</h3>
+                        <span>Personel bazında tamamlanan sipariş ve ortalama süre</span>
+                    </div>
+                    <label>
+                        <span>Gün</span>
+                        <input id="performanceDate" type="date">
+                    </label>
+                </div>
+                <div class="performanceSummary" id="performanceSummary"></div>
                 <div class="sectionTitle">
                     <h3>Hazırlama Kayıtları</h3>
-                    <span id="activityResultCount">${temizle(data.result.length)} / ${temizle(data.result.length)} kayıt</span>
+                    <div class="reportActions">
+                        <span id="activityResultCount">${temizle(data.result.length)} / ${temizle(data.result.length)} kayıt</span>
+                        <a id="excelReportLink" class="reportDownloadButton" href="/reports/preparations.xlsx">Excel İndir</a>
+                        <a id="pdfReportLink" class="reportDownloadButton secondary" href="/reports/preparations.pdf">PDF İndir</a>
+                    </div>
                 </div>
                 <div class="activityFilters">
                     <label class="activitySearchField">
@@ -1947,10 +2049,44 @@ async function hazirlamaGecmisiEkraniGoster() {
                 </div>
             </section>
         `;
+        const bugun = new Date();
+        document.getElementById("performanceDate").value =
+            `${bugun.getFullYear()}-${String(bugun.getMonth() + 1).padStart(2, "0")}-${String(bugun.getDate()).padStart(2, "0")}`;
         hazirlamaGecmisiniFiltrele();
+        performansOzetiniGetir();
     } catch (err) {
         result.innerHTML = `<div class="notfound">${temizle(err.message)}</div>`;
     }
+}
+
+function parolaDegistirmeFormuGoster(userId, displayName) {
+    document.getElementById("userDialog")?.remove();
+    result.insertAdjacentHTML("beforeend", `
+        <div class="issueDialog" id="userDialog" role="dialog" aria-modal="true" aria-labelledby="passwordDialogTitle">
+            <form class="issueDialogCard" id="resetPasswordForm" data-user-id="${temizle(userId)}">
+                <div class="issueDialogHeader">
+                    <div>
+                        <p class="eyebrow">Kullanıcı Yönetimi</p>
+                        <h3 id="passwordDialogTitle">Parola Değiştir</h3>
+                        <span>${temizle(displayName)}</span>
+                    </div>
+                    <button type="button" class="issueCloseButton" data-close-user-dialog aria-label="Kapat">×</button>
+                </div>
+                <label>
+                    <span>Yeni Parola</span>
+                    <input name="password" type="password" minlength="8" autocomplete="new-password" required>
+                </label>
+                <label>
+                    <span>Yeni Parola Tekrar</span>
+                    <input name="passwordConfirm" type="password" minlength="8" autocomplete="new-password" required>
+                </label>
+                <div class="issueDialogActions">
+                    <button type="button" class="issueCancelButton" data-close-user-dialog>İptal</button>
+                    <button type="submit" class="issueSaveButton">Parolayı Kaydet</button>
+                </div>
+            </form>
+        </div>
+    `);
 }
 
 async function yonetimEkraniGoster() {
@@ -2008,9 +2144,17 @@ async function yonetimEkraniGoster() {
                         </form>
                         <div class="userList">
                             ${usersData.result.map(user => `
-                                <div>
-                                    <strong>${temizle(user.displayName)}</strong>
-                                    <span>@${temizle(user.username)} · ${user.role === "admin" ? "Yönetici" : "Personel"}</span>
+                                <div class="userListItem${user.active ? "" : " inactive"}">
+                                    <div>
+                                        <strong>${temizle(user.displayName)}</strong>
+                                        <span>@${temizle(user.username)} · ${user.role === "admin" ? "Yönetici" : "Personel"} · ${user.active ? "Aktif" : "Devre dışı"}</span>
+                                    </div>
+                                    <div class="userActions">
+                                        <button type="button" data-reset-user-password="${temizle(user.id)}" data-user-name="${temizle(user.displayName)}">Parola Değiştir</button>
+                                        <button type="button" class="${user.active ? "danger" : "success"}" data-toggle-user="${temizle(user.id)}" data-user-active="${user.active}">
+                                            ${user.active ? "Devre Dışı Bırak" : "Etkinleştir"}
+                                        </button>
+                                    </div>
                                 </div>
                             `).join("")}
                         </div>
@@ -2154,6 +2298,44 @@ function sorunBildirmeFormuGoster(index) {
     `);
 }
 
+function sorunDuzenlemeFormuGoster(issue) {
+    document.getElementById("issueDialog")?.remove();
+    result.insertAdjacentHTML("beforeend", `
+        <div class="issueDialog" id="issueDialog" role="dialog" aria-modal="true" aria-labelledby="editIssueDialogTitle">
+            <form class="issueDialogCard" id="editIssueForm" data-issue-id="${temizle(issue.id)}">
+                <div class="issueDialogHeader">
+                    <div>
+                        <p class="eyebrow">Sorun Kaydını Düzenle</p>
+                        <h3 id="editIssueDialogTitle">${temizle(issue.productName)}</h3>
+                        <span>${temizle(issue.orderCode)} · ${temizle(issue.platform)}</span>
+                    </div>
+                    <button type="button" class="issueCloseButton" data-close-issue aria-label="Kapat">×</button>
+                </div>
+                <label>
+                    <span>Sorun Türü</span>
+                    <select name="issueType" required>
+                        <option value="missing" ${issue.issueType === "missing" ? "selected" : ""}>Eksik</option>
+                        <option value="damaged" ${issue.issueType === "damaged" ? "selected" : ""}>Hasarlı</option>
+                        <option value="stock_mismatch" ${issue.issueType === "stock_mismatch" ? "selected" : ""}>Yanlış stok</option>
+                    </select>
+                </label>
+                <label id="missingQuantityField" ${issue.issueType === "missing" ? "" : "hidden"}>
+                    <span>Eksik Adet</span>
+                    <input name="missingQuantity" type="number" min="1" max="999" value="${temizle(issue.missingQuantity || 1)}" ${issue.issueType === "missing" ? "required" : ""}>
+                </label>
+                <label>
+                    <span>Açıklama</span>
+                    <textarea name="note" maxlength="1000" placeholder="İsteğe bağlı not">${temizle(issue.note || "")}</textarea>
+                </label>
+                <div class="issueDialogActions">
+                    <button type="button" class="issueCancelButton" data-close-issue>İptal</button>
+                    <button type="submit" class="issueSaveButton">Değişiklikleri Kaydet</button>
+                </div>
+            </form>
+        </div>
+    `);
+}
+
 async function sorunluSiparislerEkraniGoster() {
     scannerDurdur();
     aktifSekme = "issues";
@@ -2273,7 +2455,10 @@ async function sorunluSiparislerEkraniGoster() {
                                             ${item.note ? `<p>${temizle(item.note)}</p>` : ""}
                                             <small>${temizle(item.createdBy)} · ${temizle(tarihSaatGoster(item.createdAt))}</small>
                                         </div>
-                                        <button type="button" data-resolve-issue="${temizle(item.id)}">Çözüldü</button>
+                                        <div class="issueEntryActions">
+                                            <button type="button" class="editIssueButton" data-edit-issue="${temizle(item.id)}">Düzenle</button>
+                                            <button type="button" data-resolve-issue="${temizle(item.id)}">Çözüldü</button>
+                                        </div>
                                     </div>
                                 `).join("")}
                             </div>
@@ -2524,6 +2709,43 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    if (event.target.closest("[data-close-user-dialog]")) {
+        document.getElementById("userDialog")?.remove();
+        return;
+    }
+
+    const parolaButonu = event.target.closest("[data-reset-user-password]");
+
+    if (parolaButonu) {
+        parolaDegistirmeFormuGoster(parolaButonu.dataset.resetUserPassword, parolaButonu.dataset.userName);
+        return;
+    }
+
+    const kullaniciDurumButonu = event.target.closest("[data-toggle-user]");
+
+    if (kullaniciDurumButonu) {
+        kullaniciDurumButonu.disabled = true;
+        try {
+            const active = kullaniciDurumButonu.dataset.userActive !== "true";
+            const response = await fetch(`/admin/users/${encodeURIComponent(kullaniciDurumButonu.dataset.toggleUser)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ active })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Kullanıcı durumu güncellenemedi.");
+            }
+
+            await yonetimEkraniGoster();
+        } catch (err) {
+            kullaniciDurumButonu.disabled = false;
+            alert(err.message);
+        }
+        return;
+    }
+
     const platformButonu = event.target.closest("[data-platform-scope]");
 
     if (platformButonu) {
@@ -2547,6 +2769,7 @@ result.addEventListener("click", async function (event) {
                 button.setAttribute("aria-selected", String(aktif));
             });
             hazirlamaGecmisiniFiltrele();
+            performansOzetiniGetir();
         }
         return;
     }
@@ -2576,6 +2799,17 @@ result.addEventListener("click", async function (event) {
 
     if (sorunluSiparisButonu) {
         await siparisSec(sorunluSiparisButonu.dataset.issueOrder);
+        return;
+    }
+
+    const sorunDuzenleButonu = event.target.closest("[data-edit-issue]");
+
+    if (sorunDuzenleButonu) {
+        const issue = acikSorunKayitlari.find(item => String(item.id) === sorunDuzenleButonu.dataset.editIssue);
+
+        if (issue) {
+            sorunDuzenlemeFormuGoster(issue);
+        }
         return;
     }
 
@@ -2686,6 +2920,31 @@ result.addEventListener("click", async function (event) {
         return;
     }
 
+    const kargoyuGeriAlButonu = event.target.closest("[data-undo-shipped]");
+
+    if (kargoyuGeriAlButonu) {
+        const code = kargoyuGeriAlButonu.dataset.undoShipped;
+        const kayit = sevkiyatKayitlari.find(item => item.orderCode === code);
+        const siparis = siparisler.find(item => siparisKodu(item) === code) || (kayit && {
+            order: { code: kayit.orderCode, platform: kayit.platform },
+            customer: { name: kayit.customerName }
+        });
+
+        if (siparis) {
+            kargoyuGeriAlButonu.disabled = true;
+            try {
+                await sevkiyatDurumuKaydet(siparis, "ready");
+                aktifSevkiyatListesi = "pending";
+                sevkiyatListeleriniGoster();
+                mesajGoster("warning", "Sevkiyat geri alındı", `${musteriAdi(siparis)} · ${code}`);
+            } catch (err) {
+                kargoyuGeriAlButonu.disabled = false;
+                mesajGoster("error", "Sevkiyat geri alınamadı", err.message);
+            }
+        }
+        return;
+    }
+
     const silButonu = event.target.closest("[data-remove-location]");
 
     if (silButonu) {
@@ -2728,6 +2987,73 @@ result.addEventListener("click", async function (event) {
 });
 
 result.addEventListener("submit", async function (event) {
+    const resetPasswordForm = event.target.closest("#resetPasswordForm");
+
+    if (resetPasswordForm) {
+        event.preventDefault();
+        const password = resetPasswordForm.elements.password.value;
+        const confirmation = resetPasswordForm.elements.passwordConfirm.value;
+
+        if (password !== confirmation) {
+            alert("Parolalar eşleşmiyor.");
+            return;
+        }
+
+        const button = resetPasswordForm.querySelector(".issueSaveButton");
+        button.disabled = true;
+        try {
+            const response = await fetch(`/admin/users/${encodeURIComponent(resetPasswordForm.dataset.userId)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ password })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Parola değiştirilemedi.");
+            }
+
+            document.getElementById("userDialog")?.remove();
+            alert("Parola başarıyla değiştirildi.");
+        } catch (err) {
+            button.disabled = false;
+            alert(err.message);
+        }
+        return;
+    }
+
+    const editIssueForm = event.target.closest("#editIssueForm");
+
+    if (editIssueForm) {
+        event.preventDefault();
+        const button = editIssueForm.querySelector(".issueSaveButton");
+        button.disabled = true;
+
+        try {
+            const response = await fetch(`/issues/${encodeURIComponent(editIssueForm.dataset.issueId)}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    issueType: editIssueForm.elements.issueType.value,
+                    missingQuantity: Number(editIssueForm.elements.missingQuantity.value || 1),
+                    note: editIssueForm.elements.note.value
+                })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || "Sorun kaydı güncellenemedi.");
+            }
+
+            document.getElementById("issueDialog")?.remove();
+            await sorunluSiparislerEkraniGoster();
+        } catch (err) {
+            button.disabled = false;
+            alert(err.message);
+        }
+        return;
+    }
+
     const issueForm = event.target.closest("#issueForm");
 
     if (issueForm) {
@@ -2915,6 +3241,11 @@ result.addEventListener("change", function (event) {
 
     if (["activityUserFilter", "activityStatusFilter", "activityDateFrom", "activityDateTo"].includes(event.target.id)) {
         hazirlamaGecmisiniFiltrele();
+        return;
+    }
+
+    if (event.target.id === "performanceDate") {
+        performansOzetiniGetir();
     }
 });
 
@@ -2997,6 +3328,10 @@ document.addEventListener("click", async event => {
     if (bildirimZamanlayici) {
         clearInterval(bildirimZamanlayici);
         bildirimZamanlayici = null;
+    }
+    if (apiDurumZamanlayici) {
+        clearInterval(apiDurumZamanlayici);
+        apiDurumZamanlayici = null;
     }
     girisEkraniGoster();
 });

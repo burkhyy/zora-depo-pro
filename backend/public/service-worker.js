@@ -1,7 +1,7 @@
-const CACHE_NAME = "zora-depo-v2.1.0";
+const CACHE_NAME = "zora-depo-v2.2.0";
 const STATIC_ASSETS = [
     "/style.css",
-    "/app.js?v=2.1.0",
+    "/app.js?v=2.2.0",
     "/manifest.webmanifest",
     "/icons/zora-depo-192.png",
     "/icons/zora-depo-512.png"
@@ -48,6 +48,8 @@ self.addEventListener("fetch", event => {
         || url.pathname.startsWith("/admin/")
         || url.pathname.startsWith("/issues")
         || url.pathname.startsWith("/notifications")
+        || url.pathname.startsWith("/api-status")
+        || url.pathname.startsWith("/reports/")
         || url.pathname === "/preparations"
         || url.pathname.startsWith("/preparations/")) {
         return;
