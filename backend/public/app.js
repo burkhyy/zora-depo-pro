@@ -17,6 +17,7 @@ let aktifKullanici = null;
 let yonetimHazirlamaKayitlari = [];
 let aktifSiparisSorunlari = [];
 let acikSorunKayitlari = [];
+let aktifSevkiyatListesi = "pending";
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
@@ -1454,6 +1455,28 @@ function sevkiyatListeleriniGoster() {
 
     document.getElementById("pendingShipmentCount").textContent = bekleyen.length;
     document.getElementById("shippedShipmentCount").textContent = verilen.length;
+    sevkiyatAltSekmesiniGoster(aktifSevkiyatListesi);
+}
+
+function sevkiyatAltSekmesiniGoster(sekme) {
+    aktifSevkiyatListesi = sekme === "shipped" ? "shipped" : "pending";
+
+    document.querySelectorAll("[data-shipment-view]").forEach(button => {
+        const aktif = button.dataset.shipmentView === aktifSevkiyatListesi;
+        button.classList.toggle("active", aktif);
+        button.setAttribute("aria-selected", String(aktif));
+    });
+
+    const bekleyenPanel = document.getElementById("pendingShipmentPanel");
+    const verilenPanel = document.getElementById("shippedShipmentPanel");
+
+    if (bekleyenPanel) {
+        bekleyenPanel.hidden = aktifSevkiyatListesi !== "pending";
+    }
+
+    if (verilenPanel) {
+        verilenPanel.hidden = aktifSevkiyatListesi !== "shipped";
+    }
 }
 
 async function sevkiyatEkraniGoster() {
@@ -1463,6 +1486,7 @@ async function sevkiyatEkraniGoster() {
     searchInput.disabled = true;
     document.body.classList.remove("detailMode", "locationMode", "adminMode", "issueMode");
     document.body.classList.add("shipmentMode");
+    aktifSevkiyatListesi = "pending";
     sekmeDurumuGuncelle();
 
     result.innerHTML = `
@@ -1482,18 +1506,24 @@ async function sevkiyatEkraniGoster() {
                 <strong>Kargoya verilen siparişin sevkiyat barkodunu okutun.</strong>
                 <span>Sipariş otomatik olarak Kargoya Verilenler listesine taşınır.</span>
             </div>
-            <div class="shipmentColumns">
-                <section>
+            <div class="shipmentViewTabs" role="tablist" aria-label="Sevkiyat listeleri">
+                <button class="active" type="button" role="tab" aria-selected="true" data-shipment-view="pending">
+                    Eksikte Bekleyenler <span id="pendingShipmentCount">0</span>
+                </button>
+                <button type="button" role="tab" aria-selected="false" data-shipment-view="shipped">
+                    Kargoya Verilenler <span id="shippedShipmentCount">0</span>
+                </button>
+            </div>
+            <div class="shipmentPanels">
+                <section id="pendingShipmentPanel" role="tabpanel">
                     <div class="sectionTitle">
                         <h3>Eksikte Bekleyenler</h3>
-                        <span id="pendingShipmentCount">0</span>
                     </div>
                     <div class="shipmentList" id="pendingShipments"></div>
                 </section>
-                <section>
+                <section id="shippedShipmentPanel" role="tabpanel" hidden>
                     <div class="sectionTitle">
                         <h3>Kargoya Verilenler</h3>
-                        <span id="shippedShipmentCount">0</span>
                     </div>
                     <div class="shipmentList" id="shippedShipments"></div>
                 </section>
@@ -2182,6 +2212,13 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const sevkiyatSekmeButonu = event.target.closest("[data-shipment-view]");
+
+    if (sevkiyatSekmeButonu) {
+        sevkiyatAltSekmesiniGoster(sevkiyatSekmeButonu.dataset.shipmentView);
+        return;
+    }
+
     const sorunKapatButonu = event.target.closest("[data-close-issue]");
 
     if (sorunKapatButonu) {
