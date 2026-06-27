@@ -33,7 +33,7 @@ h1{
 
 .topTabs{
     display:grid;
-    grid-template-columns:repeat(4, minmax(0, 1fr));
+    grid-template-columns:repeat(5, minmax(0, 1fr));
     gap:8px;
     background:#e4e7ec;
     border-radius:12px;
@@ -42,7 +42,7 @@ h1{
 }
 
 .topTabs.adminTabs{
-    grid-template-columns:repeat(5, minmax(0, 1fr));
+    grid-template-columns:repeat(6, minmax(0, 1fr));
 }
 
 .userBar{
@@ -109,6 +109,10 @@ h1{
 }
 
 .issueMode .searchBox{
+    display:none;
+}
+
+.historyMode .searchBox{
     display:none;
 }
 
@@ -1501,7 +1505,8 @@ h1{
     flex:0 0 auto;
 }
 
-.adminTool{
+.adminTool,
+.historyTool{
     background:#fff;
     border:1px solid #e3e8ef;
     border-radius:12px;

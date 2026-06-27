@@ -687,6 +687,7 @@ function listeGoster(liste) {
     document.body.classList.remove("shipmentMode");
     document.body.classList.remove("adminMode");
     document.body.classList.remove("issueMode");
+    document.body.classList.remove("historyMode");
     sekmeDurumuGuncelle();
 
     result.innerHTML = "";
@@ -1307,6 +1308,7 @@ function rafEkraniGoster() {
     document.body.classList.remove("shipmentMode");
     document.body.classList.remove("adminMode");
     document.body.classList.remove("issueMode");
+    document.body.classList.remove("historyMode");
     document.body.classList.add("locationMode");
     sekmeDurumuGuncelle();
 
@@ -1484,7 +1486,7 @@ async function sevkiyatEkraniGoster() {
     aktifSekme = "shipments";
     aktifSiparis = null;
     searchInput.disabled = true;
-    document.body.classList.remove("detailMode", "locationMode", "adminMode", "issueMode");
+    document.body.classList.remove("detailMode", "locationMode", "adminMode", "issueMode", "historyMode");
     document.body.classList.add("shipmentMode");
     aktifSevkiyatListesi = "pending";
     sekmeDurumuGuncelle();
@@ -1666,6 +1668,92 @@ function hazirlamaGecmisiniFiltrele() {
     }
 }
 
+async function hazirlamaGecmisiEkraniGoster() {
+    scannerDurdur();
+    aktifSekme = "history";
+    searchInput.disabled = true;
+    document.body.classList.remove("detailMode", "locationMode", "shipmentMode", "issueMode", "adminMode");
+    document.body.classList.add("historyMode");
+    sekmeDurumuGuncelle();
+    result.innerHTML = `<div class="loading">Hazırlama geçmişi yükleniyor...</div>`;
+
+    try {
+        const response = await fetch("/preparations");
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.error || "Hazırlama geçmişi alınamadı.");
+        }
+
+        yonetimHazirlamaKayitlari = data.result;
+        result.innerHTML = `
+            <section class="historyTool">
+                <div class="locationHeader">
+                    <div>
+                        <p class="eyebrow">Operasyon Geçmişi</p>
+                        <h2>Sipariş Hazırlama Geçmişi</h2>
+                        <p>Hazırlanan siparişleri, personeli ve işlem saatlerini görüntüleyin.</p>
+                    </div>
+                </div>
+                <div class="sectionTitle">
+                    <h3>Hazırlama Kayıtları</h3>
+                    <span id="activityResultCount">${temizle(data.result.length)} / ${temizle(data.result.length)} kayıt</span>
+                </div>
+                <div class="activityFilters">
+                    <label class="activitySearchField">
+                        <span>Arama</span>
+                        <input id="activitySearch" type="search" placeholder="Sipariş no, müşteri veya personel">
+                    </label>
+                    <label>
+                        <span>Personel</span>
+                        <select id="activityUserFilter">
+                            <option value="">Tüm personel</option>
+                            ${data.users.map(user => `<option value="${temizle(user.id)}">${temizle(user.displayName)}</option>`).join("")}
+                        </select>
+                    </label>
+                    <label>
+                        <span>Durum</span>
+                        <select id="activityStatusFilter">
+                            <option value="">Tüm durumlar</option>
+                            <option value="started">Hazırlanıyor</option>
+                            <option value="completed">Tamamlandı</option>
+                        </select>
+                    </label>
+                    <label>
+                        <span>Başlangıç</span>
+                        <input id="activityDateFrom" type="date">
+                    </label>
+                    <label>
+                        <span>Bitiş</span>
+                        <input id="activityDateTo" type="date">
+                    </label>
+                    <button id="clearActivityFilters" type="button">Filtreleri Temizle</button>
+                </div>
+                <div class="activityTableWrap">
+                    <table class="activityTable">
+                        <thead>
+                            <tr>
+                                <th>Sipariş</th>
+                                <th>Müşteri</th>
+                                <th>Başlatan</th>
+                                <th>Başlangıç</th>
+                                <th>Tamamlayan</th>
+                                <th>Tamamlanma</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="activityTableBody">
+                            ${hazirlamaGecmisiSatirlari(data.result)}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        `;
+    } catch (err) {
+        result.innerHTML = `<div class="notfound">${temizle(err.message)}</div>`;
+    }
+}
+
 async function yonetimEkraniGoster() {
     if (aktifKullanici?.role !== "admin") {
         return;
@@ -1674,7 +1762,7 @@ async function yonetimEkraniGoster() {
     scannerDurdur();
     aktifSekme = "users";
     searchInput.disabled = true;
-    document.body.classList.remove("detailMode", "locationMode", "shipmentMode", "issueMode");
+    document.body.classList.remove("detailMode", "locationMode", "shipmentMode", "issueMode", "historyMode");
     document.body.classList.add("adminMode");
     sekmeDurumuGuncelle();
     result.innerHTML = `<div class="loading">Kullanıcılar ve işlem geçmişi yükleniyor...</div>`;
@@ -1868,7 +1956,7 @@ async function sorunluSiparislerEkraniGoster() {
     scannerDurdur();
     aktifSekme = "issues";
     searchInput.disabled = true;
-    document.body.classList.remove("detailMode", "locationMode", "shipmentMode", "adminMode");
+    document.body.classList.remove("detailMode", "locationMode", "shipmentMode", "adminMode", "historyMode");
     document.body.classList.add("issueMode");
     sekmeDurumuGuncelle();
     result.innerHTML = `<div class="loading">Sorunlu siparişler yükleniyor...</div>`;
@@ -2075,7 +2163,7 @@ function siparisDetayGoster(siparis) {
     sonOkunanBarkod = "";
     sonOkumaZamani = 0;
     searchInput.disabled = true;
-    document.body.classList.remove("adminMode", "locationMode", "shipmentMode", "issueMode");
+    document.body.classList.remove("adminMode", "locationMode", "shipmentMode", "issueMode", "historyMode");
     document.body.classList.add("detailMode");
 
     const urunler = siparis.products || [];
@@ -2584,6 +2672,8 @@ tabButtons.forEach(button => {
 
         if (this.dataset.tab === "users") {
             yonetimEkraniGoster();
+        } else if (this.dataset.tab === "history") {
+            hazirlamaGecmisiEkraniGoster();
         } else if (this.dataset.tab === "issues") {
             sorunluSiparislerEkraniGoster();
         } else if (this.dataset.tab === "shipments") {

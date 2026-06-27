@@ -511,7 +511,7 @@ app.post("/admin/users", yoneticiGerekli, (req, res) => {
     }
 });
 
-app.get("/admin/preparations", yoneticiGerekli, (req, res) => {
+function hazirlamaGecmisiGetir() {
     const rows = database.prepare(`
         SELECT
             preparations.id,
@@ -531,18 +531,37 @@ app.get("/admin/preparations", yoneticiGerekli, (req, res) => {
         LIMIT 500
     `).all();
 
+    return rows.map(row => ({
+        id: row.id,
+        orderCode: row.order_code,
+        customerName: row.customer_name,
+        status: row.status,
+        startedBy: row.started_by,
+        startedByUserId: row.started_by_user_id,
+        completedBy: row.completed_by || "",
+        completedByUserId: row.completed_by_user_id,
+        startedAt: row.started_at,
+        completedAt: row.completed_at
+    }));
+}
+
+app.get("/admin/preparations", yoneticiGerekli, (req, res) => {
+    res.json({ result: hazirlamaGecmisiGetir() });
+});
+
+app.get("/preparations", (req, res) => {
+    const users = database.prepare(`
+        SELECT id, display_name
+        FROM app_users
+        WHERE active = 1
+        ORDER BY display_name COLLATE NOCASE
+    `).all();
+
     res.json({
-        result: rows.map(row => ({
-            id: row.id,
-            orderCode: row.order_code,
-            customerName: row.customer_name,
-            status: row.status,
-            startedBy: row.started_by,
-            startedByUserId: row.started_by_user_id,
-            completedBy: row.completed_by || "",
-            completedByUserId: row.completed_by_user_id,
-            startedAt: row.started_at,
-            completedAt: row.completed_at
+        result: hazirlamaGecmisiGetir(),
+        users: users.map(user => ({
+            id: user.id,
+            displayName: user.display_name
         }))
     });
 });
