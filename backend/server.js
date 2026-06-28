@@ -707,6 +707,9 @@ const productImageCache = new Map(
         .map(item => [Number(item.product_id), item.image_url])
 );
 const productPageCache = new Map();
+let fullProductListCache = null;
+let fullProductListPromise = null;
+const productListCacheMs = Math.max(60, Number(process.env.PRODUCT_CACHE_SECONDS || 600)) * 1000;
 const productImageSave = database.prepare(`
     INSERT INTO product_image_cache (product_id, image_url, updated_at)
     VALUES (?, ?, CURRENT_TIMESTAMP)
@@ -834,36 +837,95 @@ async function urunGorselleriniGetir(productIds) {
 }
 
 async function urunListesiniGetir() {
-    const pageSize = Number(process.env.PRODUCT_PAGE_SIZE || 500);
-    const endpoints = [
-        `/product/lists?pageStart=0&pageSize=${pageSize}&orderBy=id&sort=desc`,
-        `/product/listsV2?pageStart=0&pageSize=${pageSize}&orderBy=id&sort=desc`,
-        `/product/list?pageStart=0&pageSize=${pageSize}&orderBy=id&sort=desc`
-    ];
-
-    let sonHata = null;
-
-    for (const endpoint of endpoints) {
-        try {
-            const response = await API.get(endpoint);
-            const list = listeyiBul(response.data);
-
-            return {
-                source: endpoint,
-                count: list.length,
-                result: { list },
-                raw: response.data
-            };
-        } catch (err) {
-            sonHata = err;
-
-            if (!err.response || ![404, 405].includes(err.response.status)) {
-                throw err;
-            }
-        }
+    if (fullProductListCache && fullProductListCache.expiresAt > Date.now()) {
+        return fullProductListCache.data;
     }
 
-    throw sonHata;
+    if (fullProductListPromise) {
+        return fullProductListPromise;
+    }
+
+    fullProductListPromise = (async () => {
+        const endpoints = ["/product/lists", "/product/listsV2", "/product/list"];
+        const requestedPageSize = Math.max(50, Number(process.env.PRODUCT_PAGE_SIZE || 100));
+        const concurrency = Math.max(2, Math.min(10, Number(process.env.PRODUCT_PAGE_CONCURRENCY || 6)));
+        let sonHata = null;
+
+        for (const endpoint of endpoints) {
+            try {
+                const firstUrl = `${endpoint}?pageStart=0&pageSize=${requestedPageSize}&orderBy=id&sort=desc`;
+                const firstResponse = await API.get(firstUrl);
+                const firstList = listeyiBul(firstResponse.data);
+                const reportedPageSize = Number(
+                    firstResponse.data?.result?.pageSize
+                    || firstResponse.data?.pageSize
+                    || firstList.length
+                    || requestedPageSize
+                );
+                const total = Math.max(
+                    firstList.length,
+                    Number(firstResponse.data?.result?.total || firstResponse.data?.total || firstList.length)
+                );
+                const safeTotal = Math.min(total, 50000);
+                const starts = [];
+
+                for (let start = reportedPageSize; start < safeTotal; start += reportedPageSize) {
+                    starts.push(start);
+                }
+
+                const pages = [firstList];
+                for (let index = 0; index < starts.length; index += concurrency) {
+                    const batch = starts.slice(index, index + concurrency);
+                    const batchPages = await Promise.all(batch.map(async pageStart => {
+                        const url = `${endpoint}?pageStart=${pageStart}&pageSize=${reportedPageSize}&orderBy=id&sort=desc`;
+                        const response = await API.get(url);
+                        return listeyiBul(response.data);
+                    }));
+                    pages.push(...batchPages);
+                }
+
+                const unique = new Map();
+                pages.flat().forEach((product, index) => {
+                    const key = String(
+                        product?.id
+                        ?? product?.productId
+                        ?? product?.barcode
+                        ?? product?.barCode
+                        ?? `${index}:${JSON.stringify(product).slice(0, 200)}`
+                    );
+                    if (!unique.has(key)) unique.set(key, product);
+                });
+                const list = [...unique.values()];
+                const data = {
+                    source: endpoint,
+                    count: list.length,
+                    total,
+                    pages: pages.length,
+                    result: { list },
+                    raw: firstResponse.data
+                };
+                fullProductListCache = {
+                    expiresAt: Date.now() + productListCacheMs,
+                    data
+                };
+                apiDurumunuGuncelle(true);
+                return data;
+            } catch (err) {
+                sonHata = err;
+                if (!err.response || ![404, 405].includes(err.response.status)) {
+                    throw err;
+                }
+            }
+        }
+
+        throw sonHata;
+    })();
+
+    try {
+        return await fullProductListPromise;
+    } finally {
+        fullProductListPromise = null;
+    }
 }
 
 async function urunDetayiniGetir(id) {
