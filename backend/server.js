@@ -7,7 +7,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const ExcelJS = require("exceljs");
 const PDFDocument = require("pdfkit");
-const { DatabaseSync } = require("node:sqlite");
+const { DatabaseSync, backup } = require("node:sqlite");
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -23,7 +23,10 @@ if (process.env.RAILWAY_ENVIRONMENT && (!appUsername || !appPassword)) {
 
 fs.mkdirSync(dataDirectory, { recursive: true });
 
-const database = new DatabaseSync(path.join(dataDirectory, "locations.db"));
+const databasePath = path.join(dataDirectory, "locations.db");
+const backupDirectory = path.join(dataDirectory, "backups");
+const database = new DatabaseSync(databasePath);
+fs.mkdirSync(backupDirectory, { recursive: true });
 database.exec(`
     CREATE TABLE IF NOT EXISTS product_locations (
         barcode TEXT PRIMARY KEY COLLATE NOCASE,
@@ -123,6 +126,30 @@ database.exec(`
         product_id TEXT PRIMARY KEY,
         image_url TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_user_id INTEGER,
+        actor_name TEXT NOT NULL DEFAULT 'Sistem',
+        action TEXT NOT NULL,
+        entity_type TEXT NOT NULL,
+        entity_id TEXT NOT NULL DEFAULT '',
+        summary TEXT NOT NULL DEFAULT '',
+        details_json TEXT NOT NULL DEFAULT '{}',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (actor_user_id) REFERENCES app_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at
+        ON audit_logs(created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
+        ON audit_logs(entity_type, entity_id);
+
+    CREATE TABLE IF NOT EXISTS operation_alert_keys (
+        alert_key TEXT PRIMARY KEY,
+        last_notified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 `);
 
@@ -293,6 +320,10 @@ function oturumGerekli(req, res, next) {
 }
 
 function yoneticiGerekli(req, res, next) {
+    if (!req.user) {
+        return res.status(401).json({ error: "Oturum gerekli." });
+    }
+
     if (req.user.role !== "admin") {
         return res.status(403).json({ error: "Yönetici yetkisi gerekli." });
     }
@@ -308,6 +339,43 @@ function kullaniciyiDonustur(user) {
         role: user.role,
         active: user.active === undefined ? true : Boolean(user.active),
         createdAt: user.created_at
+    };
+}
+
+function denetimKaydiOlustur(req, action, entityType, entityId, summary, details = {}) {
+    const actor = req?.user;
+    database.prepare(`
+        INSERT INTO audit_logs (
+            actor_user_id, actor_name, action, entity_type, entity_id, summary, details_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        actor?.id || null,
+        actor?.display_name || "Sistem",
+        String(action).slice(0, 80),
+        String(entityType).slice(0, 80),
+        String(entityId || "").slice(0, 160),
+        String(summary || "").slice(0, 500),
+        JSON.stringify(details || {}).slice(0, 8000)
+    );
+}
+
+function denetimKaydiniDonustur(row) {
+    let details = {};
+    try {
+        details = JSON.parse(row.details_json || "{}");
+    } catch {
+        details = {};
+    }
+    return {
+        id: row.id,
+        actorUserId: row.actor_user_id,
+        actorName: row.actor_name,
+        action: row.action,
+        entityType: row.entity_type,
+        entityId: row.entity_id,
+        summary: row.summary,
+        details,
+        createdAt: row.created_at
     };
 }
 
@@ -337,6 +405,7 @@ app.post("/auth/login", (req, res) => {
         "Set-Cookie",
         `zora_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${secure ? "; Secure" : ""}`
     );
+    denetimKaydiOlustur({ user }, "user.login", "user", user.id, `${user.display_name} oturum açtı`);
     res.json({ user: kullaniciyiDonustur(user) });
 });
 
@@ -357,7 +426,7 @@ app.get("/auth/me", oturumGerekli, (req, res) => {
 });
 
 app.use((req, res, next) => {
-    if (req.path === "/" || req.path.includes(".")) {
+    if (req.path === "/") {
         return next();
     }
 
@@ -421,6 +490,211 @@ app.post("/notifications/read", (req, res) => {
     res.status(204).end();
 });
 
+const backupRetentionDays = Math.max(3, Number(process.env.BACKUP_RETENTION_DAYS || 14));
+const preparationAlertHours = Math.max(1, Number(process.env.PREPARATION_ALERT_HOURS || 2));
+const issueAlertHours = Math.max(1, Number(process.env.ISSUE_ALERT_HOURS || 24));
+const shipmentAlertHours = Math.max(1, Number(process.env.SHIPMENT_ALERT_HOURS || 8));
+
+function yedekDosyalariniListele() {
+    return fs.readdirSync(backupDirectory)
+        .filter(name => /^zora-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name))
+        .map(name => {
+            const fullPath = path.join(backupDirectory, name);
+            const stat = fs.statSync(fullPath);
+            return {
+                name,
+                size: stat.size,
+                createdAt: stat.mtime.toISOString()
+            };
+        })
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function eskiYedekleriTemizle() {
+    const cutoff = Date.now() - backupRetentionDays * 24 * 60 * 60 * 1000;
+    yedekDosyalariniListele().forEach(item => {
+        if (new Date(item.createdAt).getTime() < cutoff) {
+            fs.unlinkSync(path.join(backupDirectory, item.name));
+        }
+    });
+}
+
+async function yedekOlustur(kind = "auto") {
+    const now = new Date();
+    const stamp = now.toISOString().replace(/\D/g, "").slice(0, 14);
+    const fileName = `zora-depo-${stamp.slice(0, 8)}-${stamp.slice(8)}-${kind}.db`;
+    const target = path.join(backupDirectory, fileName);
+    await backup(database, target);
+    eskiYedekleriTemizle();
+    return yedekDosyalariniListele().find(item => item.name === fileName);
+}
+
+async function gunlukYedegiKontrolEt() {
+    const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+    const exists = yedekDosyalariniListele().some(item =>
+        item.name.startsWith(`zora-depo-${today}`) && item.name.endsWith("-auto.db")
+    );
+    if (!exists) {
+        await yedekOlustur("auto");
+        denetimKaydiOlustur(null, "backup.auto", "system", "", "Günlük otomatik yedek oluşturuldu");
+    }
+}
+
+function kritikBildirimOlustur(alertKey, type, title, message, orderCode = "") {
+    const recent = database.prepare(`
+        SELECT alert_key FROM operation_alert_keys
+        WHERE alert_key = ? AND last_notified_at > datetime('now', '-24 hours')
+    `).get(alertKey);
+    if (recent) return false;
+
+    bildirimOlustur(type, title, message, orderCode, "admin");
+    database.prepare(`
+        INSERT INTO operation_alert_keys (alert_key, last_notified_at)
+        VALUES (?, CURRENT_TIMESTAMP)
+        ON CONFLICT(alert_key) DO UPDATE SET last_notified_at = CURRENT_TIMESTAMP
+    `).run(alertKey);
+    denetimKaydiOlustur(null, "alert.create", "order", orderCode, title, { alertKey, message });
+    return true;
+}
+
+function kritikOperasyonlariKontrolEt() {
+    let created = 0;
+    const stalePreparations = database.prepare(`
+        SELECT order_code, customer_name FROM order_preparations
+        WHERE status = 'started' AND started_at <= datetime('now', ?)
+        ORDER BY started_at ASC LIMIT 25
+    `).all(`-${preparationAlertHours} hours`);
+    stalePreparations.forEach(item => {
+        created += Number(kritikBildirimOlustur(
+            `preparation:${item.order_code}`,
+            "preparation_delayed",
+            "Hazırlama gecikti",
+            `${item.customer_name || item.order_code} · ${preparationAlertHours} saati aştı`,
+            item.order_code
+        ));
+    });
+
+    const staleIssues = database.prepare(`
+        SELECT order_code, customer_name, COUNT(*) AS issue_count
+        FROM order_product_issues
+        WHERE status = 'open' AND created_at <= datetime('now', ?)
+        GROUP BY order_code, customer_name
+        ORDER BY MIN(created_at) ASC LIMIT 25
+    `).all(`-${issueAlertHours} hours`);
+    staleIssues.forEach(item => {
+        created += Number(kritikBildirimOlustur(
+            `issue:${item.order_code}`,
+            "issue_delayed",
+            "Eksik sipariş uzun süredir bekliyor",
+            `${item.customer_name || item.order_code} · ${item.issue_count} açık kayıt`,
+            item.order_code
+        ));
+    });
+
+    const staleShipments = database.prepare(`
+        SELECT order_code, customer_name FROM order_shipments
+        WHERE status = 'ready' AND ready_at <= datetime('now', ?)
+        ORDER BY ready_at ASC LIMIT 25
+    `).all(`-${shipmentAlertHours} hours`);
+    staleShipments.forEach(item => {
+        created += Number(kritikBildirimOlustur(
+            `shipment:${item.order_code}`,
+            "shipment_delayed",
+            "Hazır paket kargoya çıkmadı",
+            `${item.customer_name || item.order_code} · ${shipmentAlertHours} saati aştı`,
+            item.order_code
+        ));
+    });
+
+    const stockMismatches = database.prepare(`
+        SELECT id, order_code, customer_name, product_name
+        FROM order_product_issues
+        WHERE status = 'open' AND issue_type = 'stock_mismatch'
+        ORDER BY created_at ASC LIMIT 25
+    `).all();
+    stockMismatches.forEach(item => {
+        created += Number(kritikBildirimOlustur(
+            `stock:${item.id}`,
+            "stock_mismatch_critical",
+            "Kritik stok uyuşmazlığı",
+            `${item.customer_name || item.order_code} · ${item.product_name}`,
+            item.order_code
+        ));
+    });
+    return created;
+}
+
+app.get("/admin/backups", yoneticiGerekli, (req, res) => {
+    res.json({
+        retentionDays: backupRetentionDays,
+        result: yedekDosyalariniListele()
+    });
+});
+
+app.post("/admin/backups", yoneticiGerekli, async (req, res, next) => {
+    try {
+        const item = await yedekOlustur("manual");
+        denetimKaydiOlustur(req, "backup.manual", "system", item.name, "Manuel veritabanı yedeği oluşturuldu", {
+            size: item.size
+        });
+        res.status(201).json({ result: item });
+    } catch (err) {
+        next(err);
+    }
+});
+
+app.get("/admin/backups/:name", yoneticiGerekli, (req, res) => {
+    const name = path.basename(String(req.params.name || ""));
+    if (!yedekDosyalariniListele().some(item => item.name === name)) {
+        return res.status(404).json({ error: "Yedek dosyası bulunamadı." });
+    }
+    denetimKaydiOlustur(req, "backup.download", "system", name, "Veritabanı yedeği indirildi");
+    res.download(path.join(backupDirectory, name), name);
+});
+
+app.get("/admin/operations/status", yoneticiGerekli, (req, res) => {
+    const latestBackup = yedekDosyalariniListele()[0] || null;
+    const counts = {
+        delayedPreparations: database.prepare(`
+            SELECT COUNT(*) AS count FROM order_preparations
+            WHERE status = 'started' AND started_at <= datetime('now', ?)
+        `).get(`-${preparationAlertHours} hours`).count,
+        delayedIssues: database.prepare(`
+            SELECT COUNT(DISTINCT order_code) AS count FROM order_product_issues
+            WHERE status = 'open' AND created_at <= datetime('now', ?)
+        `).get(`-${issueAlertHours} hours`).count,
+        delayedShipments: database.prepare(`
+            SELECT COUNT(*) AS count FROM order_shipments
+            WHERE status = 'ready' AND ready_at <= datetime('now', ?)
+        `).get(`-${shipmentAlertHours} hours`).count,
+        stockMismatches: database.prepare(`
+            SELECT COUNT(*) AS count FROM order_product_issues
+            WHERE status = 'open' AND issue_type = 'stock_mismatch'
+        `).get().count
+    };
+    res.json({
+        latestBackup,
+        backupRetentionDays,
+        thresholds: {
+            preparationHours: preparationAlertHours,
+            issueHours: issueAlertHours,
+            shipmentHours: shipmentAlertHours
+        },
+        counts
+    });
+});
+
+app.post("/admin/operations/check", yoneticiGerekli, (req, res) => {
+    const created = kritikOperasyonlariKontrolEt();
+    denetimKaydiOlustur(req, "alert.manual_check", "system", "", "Kritik operasyon kontrolü çalıştırıldı", { created });
+    res.json({ created });
+});
+
+gunlukYedegiKontrolEt().catch(err => console.error("Otomatik yedek olusturulamadi:", err));
+setInterval(() => gunlukYedegiKontrolEt().catch(err => console.error("Otomatik yedek olusturulamadi:", err)), 60 * 60 * 1000).unref();
+setTimeout(() => kritikOperasyonlariKontrolEt(), 30 * 1000).unref();
+setInterval(() => kritikOperasyonlariKontrolEt(), 15 * 60 * 1000).unref();
+
 const API = axios.create({
     baseURL: process.env.API_URL,
     headers: {
@@ -448,9 +722,32 @@ const upstreamStatus = {
 };
 
 function apiDurumunuGuncelle(healthy, message = "") {
+    const previous = upstreamStatus.healthy;
     upstreamStatus.healthy = healthy;
     upstreamStatus.message = message || (healthy ? "Qukasoft API bağlantısı çalışıyor." : "Qukasoft API bağlantısı kurulamadı.");
     upstreamStatus[healthy ? "lastSuccessAt" : "lastErrorAt"] = new Date().toISOString();
+
+    if (!healthy && previous !== false) {
+        bildirimOlustur(
+            "api_outage",
+            "Qukasoft API bağlantısı kesildi",
+            upstreamStatus.message,
+            "",
+            "admin"
+        );
+        denetimKaydiOlustur(null, "api.outage", "system", "qukasoft", "Qukasoft API bağlantısı kesildi", {
+            message: upstreamStatus.message
+        });
+    } else if (healthy && previous === false) {
+        bildirimOlustur(
+            "api_recovered",
+            "Qukasoft API bağlantısı düzeldi",
+            "Trendyol ve Zorabutik siparişleri yeniden güncelleniyor.",
+            "",
+            "admin"
+        );
+        denetimKaydiOlustur(null, "api.recovered", "system", "qukasoft", "Qukasoft API bağlantısı yeniden kuruldu");
+    }
 }
 
 function listeyiBul(data) {
@@ -746,6 +1043,10 @@ app.post("/admin/users", yoneticiGerekli, (req, res) => {
             ) VALUES (?, ?, ?, ?, ?)
         `).run(username, displayName, role, password.hash, password.salt);
         const user = database.prepare(`SELECT * FROM app_users WHERE id = ?`).get(result.lastInsertRowid);
+        denetimKaydiOlustur(req, "user.create", "user", user.id, `${displayName} kullanıcısı oluşturuldu`, {
+            username,
+            role
+        });
         res.status(201).json({ result: kullaniciyiDonustur(user) });
     } catch (err) {
         if (String(err.message).includes("UNIQUE")) {
@@ -775,6 +1076,13 @@ app.patch("/admin/users/:id", yoneticiGerekli, (req, res) => {
         if (!active) {
             database.prepare(`DELETE FROM app_sessions WHERE user_id = ?`).run(id);
         }
+        denetimKaydiOlustur(
+            req,
+            active ? "user.enable" : "user.disable",
+            "user",
+            id,
+            `${user.display_name} ${active ? "etkinleştirildi" : "devre dışı bırakıldı"}`
+        );
     }
 
     if (req.body.password !== undefined) {
@@ -789,10 +1097,51 @@ app.patch("/admin/users/:id", yoneticiGerekli, (req, res) => {
             UPDATE app_users SET password_hash = ?, password_salt = ? WHERE id = ?
         `).run(password.hash, password.salt, id);
         database.prepare(`DELETE FROM app_sessions WHERE user_id = ? AND user_id != ?`).run(id, req.user.id);
+        denetimKaydiOlustur(req, "user.password_change", "user", id, `${user.display_name} parolası değiştirildi`);
     }
 
     const updated = database.prepare(`SELECT * FROM app_users WHERE id = ?`).get(id);
     res.json({ result: kullaniciyiDonustur(updated) });
+});
+
+app.get("/admin/audit-logs", yoneticiGerekli, (req, res) => {
+    const search = String(req.query.search || "").trim().slice(0, 120);
+    const action = String(req.query.action || "").trim().slice(0, 80);
+    const dateFrom = String(req.query.dateFrom || "").trim();
+    const dateTo = String(req.query.dateTo || "").trim();
+    const conditions = [];
+    const params = [];
+
+    if (search) {
+        conditions.push(`(
+            actor_name LIKE ? COLLATE NOCASE
+            OR entity_id LIKE ? COLLATE NOCASE
+            OR summary LIKE ? COLLATE NOCASE
+        )`);
+        params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+    if (action) {
+        conditions.push("action = ?");
+        params.push(action);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) {
+        conditions.push("date(created_at, '+3 hours') >= date(?)");
+        params.push(dateFrom);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) {
+        conditions.push("date(created_at, '+3 hours') <= date(?)");
+        params.push(dateTo);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const rows = database.prepare(`
+        SELECT * FROM audit_logs
+        ${where}
+        ORDER BY created_at DESC
+        LIMIT 500
+    `).all(...params);
+
+    res.json({ result: rows.map(denetimKaydiniDonustur) });
 });
 
 function hazirlamaGecmisiGetir() {
@@ -1090,6 +1439,13 @@ app.post("/issues", (req, res) => {
         orderCode,
         "admin"
     );
+    denetimKaydiOlustur(req, "issue.create", "issue", result.lastInsertRowid, `${orderCode} için ${issueLabels[issueType]} kaydı açıldı`, {
+        orderCode,
+        productName,
+        barcode,
+        issueType,
+        missingQuantity
+    });
 
     res.status(201).json({ result: sorunKaydiniDonustur(row) });
 });
@@ -1134,6 +1490,11 @@ app.patch("/issues/:id", (req, res) => {
         issue.order_code,
         "admin"
     );
+    denetimKaydiOlustur(req, "issue.update", "issue", id, `${issue.order_code} sorun kaydı güncellendi`, {
+        issueType,
+        missingQuantity,
+        note
+    });
     res.json({ result: sorunKaydiniDonustur(row) });
 });
 
@@ -1166,6 +1527,9 @@ app.patch("/issues/:id/resolve", (req, res) => {
         issue.order_code,
         "all"
     );
+    denetimKaydiOlustur(req, "issue.resolve", "issue", id, `${issue.order_code} sorun kaydı çözüldü`, {
+        productName: issue.product_name
+    });
 
     res.json({ result: sorunKaydiniDonustur(row) });
 });
@@ -1192,6 +1556,10 @@ app.post("/preparations/start", (req, res) => {
             ) VALUES (?, ?, ?, ?)
         `).run(orderCode, customerName, platform, req.user.id);
         preparation = database.prepare(`SELECT * FROM order_preparations WHERE id = ?`).get(result.lastInsertRowid);
+        denetimKaydiOlustur(req, "preparation.start", "order", orderCode, `${orderCode} hazırlanmaya başlandı`, {
+            customerName,
+            platform
+        });
     } else if (!preparation.platform && platform) {
         database.prepare(`UPDATE order_preparations SET platform = ? WHERE id = ?`).run(platform, preparation.id);
         preparation.platform = platform;
@@ -1240,6 +1608,10 @@ app.post("/preparations/complete", (req, res) => {
         orderCode,
         "admin"
     );
+    denetimKaydiOlustur(req, "preparation.complete", "order", orderCode, `${orderCode} hazırlandı`, {
+        customerName,
+        platform
+    });
 
     res.json({ result: { id: preparation.id, status: "completed" } });
 });
@@ -1301,11 +1673,20 @@ app.put("/locations/:barcode", (req, res) => {
         SELECT * FROM product_locations WHERE barcode = ? COLLATE NOCASE
     `).get(barcode);
 
+    denetimKaydiOlustur(req, "location.save", "product", barcode, `${name || barcode} rafı ${location} olarak kaydedildi`, {
+        productId,
+        color,
+        size,
+        location
+    });
     res.json({ result: rafKaydiniDonustur(row) });
 });
 
 app.delete("/locations/:barcode", (req, res) => {
     const barcode = String(req.params.barcode || "").trim();
+    const previous = database.prepare(`
+        SELECT * FROM product_locations WHERE barcode = ? COLLATE NOCASE
+    `).get(barcode);
     const result = database.prepare(`
         DELETE FROM product_locations WHERE barcode = ? COLLATE NOCASE
     `).run(barcode);
@@ -1314,6 +1695,9 @@ app.delete("/locations/:barcode", (req, res) => {
         return res.status(404).json({ error: "Raf kaydi bulunamadi." });
     }
 
+    denetimKaydiOlustur(req, "location.delete", "product", barcode, `${previous?.name || barcode} raf ataması silindi`, {
+        previousLocation: previous?.location_code || ""
+    });
     res.status(204).end();
 });
 
@@ -1347,6 +1731,10 @@ app.put("/shipments/:orderCode", (req, res) => {
     if (!["pending", "ready", "shipped"].includes(status)) {
         return res.status(400).json({ error: "Gecersiz sevkiyat durumu." });
     }
+
+    const previousShipment = database.prepare(`
+        SELECT status FROM order_shipments WHERE order_code = ? COLLATE NOCASE
+    `).get(orderCode);
 
     if (status === "shipped") {
         const existingShipment = database.prepare(`
@@ -1414,6 +1802,17 @@ app.put("/shipments/:orderCode", (req, res) => {
     const row = database.prepare(`
         SELECT * FROM order_shipments WHERE order_code = ? COLLATE NOCASE
     `).get(orderCode);
+    const shipmentActions = {
+        pending: "shipment.pending",
+        ready: previousShipment?.status === "shipped" ? "shipment.undo" : "shipment.ready",
+        shipped: "shipment.shipped"
+    };
+    denetimKaydiOlustur(req, shipmentActions[status], "order", orderCode, `${orderCode} sevkiyat durumu ${status} olarak değiştirildi`, {
+        previousStatus: previousShipment?.status || "",
+        status,
+        customerName,
+        platform
+    });
     res.json({ result: sevkiyatKaydiniDonustur(row) });
 });
 

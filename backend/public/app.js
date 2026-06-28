@@ -28,6 +28,7 @@ let bildirimZamanlayici = null;
 let apiDurumZamanlayici = null;
 let urunGorselleri = {};
 let urunGorselleriPromise = null;
+let denetimAramaZamanlayici = null;
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
@@ -1825,7 +1826,10 @@ function tarihSaatGoster(deger) {
         return "-";
     }
 
-    const tarih = new Date(`${deger.replace(" ", "T")}Z`);
+    const metin = String(deger);
+    const tarih = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(metin)
+        ? metin
+        : `${metin.replace(" ", "T")}Z`);
     return Number.isNaN(tarih.getTime())
         ? deger
         : tarih.toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" });
@@ -2096,6 +2100,80 @@ function parolaDegistirmeFormuGoster(userId, displayName) {
     `);
 }
 
+const denetimEtiketleri = {
+    "user.login": "Oturum açma",
+    "user.create": "Kullanıcı oluşturma",
+    "user.enable": "Kullanıcı etkinleştirme",
+    "user.disable": "Kullanıcı kapatma",
+    "user.password_change": "Parola değiştirme",
+    "preparation.start": "Hazırlama başlangıcı",
+    "preparation.complete": "Sipariş hazırlandı",
+    "issue.create": "Sorun kaydı",
+    "issue.update": "Sorun düzenleme",
+    "issue.resolve": "Sorun çözme",
+    "location.save": "Raf kaydetme",
+    "location.delete": "Raf silme",
+    "shipment.pending": "Eksikte bekletme",
+    "shipment.ready": "Kargoya hazırlama",
+    "shipment.shipped": "Kargoya verme",
+    "shipment.undo": "Kargo geri alma",
+    "backup.auto": "Otomatik yedek",
+    "backup.manual": "Manuel yedek",
+    "backup.download": "Yedek indirme",
+    "alert.create": "Kritik uyarı",
+    "alert.manual_check": "Uyarı kontrolü",
+    "api.outage": "API kesintisi",
+    "api.recovered": "API düzeldi"
+};
+
+function dosyaBoyutuGoster(bytes) {
+    const size = Number(bytes || 0);
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function denetimKayitlariHtml(kayitlar) {
+    if (!kayitlar.length) {
+        return `<tr><td colspan="5" class="emptyActivity">Uygun işlem kaydı bulunamadı.</td></tr>`;
+    }
+    return kayitlar.map(item => `
+        <tr>
+            <td>${temizle(tarihSaatGoster(item.createdAt))}</td>
+            <td><strong>${temizle(item.actorName)}</strong></td>
+            <td><span class="auditAction">${temizle(denetimEtiketleri[item.action] || item.action)}</span></td>
+            <td>${temizle(item.entityId || "-")}</td>
+            <td>${temizle(item.summary)}</td>
+        </tr>
+    `).join("");
+}
+
+async function denetimKayitlariniFiltrele() {
+    const body = document.getElementById("auditTableBody");
+    if (!body) return;
+    const params = new URLSearchParams();
+    const search = document.getElementById("auditSearch")?.value || "";
+    const action = document.getElementById("auditActionFilter")?.value || "";
+    const dateFrom = document.getElementById("auditDateFrom")?.value || "";
+    const dateTo = document.getElementById("auditDateTo")?.value || "";
+    if (search) params.set("search", search);
+    if (action) params.set("action", action);
+    if (dateFrom) params.set("dateFrom", dateFrom);
+    if (dateTo) params.set("dateTo", dateTo);
+
+    body.innerHTML = `<tr><td colspan="5" class="emptyActivity">Kayıtlar yükleniyor...</td></tr>`;
+    try {
+        const response = await fetch(`/admin/audit-logs?${params}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Denetim kayıtları alınamadı.");
+        body.innerHTML = denetimKayitlariHtml(data.result);
+        const count = document.getElementById("auditResultCount");
+        if (count) count.textContent = `${data.result.length} kayıt`;
+    } catch (err) {
+        body.innerHTML = `<tr><td colspan="5" class="emptyActivity">${temizle(err.message)}</td></tr>`;
+    }
+}
+
 async function yonetimEkraniGoster() {
     if (aktifKullanici?.role !== "admin") {
         return;
@@ -2110,15 +2188,21 @@ async function yonetimEkraniGoster() {
     result.innerHTML = `<div class="loading">Kullanıcılar ve işlem geçmişi yükleniyor...</div>`;
 
     try {
-        const [usersResponse, historyResponse] = await Promise.all([
+        const [usersResponse, historyResponse, auditResponse, backupsResponse, operationsResponse] = await Promise.all([
             fetch("/admin/users"),
-            fetch("/admin/preparations")
+            fetch("/admin/preparations"),
+            fetch("/admin/audit-logs"),
+            fetch("/admin/backups"),
+            fetch("/admin/operations/status")
         ]);
         const usersData = await usersResponse.json();
         const historyData = await historyResponse.json();
+        const auditData = await auditResponse.json();
+        const backupsData = await backupsResponse.json();
+        const operationsData = await operationsResponse.json();
 
-        if (!usersResponse.ok || !historyResponse.ok) {
-            throw new Error(usersData.error || historyData.error || "Yönetim verileri alınamadı.");
+        if (!usersResponse.ok || !historyResponse.ok || !auditResponse.ok || !backupsResponse.ok || !operationsResponse.ok) {
+            throw new Error(usersData.error || historyData.error || auditData.error || backupsData.error || operationsData.error || "Yönetim verileri alınamadı.");
         }
 
         yonetimHazirlamaKayitlari = historyData.result;
@@ -2223,6 +2307,63 @@ async function yonetimEkraniGoster() {
                         </div>
                     </section>
                 </div>
+                <section class="operationsAdminSection">
+                    <div class="sectionTitle">
+                        <div>
+                            <p class="eyebrow">Operasyon Sağlığı</p>
+                            <h3>Kritik durumlar ve otomatik yedekleme</h3>
+                        </div>
+                        <button type="button" class="checkOperationsButton" id="checkOperationsButton">Şimdi Kontrol Et</button>
+                    </div>
+                    <div class="operationsSummary">
+                        <div><span>Geciken hazırlama</span><strong>${temizle(operationsData.counts.delayedPreparations)}</strong><small>${temizle(operationsData.thresholds.preparationHours)} saat üzeri</small></div>
+                        <div><span>Uzun süren eksik</span><strong>${temizle(operationsData.counts.delayedIssues)}</strong><small>${temizle(operationsData.thresholds.issueHours)} saat üzeri</small></div>
+                        <div><span>Çıkmayan hazır paket</span><strong>${temizle(operationsData.counts.delayedShipments)}</strong><small>${temizle(operationsData.thresholds.shipmentHours)} saat üzeri</small></div>
+                        <div><span>Stok uyuşmazlığı</span><strong>${temizle(operationsData.counts.stockMismatches)}</strong><small>Açık kritik kayıt</small></div>
+                    </div>
+                    <div class="backupHeader">
+                        <div>
+                            <h3>Veritabanı Yedekleri</h3>
+                            <span>Her gün otomatik oluşturulur, ${temizle(backupsData.retentionDays)} gün saklanır.</span>
+                        </div>
+                        <button type="button" class="createBackupButton" id="createBackupButton">Şimdi Yedekle</button>
+                    </div>
+                    <div class="backupList">
+                        ${backupsData.result.length ? backupsData.result.slice(0, 10).map(item => `
+                            <div>
+                                <span><strong>${temizle(item.name)}</strong><small>${temizle(tarihSaatGoster(item.createdAt))} · ${temizle(dosyaBoyutuGoster(item.size))}</small></span>
+                                <a href="/admin/backups/${encodeURIComponent(item.name)}">İndir</a>
+                            </div>
+                        `).join("") : `<div class="emptyActivity">Henüz yedek oluşturulmadı.</div>`}
+                    </div>
+                </section>
+                <section class="auditAdminSection">
+                    <div class="sectionTitle">
+                        <div>
+                            <p class="eyebrow">Denetim Kaydı</p>
+                            <h3>Kim, ne zaman, hangi işlemi yaptı?</h3>
+                        </div>
+                        <span id="auditResultCount">${temizle(auditData.result.length)} kayıt</span>
+                    </div>
+                    <div class="auditFilters">
+                        <label><span>Arama</span><input id="auditSearch" type="search" placeholder="Personel, sipariş, ürün veya işlem"></label>
+                        <label>
+                            <span>İşlem</span>
+                            <select id="auditActionFilter">
+                                <option value="">Tüm işlemler</option>
+                                ${Object.entries(denetimEtiketleri).map(([value, label]) => `<option value="${temizle(value)}">${temizle(label)}</option>`).join("")}
+                            </select>
+                        </label>
+                        <label><span>Başlangıç</span><input id="auditDateFrom" type="date"></label>
+                        <label><span>Bitiş</span><input id="auditDateTo" type="date"></label>
+                    </div>
+                    <div class="activityTableWrap">
+                        <table class="activityTable auditTable">
+                            <thead><tr><th>Zaman</th><th>Personel</th><th>İşlem</th><th>Kayıt</th><th>Açıklama</th></tr></thead>
+                            <tbody id="auditTableBody">${denetimKayitlariHtml(auditData.result)}</tbody>
+                        </table>
+                    </div>
+                </section>
             </section>
         `;
         hazirlamaGecmisiniFiltrele();
@@ -2792,6 +2933,41 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const yedekleButonu = event.target.closest("#createBackupButton");
+
+    if (yedekleButonu) {
+        yedekleButonu.disabled = true;
+        yedekleButonu.textContent = "Yedekleniyor...";
+        try {
+            const response = await fetch("/admin/backups", { method: "POST" });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Yedek oluşturulamadı.");
+            await yonetimEkraniGoster();
+        } catch (err) {
+            yedekleButonu.disabled = false;
+            yedekleButonu.textContent = "Şimdi Yedekle";
+            alert(err.message);
+        }
+        return;
+    }
+
+    const operasyonKontrolButonu = event.target.closest("#checkOperationsButton");
+
+    if (operasyonKontrolButonu) {
+        operasyonKontrolButonu.disabled = true;
+        try {
+            const response = await fetch("/admin/operations/check", { method: "POST" });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Operasyon kontrolü çalıştırılamadı.");
+            await bildirimleriGetir();
+            await yonetimEkraniGoster();
+        } catch (err) {
+            operasyonKontrolButonu.disabled = false;
+            alert(err.message);
+        }
+        return;
+    }
+
     if (event.target.closest("[data-close-user-dialog]")) {
         document.getElementById("userDialog")?.remove();
         return;
@@ -3379,6 +3555,12 @@ result.addEventListener("input", function (event) {
         return;
     }
 
+    if (event.target.id === "auditSearch") {
+        clearTimeout(denetimAramaZamanlayici);
+        denetimAramaZamanlayici = setTimeout(denetimKayitlariniFiltrele, 250);
+        return;
+    }
+
     if (event.target.id !== "locationSearch") {
         return;
     }
@@ -3407,6 +3589,11 @@ result.addEventListener("change", function (event) {
 
     if (event.target.id === "performanceDate") {
         performansOzetiniGetir();
+        return;
+    }
+
+    if (["auditActionFilter", "auditDateFrom", "auditDateTo"].includes(event.target.id)) {
+        denetimKayitlariniFiltrele();
     }
 });
 

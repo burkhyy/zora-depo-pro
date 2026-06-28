@@ -1923,6 +1923,158 @@ h1{
     min-width:0;
 }
 
+.operationsAdminSection,
+.auditAdminSection{
+    margin-top:28px;
+    border-top:1px solid #e4e7ec;
+    padding-top:24px;
+}
+
+.operationsSummary{
+    display:grid;
+    grid-template-columns:repeat(4, minmax(0, 1fr));
+    gap:10px;
+}
+
+.operationsSummary > div{
+    display:grid;
+    gap:4px;
+    border:1px solid #d0d5dd;
+    border-radius:7px;
+    padding:13px;
+    background:#f9fafb;
+}
+
+.operationsSummary span{
+    color:#475467;
+    font-size:12px;
+    font-weight:800;
+}
+
+.operationsSummary strong{
+    color:#101828;
+    font-size:26px;
+}
+
+.operationsSummary small{
+    color:#667085;
+}
+
+.checkOperationsButton,
+.createBackupButton{
+    min-height:40px;
+    border:1px solid #1570ef;
+    border-radius:7px;
+    padding:0 13px;
+    background:#1570ef;
+    color:#fff;
+    font-weight:900;
+    cursor:pointer;
+}
+
+.checkOperationsButton{
+    border-color:#98a2b3;
+    background:#fff;
+    color:#344054;
+}
+
+.backupHeader{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    margin:22px 0 10px;
+}
+
+.backupHeader h3{
+    margin:0 0 4px;
+}
+
+.backupHeader span{
+    color:#667085;
+    font-size:13px;
+}
+
+.backupList{
+    display:grid;
+    gap:7px;
+}
+
+.backupList > div{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:14px;
+    border:1px solid #e4e7ec;
+    border-radius:7px;
+    padding:10px 12px;
+}
+
+.backupList span,
+.backupList small{
+    display:block;
+}
+
+.backupList small{
+    margin-top:3px;
+    color:#667085;
+}
+
+.backupList a{
+    border:1px solid #98a2b3;
+    border-radius:7px;
+    padding:8px 11px;
+    color:#344054;
+    text-decoration:none;
+    font-size:12px;
+    font-weight:900;
+}
+
+.auditFilters{
+    display:grid;
+    grid-template-columns:2fr 1fr 1fr 1fr;
+    gap:10px;
+    margin-bottom:12px;
+    padding:12px;
+    border:1px solid #e4e7ec;
+    border-radius:7px;
+    background:#f9fafb;
+}
+
+.auditFilters label{
+    display:grid;
+    gap:5px;
+    min-width:0;
+    color:#475467;
+    font-size:12px;
+    font-weight:800;
+}
+
+.auditFilters input,
+.auditFilters select{
+    width:100%;
+    min-height:40px;
+    border:1px solid #d0d5dd;
+    border-radius:7px;
+    padding:0 10px;
+    background:#fff;
+}
+
+.auditAction{
+    display:inline-block;
+    border-radius:999px;
+    padding:5px 8px;
+    background:#eef4ff;
+    color:#3538cd;
+    font-size:11px;
+    font-weight:900;
+    white-space:nowrap;
+}
+
+.auditTable{
+    min-width:820px;
+}
+
 .activityFilters{
     display:grid;
     grid-template-columns:repeat(4, minmax(130px, 1fr));
@@ -2250,6 +2402,11 @@ h1{
         grid-template-columns:repeat(2, minmax(0, 1fr));
     }
 
+    .operationsSummary,
+    .auditFilters{
+        grid-template-columns:repeat(2, minmax(0, 1fr));
+    }
+
     .activitySearchField,
     #clearActivityFilters{
         grid-column:1 / -1;
@@ -2283,6 +2440,21 @@ h1{
 
     .performanceSummary{
         grid-template-columns:1fr;
+    }
+
+    .operationsSummary,
+    .auditFilters{
+        grid-template-columns:1fr;
+    }
+
+    .backupHeader,
+    .backupList > div{
+        align-items:stretch;
+        flex-direction:column;
+    }
+
+    .backupList a{
+        text-align:center;
     }
 
     .holdOrderProducts > div{
