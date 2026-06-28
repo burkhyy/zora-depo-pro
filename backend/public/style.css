@@ -280,6 +280,56 @@ h1{
     font-weight:800;
 }
 
+.orderListControls{
+    display:grid;
+    grid-template-columns:minmax(190px, 1fr) minmax(170px, 1fr) auto;
+    align-items:end;
+    gap:10px;
+    margin-bottom:14px;
+    border:1px solid #d0d5dd;
+    border-radius:7px;
+    padding:12px;
+    background:#f9fafb;
+}
+
+.orderListControls label{
+    display:grid;
+    gap:5px;
+    color:#475467;
+    font-size:12px;
+    font-weight:800;
+}
+
+.orderListControls select{
+    width:100%;
+    min-height:42px;
+    border:1px solid #d0d5dd;
+    border-radius:7px;
+    padding:0 10px;
+    background:#fff;
+    color:#101828;
+    font-weight:700;
+}
+
+.orderResultCount{
+    min-width:125px;
+    display:grid;
+    gap:3px;
+    border-left:1px solid #d0d5dd;
+    padding:4px 0 4px 14px;
+}
+
+.orderResultCount span{
+    color:#667085;
+    font-size:11px;
+    text-transform:uppercase;
+}
+
+.orderResultCount strong{
+    color:#101828;
+    font-size:15px;
+}
+
 .detailMode .searchBox{
     display:none;
 }
@@ -2436,6 +2486,16 @@ h1{
 
     .activityFilters{
         grid-template-columns:1fr;
+    }
+
+    .orderListControls{
+        grid-template-columns:1fr;
+    }
+
+    .orderResultCount{
+        border-left:0;
+        border-top:1px solid #d0d5dd;
+        padding:10px 0 0;
     }
 
     .activitySearchField,

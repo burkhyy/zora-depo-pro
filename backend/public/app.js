@@ -20,6 +20,8 @@ let acikSorunKayitlari = [];
 let aktifSevkiyatListesi = "pending";
 let sevkiyatAramaMetni = "";
 let aktifSiparisPlatformu = "trendyol";
+let aktifSiparisSiralama = "newest";
+let aktifSiparisDurumFiltresi = "";
 let aktifEksikPlatformu = "trendyol";
 let aktifSevkiyatPlatformu = "trendyol";
 let aktifGecmisPlatformu = "trendyol";
@@ -139,6 +141,47 @@ function toplamTutar(item) {
     }
 
     return tutar;
+}
+
+function toplamTutarSayisi(item) {
+    const deger = alanOku(item, [
+        "order.total",
+        "order.totalPrice",
+        "order.grandTotal",
+        "order.amount",
+        "order.price",
+        "total",
+        "totalPrice",
+        "grandTotal",
+        "amount"
+    ], 0);
+    if (typeof deger === "number") return deger;
+    const metin = String(deger).trim().replace(/[^\d,.-]/g, "");
+    const normalize = metin.includes(",")
+        ? metin.replaceAll(".", "").replace(",", ".")
+        : metin;
+    const sayi = Number(normalize);
+    return Number.isFinite(sayi) ? sayi : 0;
+}
+
+function siparisToplamAdedi(item) {
+    return (item.products || [])
+        .filter(urun => !hizmetUrunuMu(urun))
+        .reduce((toplam, urun) => toplam + urunAdedi(urun), 0);
+}
+
+function siparisSiralamaUygula(liste) {
+    const sirali = [...liste];
+    if (aktifSiparisSiralama === "amount") {
+        return sirali.sort((a, b) => toplamTutarSayisi(b) - toplamTutarSayisi(a));
+    }
+    if (aktifSiparisSiralama === "quantity") {
+        return sirali.sort((a, b) => siparisToplamAdedi(b) - siparisToplamAdedi(a));
+    }
+    if (aktifSiparisSiralama === "customer") {
+        return sirali.sort((a, b) => musteriAdi(a).localeCompare(musteriAdi(b), "tr"));
+    }
+    return sirali;
 }
 
 function urunAdi(urun) {
@@ -931,8 +974,36 @@ function listeGoster(liste) {
     document.body.classList.remove("historyMode");
     sekmeDurumuGuncelle();
 
-    const platformListesi = liste.filter(item => platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu);
-    result.innerHTML = platformSekmeleriHtml("orders", aktifSiparisPlatformu, liste, platformAdi);
+    const platformListesi = siparisSiralamaUygula(liste.filter(item =>
+        platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
+        && (!aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
+    ));
+    result.innerHTML = `
+        ${platformSekmeleriHtml("orders", aktifSiparisPlatformu, liste, platformAdi)}
+        <div class="orderListControls">
+            <label>
+                <span>Sıralama</span>
+                <select id="orderSort">
+                    <option value="newest" ${aktifSiparisSiralama === "newest" ? "selected" : ""}>En Yeni Siparişler</option>
+                    <option value="amount" ${aktifSiparisSiralama === "amount" ? "selected" : ""}>En Yüksek Tutar</option>
+                    <option value="quantity" ${aktifSiparisSiralama === "quantity" ? "selected" : ""}>En Çok Adet</option>
+                    <option value="customer" ${aktifSiparisSiralama === "customer" ? "selected" : ""}>Müşteri A-Z</option>
+                </select>
+            </label>
+            <label>
+                <span>Durum</span>
+                <select id="orderStatusFilter">
+                    <option value="" ${aktifSiparisDurumFiltresi === "" ? "selected" : ""}>Tüm Aktif Siparişler</option>
+                    <option value="1" ${aktifSiparisDurumFiltresi === "1" ? "selected" : ""}>Yeni Sipariş</option>
+                    <option value="2" ${aktifSiparisDurumFiltresi === "2" ? "selected" : ""}>Hazırlanıyor</option>
+                </select>
+            </label>
+            <div class="orderResultCount">
+                <span>Gösterilen</span>
+                <strong>${temizle(platformListesi.length)} sipariş</strong>
+            </div>
+        </div>
+    `;
 
     if (platformListesi.length === 0) {
         result.innerHTML += `
@@ -3619,6 +3690,18 @@ result.addEventListener("input", function (event) {
 });
 
 result.addEventListener("change", function (event) {
+    if (event.target.id === "orderSort") {
+        aktifSiparisSiralama = event.target.value;
+        listeGoster(aktifListe);
+        return;
+    }
+
+    if (event.target.id === "orderStatusFilter") {
+        aktifSiparisDurumFiltresi = event.target.value;
+        listeGoster(aktifListe);
+        return;
+    }
+
     if (event.target.name === "issueType") {
         const alan = document.getElementById("missingQuantityField");
         const input = alan?.querySelector("input");
