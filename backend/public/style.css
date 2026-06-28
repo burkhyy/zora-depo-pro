@@ -33,7 +33,7 @@ h1{
 
 .topTabs{
     display:grid;
-    grid-template-columns:repeat(5, minmax(0, 1fr));
+    grid-template-columns:repeat(6, minmax(0, 1fr));
     gap:8px;
     background:#e4e7ec;
     border-radius:12px;
@@ -42,7 +42,7 @@ h1{
 }
 
 .topTabs.adminTabs{
-    grid-template-columns:repeat(6, minmax(0, 1fr));
+    grid-template-columns:repeat(7, minmax(0, 1fr));
 }
 
 .userBar{
@@ -2019,6 +2019,51 @@ h1{
 
 .operationsSummary small{
     color:#667085;
+}
+
+.proofUpload{
+    display:grid;
+    gap:6px;
+    margin:14px 0;
+    padding:14px;
+    border:1px solid #d0d5dd;
+    border-radius:8px;
+    background:#f9fafb;
+}
+
+.proofUpload span{font-weight:800}
+.proofUpload small{color:#667085}
+
+.operationsBoard{display:grid;gap:20px}
+.operationsMetrics{
+    display:grid;
+    grid-template-columns:repeat(5,minmax(0,1fr));
+    gap:10px;
+}
+.operationsMetrics>div{
+    padding:16px;
+    border:1px solid #d0d5dd;
+    border-radius:8px;
+    background:#fff;
+}
+.operationsMetrics span,.activePreparationList span{display:block;color:#667085;font-size:13px}
+.operationsMetrics strong{display:block;margin-top:6px;font-size:28px}
+.activePreparationList{display:grid;gap:8px}
+.activePreparationList article{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:16px;
+    padding:14px;
+    border:1px solid #d0d5dd;
+    border-radius:8px;
+}
+.activePreparationList article>div:last-child{text-align:right}
+
+@media(max-width:760px){
+    .operationsMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .activePreparationList article{align-items:flex-start;flex-direction:column}
+    .activePreparationList article>div:last-child{text-align:left}
 }
 
 .checkOperationsButton,

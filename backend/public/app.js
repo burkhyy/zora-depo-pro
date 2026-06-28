@@ -33,6 +33,7 @@ let siparisYenileniyor = false;
 let urunGorselleri = {};
 let urunGorselleriPromise = null;
 let denetimAramaZamanlayici = null;
+let aktifTaramaKaniti = [];
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
@@ -707,6 +708,12 @@ function barkodIsle(okunanBarkod) {
     }
 
     taramaDurumu[eksikUrun.index] = okutulanAdet(eksikUrun.index) + 1;
+    aktifTaramaKaniti.push({
+        barcode: barkod,
+        productName: urunAdi(eksikUrun.urun),
+        quantityIndex: taramaDurumu[eksikUrun.index],
+        scannedAt: new Date().toISOString()
+    });
     mesajGoster("success", "✅ Doğru ürün okutuldu", urunAdi(eksikUrun.urun));
     bildirimSesi("success");
     ekranVurgula("success");
@@ -719,7 +726,7 @@ function barkodIsle(okunanBarkod) {
         }
 
         scannerDurdur();
-        siparisHazirEkraniGoster();
+        siparisiTamamla();
     }
 }
 
@@ -1687,7 +1694,7 @@ async function sevkiyatKayitlariniGetir() {
     return sevkiyatKayitlari;
 }
 
-async function sevkiyatDurumuKaydet(siparis, status) {
+async function sevkiyatDurumuKaydet(siparis, status, extra = {}) {
     const code = siparisKodu(siparis);
     const response = await fetch(`/shipments/${encodeURIComponent(code)}`, {
         method: "PUT",
@@ -1695,7 +1702,8 @@ async function sevkiyatDurumuKaydet(siparis, status) {
         body: JSON.stringify({
             status,
             customerName: musteriAdi(siparis),
-            platform: platformAdi(siparis)
+            platform: platformAdi(siparis),
+            ...extra
         })
     });
     const data = await response.json();
@@ -1725,10 +1733,15 @@ function sevkiyatKarti(siparis, kayit, shipped = false) {
                 <span class="shipmentStatus">${temizle(status)}</span>
                 <h3>${temizle(musteriAdi(siparis))}</h3>
                 <p>${temizle(code)} · ${temizle(platformAdi(siparis))}</p>
+                ${kayit?.trackingNumber ? `<p><strong>${temizle(kayit.carrier || "Kargo")}</strong> · ${temizle(kayit.trackingNumber)}
+                    ${kayit.trackingUrl ? ` · <a href="${temizle(kayit.trackingUrl)}" target="_blank" rel="noopener">Takibi Aç</a>` : ""}</p>` : ""}
             </div>
             <div class="shipmentActions">
                 <button type="button" class="printShipmentButton" data-print-shipment="${temizle(code)}">
                     Sevkiyat Barkodu
+                </button>
+                <button type="button" class="printShipmentButton" data-tracking-order="${temizle(code)}">
+                    Takip Bilgisi
                 </button>
                 ${shipped ? `
                     <button type="button" class="undoShippedButton" data-undo-shipped="${temizle(code)}">
@@ -1742,6 +1755,21 @@ function sevkiyatKarti(siparis, kayit, shipped = false) {
             </div>
         </article>
     `;
+}
+
+function kargoTakipFormuGoster(code) {
+    const kayit = sevkiyatKayitlari.find(item => item.orderCode === code) || {};
+    result.insertAdjacentHTML("beforeend", `
+        <div class="issueDialog" id="trackingDialog" role="dialog" aria-modal="true">
+            <form id="trackingForm" data-order-code="${temizle(code)}">
+                <h3>Kargo Takip Bilgisi</h3>
+                <label><span>Kargo firması</span><input name="carrier" value="${temizle(kayit.carrier || "")}" required></label>
+                <label><span>Takip numarası</span><input name="trackingNumber" value="${temizle(kayit.trackingNumber || "")}" required></label>
+                <label><span>Takip bağlantısı</span><input name="trackingUrl" type="url" placeholder="https://..." value="${temizle(kayit.trackingUrl || "")}"></label>
+                <div class="dialogActions"><button type="button" data-close-dialog>İptal</button><button type="submit">Kaydet</button></div>
+            </form>
+        </div>
+    `);
 }
 
 function sevkiyatListeleriniGoster() {
@@ -2909,6 +2937,7 @@ function siparisDetayGoster(siparis) {
     taramaDurumuHazirla(siparis);
     sonOkunanBarkod = "";
     sonOkumaZamani = 0;
+    aktifTaramaKaniti = [];
     searchInput.disabled = true;
     document.body.classList.remove("adminMode", "locationMode", "shipmentMode", "issueMode", "historyMode");
     document.body.classList.add("detailMode");
@@ -2968,6 +2997,12 @@ function siparisDetayGoster(siparis) {
                 <span>HZMBDL hizmet ürünleri doğrulamaya dahil edilmez.</span>
             </div>
 
+            <label class="proofUpload">
+                <span>Paket fotoğrafı (isteğe bağlı)</span>
+                <input id="packageProof" type="file" accept="image/*" capture="environment">
+                <small>Fotoğraf hazırlama kaydında kanıt olarak saklanır.</small>
+            </label>
+
             <button class="holdOrderButton" type="button" id="holdOrderButton">
                 <strong>Eksikte Beklemeye Al</strong>
                 <span>Okutulmamış ürünleri eksik olarak kaydet</span>
@@ -2986,8 +3021,6 @@ function siparisDetayGoster(siparis) {
 }
 
 function siparisHazirEkraniGoster() {
-    sevkiyatDurumuKaydet(aktifSiparis, "ready").catch(err => console.error(err));
-    hazirlamaKaydiGonder("complete", aktifSiparis).catch(err => console.error(err));
     result.innerHTML = `
         <section class="completeScreen">
             <div class="completeIcon">🎉</div>
@@ -2999,14 +3032,65 @@ function siparisHazirEkraniGoster() {
     `;
 }
 
-async function hazirlamaKaydiGonder(islem, siparis) {
+function siparisOzeti(siparis) {
+    return {
+        orderCode: siparisKodu(siparis),
+        platform: platformAdi(siparis),
+        customerName: musteriAdi(siparis),
+        total: toplamTutar(siparis),
+        products: (siparis.products || []).map(urun => ({
+            barcode: urunBarkodu(urun),
+            name: urunAdi(urun),
+            quantity: urunAdedi(urun),
+            color: urunRengi(urun),
+            size: urunBedeni(urun)
+        }))
+    };
+}
+
+async function dosyayiKucukVeriAdresineCevir(input) {
+    const file = input?.files?.[0];
+    if (!file) return "";
+    if (file.size > 1000000) throw new Error("Paket fotoğrafı 1 MB'dan küçük olmalı.");
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("Paket fotoğrafı okunamadı."));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function siparisiTamamla() {
+    try {
+        scannerDurdur();
+        const orderResponse = await fetch(`/order/${encodeURIComponent(siparisKodu(aktifSiparis))}`, { cache: "no-store" });
+        const currentOrder = await orderResponse.json();
+        if (!orderResponse.ok) {
+            throw new Error(currentOrder.error || "Sipariş iptal edilmiş veya artık aktif değil.");
+        }
+        const proofImage = await dosyayiKucukVeriAdresineCevir(document.getElementById("packageProof"));
+        await hazirlamaKaydiGonder("complete", aktifSiparis, {
+            proofImage,
+            scans: aktifTaramaKaniti,
+            orderSnapshot: siparisOzeti(currentOrder)
+        });
+        await sevkiyatDurumuKaydet(aktifSiparis, "ready");
+        siparisHazirEkraniGoster();
+    } catch (err) {
+        mesajGoster("error", "Sipariş tamamlanamadı", err.message);
+    }
+}
+
+async function hazirlamaKaydiGonder(islem, siparis, extra = {}) {
     const response = await fetch(`/preparations/${islem}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
             orderCode: siparisKodu(siparis),
             customerName: musteriAdi(siparis),
-            platform: platformAdi(siparis)
+            platform: platformAdi(siparis),
+            orderSnapshot: siparisOzeti(siparis),
+            ...extra
         })
     });
 
@@ -3014,6 +3098,7 @@ async function hazirlamaKaydiGonder(islem, siparis) {
         const data = await response.json().catch(() => ({}));
         throw new Error(data.error || "Hazırlama kaydı yazılamadı.");
     }
+    return response.json();
 }
 
 async function siparisSec(kod) {
@@ -3035,8 +3120,18 @@ async function siparisSec(kod) {
         console.error(err);
     }
 
-    hazirlamaKaydiGonder("start", siparis).catch(err => console.error(err));
-    siparisDetayGoster(siparis);
+    try {
+        await hazirlamaKaydiGonder("start", siparis);
+        siparisDetayGoster(siparis);
+    } catch (err) {
+        result.innerHTML = `
+            <div class="notfound">
+                <strong>Sipariş açılamadı</strong>
+                <p>${temizle(err.message)}</p>
+                <button class="backButton" type="button" id="backToList">← Listeye dön</button>
+            </div>
+        `;
+    }
 }
 
 searchInput.addEventListener("keyup", function () {
@@ -3053,6 +3148,17 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const trackingButton = event.target.closest("[data-tracking-order]");
+    if (trackingButton) {
+        kargoTakipFormuGoster(trackingButton.dataset.trackingOrder);
+        return;
+    }
+
+    if (event.target.closest("[data-close-dialog]")) {
+        event.target.closest(".issueDialog")?.remove();
+        return;
+    }
+
     const yedekleButonu = event.target.closest("#createBackupButton");
 
     if (yedekleButonu) {
@@ -3381,6 +3487,29 @@ result.addEventListener("click", async function (event) {
 });
 
 result.addEventListener("submit", async function (event) {
+    if (event.target.id === "trackingForm") {
+        event.preventDefault();
+        const form = event.target;
+        const code = form.dataset.orderCode;
+        const kayit = sevkiyatKayitlari.find(item => item.orderCode === code);
+        const siparis = siparisler.find(item => siparisKodu(item) === code) || {
+            order: { code, platform: kayit?.platform || "" },
+            customer: { name: kayit?.customerName || "" }
+        };
+        try {
+            await sevkiyatDurumuKaydet(siparis, kayit?.status || "ready", {
+                carrier: form.elements.carrier.value,
+                trackingNumber: form.elements.trackingNumber.value,
+                trackingUrl: form.elements.trackingUrl.value
+            });
+            form.closest(".issueDialog")?.remove();
+            sevkiyatListeleriniGoster();
+        } catch (err) {
+            alert(err.message);
+        }
+        return;
+    }
+
     const resetPasswordForm = event.target.closest("#resetPasswordForm");
 
     if (resetPasswordForm) {
@@ -3729,6 +3858,44 @@ result.addEventListener("change", function (event) {
     }
 });
 
+async function operasyonPanosuGoster() {
+    scannerDurdur();
+    aktifSekme = "operations";
+    searchInput.disabled = true;
+    document.body.className = "operationsMode";
+    sekmeDurumuGuncelle();
+    result.innerHTML = `<div class="loading">Operasyon verileri yükleniyor...</div>`;
+    try {
+        const response = await fetch("/operations/board", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Operasyon panosu açılamadı.");
+        const board = data.result;
+        result.innerHTML = `
+            <section class="operationsBoard">
+                <div class="sectionTitle"><div><p class="eyebrow">CANLI OPERASYON</p><h2>Depo Durumu</h2></div>
+                    <button class="backButton" type="button" id="refreshOperations">Yenile</button></div>
+                <div class="operationsMetrics">
+                    <div><span>Hazırlanıyor</span><strong>${temizle(board.counts.preparing)}</strong></div>
+                    <div><span>Bugün Hazırlandı</span><strong>${temizle(board.counts.completedToday)}</strong></div>
+                    <div><span>Eksik Sipariş</span><strong>${temizle(board.counts.missing)}</strong></div>
+                    <div><span>Kargoya Hazır</span><strong>${temizle(board.counts.ready)}</strong></div>
+                    <div><span>Bugün Kargolandı</span><strong>${temizle(board.counts.shippedToday)}</strong></div>
+                </div>
+                <div class="sectionTitle"><h3>Şu Anda Hazırlananlar</h3><span>${temizle(board.active.length)} sipariş</span></div>
+                <div class="activePreparationList">
+                    ${board.active.length ? board.active.map(item => `
+                        <article><div><strong>${temizle(item.customerName || item.orderCode)}</strong>
+                        <span>${temizle(item.orderCode)} · ${temizle(item.platform)}</span></div>
+                        <div><b>${temizle(item.worker)}</b><span>${temizle(tarihSaatGoster(item.startedAt))}</span></div></article>
+                    `).join("") : `<div class="notfound compact">Şu anda açık hazırlama kaydı yok.</div>`}
+                </div>
+            </section>
+        `;
+    } catch (err) {
+        result.innerHTML = `<div class="notfound">${temizle(err.message)}</div>`;
+    }
+}
+
 tabButtons.forEach(button => {
     button.addEventListener("click", function () {
         if (this.dataset.tab === aktifSekme) {
@@ -3742,7 +3909,9 @@ tabButtons.forEach(button => {
             return;
         }
 
-        if (this.dataset.tab === "users") {
+        if (this.dataset.tab === "operations") {
+            operasyonPanosuGoster();
+        } else if (this.dataset.tab === "users") {
             aktifGecmisPlatformu = "trendyol";
             yonetimEkraniGoster();
         } else if (this.dataset.tab === "history") {
@@ -3760,6 +3929,11 @@ tabButtons.forEach(button => {
 });
 
 document.addEventListener("click", async event => {
+    if (event.target.closest("#refreshOperations")) {
+        operasyonPanosuGoster();
+        return;
+    }
+
     const bildirimButonu = event.target.closest("#notificationButton");
     const bildirimPaneli = document.getElementById("notificationPanel");
 

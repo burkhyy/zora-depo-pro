@@ -159,6 +159,21 @@ database.exec(`
         alert_key TEXT PRIMARY KEY,
         last_notified_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS preparation_scans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        preparation_id INTEGER NOT NULL,
+        barcode TEXT NOT NULL,
+        product_name TEXT NOT NULL DEFAULT '',
+        quantity_index INTEGER NOT NULL DEFAULT 1,
+        scanned_by_user_id INTEGER NOT NULL,
+        scanned_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (preparation_id) REFERENCES order_preparations(id) ON DELETE CASCADE,
+        FOREIGN KEY (scanned_by_user_id) REFERENCES app_users(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_preparation_scans_preparation
+        ON preparation_scans(preparation_id, scanned_at);
 `);
 
 const issueColumns = new Set(
@@ -171,6 +186,18 @@ const preparationColumns = new Set(
 
 if (!preparationColumns.has("platform")) {
     database.exec(`ALTER TABLE order_preparations ADD COLUMN platform TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!preparationColumns.has("order_snapshot")) {
+    database.exec(`ALTER TABLE order_preparations ADD COLUMN order_snapshot TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!preparationColumns.has("order_fingerprint")) {
+    database.exec(`ALTER TABLE order_preparations ADD COLUMN order_fingerprint TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!preparationColumns.has("proof_image")) {
+    database.exec(`ALTER TABLE order_preparations ADD COLUMN proof_image TEXT NOT NULL DEFAULT ''`);
 }
 
 if (!issueColumns.has("platform")) {
@@ -281,9 +308,25 @@ database.exec(`
     UPDATE order_shipments SET platform = 'Zoombutik' WHERE platform = 'Zorabutik';
 `);
 
+const shipmentColumns = new Set(
+    database.prepare(`PRAGMA table_info(order_shipments)`).all().map(column => column.name)
+);
+
+if (!shipmentColumns.has("carrier")) {
+    database.exec(`ALTER TABLE order_shipments ADD COLUMN carrier TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!shipmentColumns.has("tracking_number")) {
+    database.exec(`ALTER TABLE order_shipments ADD COLUMN tracking_number TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!shipmentColumns.has("tracking_url")) {
+    database.exec(`ALTER TABLE order_shipments ADD COLUMN tracking_url TEXT NOT NULL DEFAULT ''`);
+}
+
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
-app.use(express.json({ limit: "32kb" }));
+app.use(express.json({ limit: "2mb" }));
 
 app.get("/health", (req, res) => {
     res.json({ status: "ok" });
@@ -366,6 +409,19 @@ function kullaniciyiDonustur(user) {
     };
 }
 
+const loginAttempts = new Map();
+
+function girisDenemesiniKontrolEt(req, res, next) {
+    const key = String(req.ip || req.socket.remoteAddress || "unknown");
+    const now = Date.now();
+    const attempt = loginAttempts.get(key);
+    if (attempt && attempt.blockedUntil > now) {
+        return res.status(429).json({ error: "Çok fazla hatalı giriş yapıldı. 15 dakika sonra tekrar deneyin." });
+    }
+    req.loginAttemptKey = key;
+    next();
+}
+
 function denetimKaydiOlustur(req, action, entityType, entityId, summary, details = {}) {
     const actor = req?.user;
     database.prepare(`
@@ -403,7 +459,7 @@ function denetimKaydiniDonustur(row) {
     };
 }
 
-app.post("/auth/login", (req, res) => {
+app.post("/auth/login", girisDenemesiniKontrolEt, (req, res) => {
     const username = String(req.body.username || "").trim();
     const password = String(req.body.password || "");
     const user = database.prepare(`
@@ -412,8 +468,13 @@ app.post("/auth/login", (req, res) => {
     `).get(username);
 
     if (!user || !sifreDogrula(password, user.password_salt, user.password_hash)) {
+        const previous = loginAttempts.get(req.loginAttemptKey) || { count: 0, blockedUntil: 0 };
+        previous.count += 1;
+        if (previous.count >= 5) previous.blockedUntil = Date.now() + 15 * 60 * 1000;
+        loginAttempts.set(req.loginAttemptKey, previous);
         return res.status(401).json({ error: "Kullanıcı adı veya parola hatalı." });
     }
+    loginAttempts.delete(req.loginAttemptKey);
 
     database.prepare(`DELETE FROM app_sessions WHERE expires_at <= CURRENT_TIMESTAMP`).run();
 
@@ -1706,27 +1767,46 @@ app.patch("/issues/:id/resolve", (req, res) => {
     res.json({ result: sorunKaydiniDonustur(row) });
 });
 
+function siparisParmakIzi(snapshot) {
+    return snapshot
+        ? crypto.createHash("sha256").update(snapshot).digest("hex")
+        : "";
+}
+
 app.post("/preparations/start", (req, res) => {
     const orderCode = String(req.body.orderCode || "").trim();
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
     const platform = String(req.body.platform || "").trim().slice(0, 100);
+    const orderSnapshot = JSON.stringify(req.body.orderSnapshot || {}).slice(0, 250000);
+    const orderFingerprint = siparisParmakIzi(orderSnapshot);
 
     if (!orderCode) {
         return res.status(400).json({ error: "Sipariş kodu gerekli." });
     }
 
     let preparation = database.prepare(`
-        SELECT * FROM order_preparations
+        SELECT preparations.*, users.display_name AS owner_name
+        FROM order_preparations preparations
+        JOIN app_users users ON users.id = preparations.started_by_user_id
         WHERE order_code = ? COLLATE NOCASE AND status = 'started'
         ORDER BY id DESC LIMIT 1
     `).get(orderCode);
 
+    if (preparation && preparation.started_by_user_id !== req.user.id && req.user.role !== "admin") {
+        return res.status(409).json({
+            error: `Bu siparişi ${preparation.owner_name} hazırlıyor.`,
+            code: "ORDER_LOCKED",
+            owner: preparation.owner_name,
+            startedAt: preparation.started_at
+        });
+    }
+
     if (!preparation) {
         const result = database.prepare(`
             INSERT INTO order_preparations (
-                order_code, customer_name, platform, started_by_user_id
-            ) VALUES (?, ?, ?, ?)
-        `).run(orderCode, customerName, platform, req.user.id);
+                order_code, customer_name, platform, started_by_user_id, order_snapshot, order_fingerprint
+            ) VALUES (?, ?, ?, ?, ?, ?)
+        `).run(orderCode, customerName, platform, req.user.id, orderSnapshot, orderFingerprint);
         preparation = database.prepare(`SELECT * FROM order_preparations WHERE id = ?`).get(result.lastInsertRowid);
         denetimKaydiOlustur(req, "preparation.start", "order", orderCode, `${orderCode} hazırlanmaya başlandı`, {
             customerName,
@@ -1737,13 +1817,23 @@ app.post("/preparations/start", (req, res) => {
         preparation.platform = platform;
     }
 
-    res.json({ result: preparation });
+    res.json({
+        result: {
+            ...preparation,
+            ownerName: preparation.owner_name || req.user.display_name,
+            lockedByCurrentUser: preparation.started_by_user_id === req.user.id
+        }
+    });
 });
 
 app.post("/preparations/complete", (req, res) => {
     const orderCode = String(req.body.orderCode || "").trim();
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
     const platform = String(req.body.platform || "").trim().slice(0, 100);
+    const currentSnapshot = JSON.stringify(req.body.orderSnapshot || {}).slice(0, 250000);
+    const currentFingerprint = siparisParmakIzi(currentSnapshot);
+    const scans = Array.isArray(req.body.scans) ? req.body.scans.slice(0, 500) : [];
+    const proofImage = String(req.body.proofImage || "");
 
     if (!orderCode) {
         return res.status(400).json({ error: "Sipariş kodu gerekli." });
@@ -1755,6 +1845,21 @@ app.post("/preparations/complete", (req, res) => {
         ORDER BY id DESC LIMIT 1
     `).get(orderCode);
 
+    if (preparation && preparation.started_by_user_id !== req.user.id && req.user.role !== "admin") {
+        return res.status(409).json({ error: "Bu sipariş başka bir personel tarafından kilitlendi." });
+    }
+
+    if (preparation?.order_fingerprint && currentFingerprint && preparation.order_fingerprint !== currentFingerprint) {
+        return res.status(409).json({
+            error: "Sipariş içeriği hazırlama sırasında değişti. Listeyi yenileyip tekrar kontrol edin.",
+            code: "ORDER_CHANGED"
+        });
+    }
+
+    if (proofImage && (!/^data:image\/(jpeg|png|webp);base64,/i.test(proofImage) || proofImage.length > 1500000)) {
+        return res.status(400).json({ error: "Paket fotoğrafı geçersiz veya çok büyük." });
+    }
+
     if (!preparation) {
         const result = database.prepare(`
             INSERT INTO order_preparations (
@@ -1764,14 +1869,35 @@ app.post("/preparations/complete", (req, res) => {
         preparation = { id: result.lastInsertRowid };
     }
 
-    database.prepare(`
+    database.exec("BEGIN");
+    try {
+        database.prepare(`
         UPDATE order_preparations
         SET status = 'completed',
             platform = CASE WHEN platform = '' THEN ? ELSE platform END,
             completed_by_user_id = ?,
-            completed_at = CURRENT_TIMESTAMP
+            completed_at = CURRENT_TIMESTAMP,
+            proof_image = ?
         WHERE id = ?
-    `).run(platform, req.user.id, preparation.id);
+        `).run(platform, req.user.id, proofImage, preparation.id);
+
+        const insertScan = database.prepare(`
+            INSERT INTO preparation_scans (
+                preparation_id, barcode, product_name, quantity_index, scanned_by_user_id
+            ) VALUES (?, ?, ?, ?, ?)
+        `);
+        scans.forEach(scan => insertScan.run(
+            preparation.id,
+            String(scan.barcode || "").slice(0, 120),
+            String(scan.productName || "").slice(0, 500),
+            Math.max(1, Number(scan.quantityIndex) || 1),
+            req.user.id
+        ));
+        database.exec("COMMIT");
+    } catch (err) {
+        database.exec("ROLLBACK");
+        throw err;
+    }
 
     bildirimOlustur(
         "order_completed",
@@ -1786,6 +1912,44 @@ app.post("/preparations/complete", (req, res) => {
     });
 
     res.json({ result: { id: preparation.id, status: "completed" } });
+});
+
+app.delete("/preparations/:orderCode/lock", (req, res) => {
+    const orderCode = String(req.params.orderCode || "").trim();
+    const preparation = database.prepare(`
+        SELECT * FROM order_preparations
+        WHERE order_code = ? COLLATE NOCASE AND status = 'started'
+        ORDER BY id DESC LIMIT 1
+    `).get(orderCode);
+
+    if (!preparation) return res.status(204).end();
+    if (preparation.started_by_user_id !== req.user.id && req.user.role !== "admin") {
+        return res.status(403).json({ error: "Bu sipariş kilidini kaldıramazsınız." });
+    }
+
+    database.prepare(`DELETE FROM order_preparations WHERE id = ?`).run(preparation.id);
+    denetimKaydiOlustur(req, "preparation.unlock", "order", orderCode, `${orderCode} hazırlama kilidi kaldırıldı`);
+    res.status(204).end();
+});
+
+app.get("/preparations/:id/evidence", (req, res) => {
+    const preparation = database.prepare(`
+        SELECT preparations.*, starter.display_name AS started_by, completer.display_name AS completed_by
+        FROM order_preparations preparations
+        JOIN app_users starter ON starter.id = preparations.started_by_user_id
+        LEFT JOIN app_users completer ON completer.id = preparations.completed_by_user_id
+        WHERE preparations.id = ?
+    `).get(Number(req.params.id));
+    if (!preparation) return res.status(404).json({ error: "Hazırlama kaydı bulunamadı." });
+    const scans = database.prepare(`
+        SELECT scans.barcode, scans.product_name AS productName, scans.quantity_index AS quantityIndex,
+               scans.scanned_at AS scannedAt, users.display_name AS scannedBy
+        FROM preparation_scans scans
+        JOIN app_users users ON users.id = scans.scanned_by_user_id
+        WHERE scans.preparation_id = ?
+        ORDER BY scans.scanned_at
+    `).all(preparation.id);
+    res.json({ result: { preparation, scans } });
 });
 
 function rafKaydiniDonustur(row) {
@@ -1879,6 +2043,9 @@ function sevkiyatKaydiniDonustur(row) {
         customerName: row.customer_name,
         platform: row.platform,
         status: row.status,
+        carrier: row.carrier || "",
+        trackingNumber: row.tracking_number || "",
+        trackingUrl: row.tracking_url || "",
         readyAt: row.ready_at,
         shippedAt: row.shipped_at,
         updatedAt: row.updated_at
@@ -1890,6 +2057,32 @@ app.get("/shipments", (req, res) => {
         SELECT * FROM order_shipments ORDER BY updated_at DESC
     `).all();
     res.json({ result: rows.map(sevkiyatKaydiniDonustur) });
+});
+
+app.get("/operations/board", (req, res) => {
+    const counts = {
+        preparing: database.prepare(`SELECT COUNT(*) AS count FROM order_preparations WHERE status = 'started'`).get().count,
+        completedToday: database.prepare(`
+            SELECT COUNT(*) AS count FROM order_preparations
+            WHERE status = 'completed' AND date(completed_at, '+3 hours') = date('now', '+3 hours')
+        `).get().count,
+        missing: database.prepare(`SELECT COUNT(DISTINCT order_code) AS count FROM order_product_issues WHERE status = 'open'`).get().count,
+        ready: database.prepare(`SELECT COUNT(*) AS count FROM order_shipments WHERE status = 'ready'`).get().count,
+        shippedToday: database.prepare(`
+            SELECT COUNT(*) AS count FROM order_shipments
+            WHERE status = 'shipped' AND date(shipped_at, '+3 hours') = date('now', '+3 hours')
+        `).get().count
+    };
+    const active = database.prepare(`
+        SELECT preparations.order_code AS orderCode, preparations.customer_name AS customerName,
+               preparations.platform, preparations.started_at AS startedAt, users.display_name AS worker
+        FROM order_preparations preparations
+        JOIN app_users users ON users.id = preparations.started_by_user_id
+        WHERE preparations.status = 'started'
+        ORDER BY preparations.started_at
+        LIMIT 100
+    `).all();
+    res.json({ result: { counts, active } });
 });
 
 app.put("/shipments/:orderCode", (req, res) => {
@@ -1947,12 +2140,19 @@ app.put("/shipments/:orderCode", (req, res) => {
 
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
     const platform = String(req.body.platform || "").trim().slice(0, 100);
+    const carrier = String(req.body.carrier || "").trim().slice(0, 100);
+    const trackingNumber = String(req.body.trackingNumber || "").trim().slice(0, 160);
+    const trackingUrl = String(req.body.trackingUrl || "").trim().slice(0, 1000);
+
+    if (trackingUrl && !/^https:\/\//i.test(trackingUrl)) {
+        return res.status(400).json({ error: "Kargo takip bağlantısı HTTPS olmalı." });
+    }
 
     database.prepare(`
         INSERT INTO order_shipments (
-            order_code, customer_name, platform, status, ready_at, shipped_at
+            order_code, customer_name, platform, status, carrier, tracking_number, tracking_url, ready_at, shipped_at
         ) VALUES (
-            ?, ?, ?, ?,
+            ?, ?, ?, ?, ?, ?, ?,
             CASE WHEN ? = 'ready' THEN CURRENT_TIMESTAMP ELSE NULL END,
             CASE WHEN ? = 'shipped' THEN CURRENT_TIMESTAMP ELSE NULL END
         )
@@ -1960,6 +2160,9 @@ app.put("/shipments/:orderCode", (req, res) => {
             customer_name = excluded.customer_name,
             platform = excluded.platform,
             status = excluded.status,
+            carrier = CASE WHEN excluded.carrier = '' THEN order_shipments.carrier ELSE excluded.carrier END,
+            tracking_number = CASE WHEN excluded.tracking_number = '' THEN order_shipments.tracking_number ELSE excluded.tracking_number END,
+            tracking_url = CASE WHEN excluded.tracking_url = '' THEN order_shipments.tracking_url ELSE excluded.tracking_url END,
             ready_at = CASE
                 WHEN excluded.status = 'ready' THEN COALESCE(order_shipments.ready_at, CURRENT_TIMESTAMP)
                 ELSE order_shipments.ready_at
@@ -1969,7 +2172,7 @@ app.put("/shipments/:orderCode", (req, res) => {
                 ELSE NULL
             END,
             updated_at = CURRENT_TIMESTAMP
-    `).run(orderCode, customerName, platform, status, status, status);
+    `).run(orderCode, customerName, platform, status, carrier, trackingNumber, trackingUrl, status, status);
 
     const row = database.prepare(`
         SELECT * FROM order_shipments WHERE order_code = ? COLLATE NOCASE
