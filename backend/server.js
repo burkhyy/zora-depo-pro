@@ -224,15 +224,13 @@ database.exec(`
 eskiBildirimleriTemizle();
 setInterval(eskiBildirimleriTemizle, 24 * 60 * 60 * 1000).unref();
 
-if (appUsername.toLocaleLowerCase("tr-TR") === "zoom") {
-    const zoomAdmin = database.prepare(`SELECT id FROM app_users WHERE username = 'zoom' COLLATE NOCASE`).get();
-    if (!zoomAdmin) {
-        database.prepare(`
-            UPDATE app_users
-            SET username = 'zoom', display_name = 'Zoom Yönetici'
-            WHERE username = 'zora' COLLATE NOCASE
-        `).run();
-    }
+const zoomAdmin = database.prepare(`SELECT id FROM app_users WHERE username = 'zoom' COLLATE NOCASE`).get();
+if (!zoomAdmin) {
+    database.prepare(`
+        UPDATE app_users
+        SET username = 'zoom', display_name = 'Zoom Yönetici'
+        WHERE username = 'zora' COLLATE NOCASE
+    `).run();
 }
 
 function sifreHashle(password, salt = crypto.randomBytes(16).toString("hex")) {
@@ -253,9 +251,10 @@ function yoneticiHesabiniHazirla() {
         return;
     }
 
+    const brandedUsername = appUsername.toLocaleLowerCase("tr-TR") === "zora" ? "zoom" : appUsername;
     const existing = database.prepare(`
         SELECT id FROM app_users WHERE username = ? COLLATE NOCASE
-    `).get(appUsername);
+    `).get(brandedUsername);
 
     if (!existing) {
         const password = sifreHashle(appPassword);
@@ -263,7 +262,7 @@ function yoneticiHesabiniHazirla() {
             INSERT INTO app_users (
                 username, display_name, role, password_hash, password_salt
             ) VALUES (?, ?, 'admin', ?, ?)
-        `).run(appUsername, "Zoom Yönetici", password.hash, password.salt);
+        `).run(brandedUsername, "Zoom Yönetici", password.hash, password.salt);
     }
 }
 
