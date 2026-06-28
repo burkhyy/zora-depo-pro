@@ -1,6 +1,6 @@
 {
-  "name": "Zora Depo Pro",
-  "short_name": "Zora Depo",
+  "name": "Zoom Depo Pro",
+  "short_name": "Zoom Depo",
   "description": "Siparis hazirlama, raf ve sevkiyat yonetimi",
   "start_url": "/",
   "scope": "/",
@@ -9,13 +9,13 @@
   "theme_color": "#101828",
   "icons": [
     {
-      "src": "/icons/zora-depo-192.png",
+      "src": "/icons/zoom-depo-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icons/zora-depo-512.png",
+      "src": "/icons/zoom-depo-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

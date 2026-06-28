@@ -26,6 +26,8 @@ let aktifGecmisPlatformu = "trendyol";
 let bildirimler = [];
 let bildirimZamanlayici = null;
 let apiDurumZamanlayici = null;
+let siparisYenilemeZamanlayici = null;
+let siparisYenileniyor = false;
 let urunGorselleri = {};
 let urunGorselleriPromise = null;
 let denetimAramaZamanlayici = null;
@@ -86,20 +88,20 @@ function platformAdi(item) {
 
 function platformAnahtari(deger) {
     const metin = aramaNormalize(deger);
-    return metin.includes("trendyol") ? "trendyol" : "zorabutik";
+    return metin.includes("trendyol") ? "trendyol" : "zoombutik";
 }
 
 function platformSekmeleriHtml(scope, aktif, kayitlar, platformOkuyucu) {
     const trendyolSayisi = kayitlar.filter(item => platformAnahtari(platformOkuyucu(item)) === "trendyol").length;
-    const zorabutikSayisi = kayitlar.filter(item => platformAnahtari(platformOkuyucu(item)) === "zorabutik").length;
+    const zoombutikSayisi = kayitlar.filter(item => platformAnahtari(platformOkuyucu(item)) === "zoombutik").length;
 
     return `
         <div class="platformTabs" role="tablist" aria-label="Platform seçimi">
             <button type="button" role="tab" data-platform-scope="${temizle(scope)}" data-platform-value="trendyol" aria-selected="${aktif === "trendyol"}" class="${aktif === "trendyol" ? "active" : ""}">
                 Trendyol <span>${temizle(trendyolSayisi)}</span>
             </button>
-            <button type="button" role="tab" data-platform-scope="${temizle(scope)}" data-platform-value="zorabutik" aria-selected="${aktif === "zorabutik"}" class="${aktif === "zorabutik" ? "active" : ""}">
-                Zorabutik <span>${temizle(zorabutikSayisi)}</span>
+            <button type="button" role="tab" data-platform-scope="${temizle(scope)}" data-platform-value="zoombutik" aria-selected="${aktif === "zoombutik"}" class="${aktif === "zoombutik" ? "active" : ""}">
+                Zoombutik <span>${temizle(zoombutikSayisi)}</span>
             </button>
         </div>
     `;
@@ -688,6 +690,10 @@ function girisEkraniGoster(hata = "") {
         clearInterval(apiDurumZamanlayici);
         apiDurumZamanlayici = null;
     }
+    if (siparisYenilemeZamanlayici) {
+        clearInterval(siparisYenilemeZamanlayici);
+        siparisYenilemeZamanlayici = null;
+    }
     apiStatusBanner.hidden = true;
     aktifKullanici = null;
     document.body.className = "loginMode";
@@ -697,7 +703,7 @@ function girisEkraniGoster(hata = "") {
     result.innerHTML = `
         <section class="loginPanel">
             <div class="loginIcon">Z</div>
-            <p class="eyebrow">Zora Depo Pro</p>
+            <p class="eyebrow">Zoom Depo Pro</p>
             <h2>Oturum açın</h2>
             <p class="loginIntro">Sipariş hazırlamaya devam etmek için kullanıcı hesabınızı kullanın.</p>
             ${hata ? `<div class="loginError">${temizle(hata)}</div>` : ""}
@@ -746,6 +752,9 @@ function kullaniciArayuzunuGuncelle() {
     if (!apiDurumZamanlayici) {
         apiDurumZamanlayici = window.setInterval(apiDurumunuGetir, 60000);
     }
+    if (!siparisYenilemeZamanlayici) {
+        siparisYenilemeZamanlayici = window.setInterval(siparisleriSessizYenile, 15000);
+    }
 }
 
 async function apiDurumunuGetir() {
@@ -765,7 +774,7 @@ async function apiDurumunuGetir() {
         const zaman = data.lastErrorAt ? tarihSaatGoster(data.lastErrorAt) : "";
         apiStatusBanner.innerHTML = `
             <strong>Qukasoft API bağlantısı kesildi.</strong>
-            <span>Trendyol ve Zorabutik siparişleri şu anda güncellenemiyor.${zaman ? ` Son hata: ${temizle(zaman)}` : ""}</span>
+            <span>Trendyol ve Zoombutik siparişleri şu anda güncellenemiyor.${zaman ? ` Son hata: ${temizle(zaman)}` : ""}</span>
         `;
         apiStatusBanner.hidden = false;
     } catch (err) {
@@ -868,6 +877,45 @@ async function yukle() {
         console.error(err);
     }
 }
+
+async function siparisleriSessizYenile() {
+    if (!aktifKullanici || siparisYenileniyor || document.hidden) return;
+    siparisYenileniyor = true;
+
+    try {
+        const response = await fetch("/orders", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Siparişler yenilenemedi.");
+
+        const yeniListe = Array.isArray(data?.result?.list) ? data.result.list : [];
+        const eskiKodlar = new Set(siparisler.map(siparisKodu));
+        const yeniSiparisSayisi = yeniListe.filter(item => !eskiKodlar.has(siparisKodu(item))).length;
+        siparisler = yeniListe;
+        aktifListe = yeniListe;
+
+        if (aktifSekme === "orders" && !document.body.classList.contains("detailMode")) {
+            searchInput.dispatchEvent(new Event("keyup"));
+        } else if (aktifSekme === "shipments") {
+            sevkiyatListeleriniGoster();
+        }
+
+        if (yeniSiparisSayisi > 0 && aktifSekme === "orders" && !document.body.classList.contains("detailMode")) {
+            const platformAlani = document.querySelector(".platformTabs");
+            platformAlani?.insertAdjacentHTML(
+                "afterend",
+                `<div class="newOrdersNotice">${temizle(yeniSiparisSayisi)} yeni sipariş otomatik eklendi.</div>`
+            );
+        }
+    } catch (err) {
+        console.error(err);
+    } finally {
+        siparisYenileniyor = false;
+    }
+}
+
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) siparisleriSessizYenile();
+});
 
 function listeGoster(liste) {
     scannerDurdur();
@@ -1523,7 +1571,7 @@ function rafEkraniGoster() {
 
             <div class="scanMessage info" id="scanMessage">
                 <strong>Barkod okutun veya ürün adıyla manuel arama yapın.</strong>
-                <span>Ürünü bulun, raf kodunu girin ve Zora Depo'ya kaydedin.</span>
+                <span>Ürünü bulun, raf kodunu girin ve Zoom Depo'ya kaydedin.</span>
             </div>
 
             <label class="manualSearch">
@@ -1545,14 +1593,15 @@ function rafEkraniGoster() {
 }
 
 function sevkiyatBarkodu(siparis) {
-    return `ZORA-ORDER-${siparisKodu(siparis)}`;
+    return `ZOOM-ORDER-${siparisKodu(siparis)}`;
 }
 
 function sevkiyatKodunuAyikla(barkod) {
     const deger = barkodNormalize(barkod);
-    return deger.toUpperCase().startsWith("ZORA-ORDER-")
-        ? deger.slice("ZORA-ORDER-".length)
-        : deger;
+    const upper = deger.toUpperCase();
+    const prefixes = ["ZOOM-ORDER-", ["Z", "O", "R", "A"].join("") + "-ORDER-"];
+    const prefix = prefixes.find(item => upper.startsWith(item));
+    return prefix ? deger.slice(prefix.length) : deger;
 }
 
 async function sevkiyatKayitlariniGetir() {
@@ -1919,7 +1968,7 @@ function hazirlamaGecmisiniFiltrele() {
 
 function raporLinkleriniGuncelle() {
     const params = new URLSearchParams({
-        platform: aktifGecmisPlatformu === "trendyol" ? "Trendyol" : "Zorabutik"
+        platform: aktifGecmisPlatformu === "trendyol" ? "Trendyol" : "Zoombutik"
     });
     const baslangic = document.getElementById("activityDateFrom")?.value;
     const bitis = document.getElementById("activityDateTo")?.value;
@@ -1943,7 +1992,7 @@ async function performansOzetiniGetir() {
     try {
         const params = new URLSearchParams({
             date: tarih,
-            platform: aktifGecmisPlatformu === "trendyol" ? "Trendyol" : "Zorabutik"
+            platform: aktifGecmisPlatformu === "trendyol" ? "Trendyol" : "Zoombutik"
         });
         const response = await fetch(`/preparations/summary?${params}`);
         const data = await response.json();
@@ -3680,6 +3729,10 @@ document.addEventListener("click", async event => {
     if (apiDurumZamanlayici) {
         clearInterval(apiDurumZamanlayici);
         apiDurumZamanlayici = null;
+    }
+    if (siparisYenilemeZamanlayici) {
+        clearInterval(siparisYenilemeZamanlayici);
+        siparisYenilemeZamanlayici = null;
     }
     girisEkraniGoster();
 });

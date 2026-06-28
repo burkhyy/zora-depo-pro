@@ -1,10 +1,10 @@
-const CACHE_NAME = "zora-depo-v2.3.0";
+const CACHE_NAME = "zoom-depo-v2.4.0";
 const STATIC_ASSETS = [
     "/style.css",
-    "/app.js?v=2.3.0",
+    "/app.js?v=2.4.0",
     "/manifest.webmanifest",
-    "/icons/zora-depo-192.png",
-    "/icons/zora-depo-512.png"
+    "/icons/zoom-depo-192.png",
+    "/icons/zoom-depo-512.png"
 ];
 
 self.addEventListener("install", event => {

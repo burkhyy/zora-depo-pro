@@ -235,7 +235,7 @@ h1{
     color:#175cd3;
 }
 
-.platformTabs button[data-platform-value="zorabutik"].active{
+.platformTabs button[data-platform-value="zoombutik"].active{
     border-color:#a6f4c5;
     background:#ecfdf3;
     color:#067647;
@@ -264,9 +264,20 @@ h1{
     font-weight:800;
 }
 
-.platformBadge.zorabutik{
+.platformBadge.zoombutik{
     background:#ecfdf3;
     color:#067647;
+}
+
+.newOrdersNotice{
+    margin:10px 0;
+    border:1px solid #75e0a7;
+    border-radius:7px;
+    padding:9px 12px;
+    background:#ecfdf3;
+    color:#067647;
+    font-size:13px;
+    font-weight:800;
 }
 
 .detailMode .searchBox{

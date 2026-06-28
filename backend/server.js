@@ -27,6 +27,14 @@ const databasePath = path.join(dataDirectory, "locations.db");
 const backupDirectory = path.join(dataDirectory, "backups");
 const database = new DatabaseSync(databasePath);
 fs.mkdirSync(backupDirectory, { recursive: true });
+fs.readdirSync(backupDirectory)
+    .filter(name => /^zora-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name))
+    .forEach(name => {
+        const nextName = name.replace(/^zora-depo-/i, "zoom-depo-");
+        const source = path.join(backupDirectory, name);
+        const target = path.join(backupDirectory, nextName);
+        if (!fs.existsSync(target)) fs.renameSync(source, target);
+    });
 database.exec(`
     CREATE TABLE IF NOT EXISTS product_locations (
         barcode TEXT PRIMARY KEY COLLATE NOCASE,
@@ -208,9 +216,24 @@ database.exec(`
     SET platform = CASE WHEN UPPER(order_code) LIKE 'TY%' THEN 'Trendyol' ELSE 'Zorabutik' END
     WHERE platform = '';
 
+    UPDATE order_preparations SET platform = 'Zoombutik' WHERE platform = 'Zorabutik';
+    UPDATE order_product_issues SET platform = 'Zoombutik' WHERE platform = 'Zorabutik';
+    UPDATE app_users SET display_name = 'Zoom Yönetici' WHERE display_name = 'Zora Yönetici';
+
 `);
 eskiBildirimleriTemizle();
 setInterval(eskiBildirimleriTemizle, 24 * 60 * 60 * 1000).unref();
+
+if (appUsername.toLocaleLowerCase("tr-TR") === "zoom") {
+    const zoomAdmin = database.prepare(`SELECT id FROM app_users WHERE username = 'zoom' COLLATE NOCASE`).get();
+    if (!zoomAdmin) {
+        database.prepare(`
+            UPDATE app_users
+            SET username = 'zoom', display_name = 'Zoom Yönetici'
+            WHERE username = 'zora' COLLATE NOCASE
+        `).run();
+    }
+}
 
 function sifreHashle(password, salt = crypto.randomBytes(16).toString("hex")) {
     return {
@@ -240,7 +263,7 @@ function yoneticiHesabiniHazirla() {
             INSERT INTO app_users (
                 username, display_name, role, password_hash, password_salt
             ) VALUES (?, ?, 'admin', ?, ?)
-        `).run(appUsername, "Zora Yönetici", password.hash, password.salt);
+        `).run(appUsername, "Zoom Yönetici", password.hash, password.salt);
     }
 }
 
@@ -255,6 +278,8 @@ database.exec(`
         shipped_at TEXT,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
+    ;
+    UPDATE order_shipments SET platform = 'Zoombutik' WHERE platform = 'Zorabutik';
 `);
 
 app.set("trust proxy", 1);
@@ -291,7 +316,7 @@ function cookieDegeriniOku(req, name) {
 }
 
 function oturumKullanicisiniBul(req) {
-    const token = cookieDegeriniOku(req, "zora_session");
+    const token = cookieDegeriniOku(req, "zoom_session");
 
     if (!token) {
         return null;
@@ -403,21 +428,21 @@ app.post("/auth/login", (req, res) => {
     const secure = req.secure || Boolean(process.env.RAILWAY_ENVIRONMENT);
     res.setHeader(
         "Set-Cookie",
-        `zora_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${secure ? "; Secure" : ""}`
+        `zoom_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=2592000${secure ? "; Secure" : ""}`
     );
     denetimKaydiOlustur({ user }, "user.login", "user", user.id, `${user.display_name} oturum açtı`);
     res.json({ user: kullaniciyiDonustur(user) });
 });
 
 app.post("/auth/logout", (req, res) => {
-    const token = cookieDegeriniOku(req, "zora_session");
+    const token = cookieDegeriniOku(req, "zoom_session");
 
     if (token) {
         const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
         database.prepare(`DELETE FROM app_sessions WHERE token_hash = ?`).run(tokenHash);
     }
 
-    res.setHeader("Set-Cookie", "zora_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+    res.setHeader("Set-Cookie", "zoom_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
     res.status(204).end();
 });
 
@@ -497,7 +522,7 @@ const shipmentAlertHours = Math.max(1, Number(process.env.SHIPMENT_ALERT_HOURS |
 
 function yedekDosyalariniListele() {
     return fs.readdirSync(backupDirectory)
-        .filter(name => /^zora-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name))
+        .filter(name => /^zoom-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name))
         .map(name => {
             const fullPath = path.join(backupDirectory, name);
             const stat = fs.statSync(fullPath);
@@ -522,7 +547,7 @@ function eskiYedekleriTemizle() {
 async function yedekOlustur(kind = "auto") {
     const now = new Date();
     const stamp = now.toISOString().replace(/\D/g, "").slice(0, 14);
-    const fileName = `zora-depo-${stamp.slice(0, 8)}-${stamp.slice(8)}-${kind}.db`;
+    const fileName = `zoom-depo-${stamp.slice(0, 8)}-${stamp.slice(8)}-${kind}.db`;
     const target = path.join(backupDirectory, fileName);
     await backup(database, target);
     eskiYedekleriTemizle();
@@ -532,7 +557,7 @@ async function yedekOlustur(kind = "auto") {
 async function gunlukYedegiKontrolEt() {
     const today = new Date().toISOString().slice(0, 10).replaceAll("-", "");
     const exists = yedekDosyalariniListele().some(item =>
-        item.name.startsWith(`zora-depo-${today}`) && item.name.endsWith("-auto.db")
+        item.name.startsWith(`zoom-depo-${today}`) && item.name.endsWith("-auto.db")
     );
     if (!exists) {
         await yedekOlustur("auto");
@@ -723,6 +748,15 @@ const upstreamStatus = {
     lastErrorAt: null,
     message: "Henüz kontrol edilmedi."
 };
+const activeOrderStatuses = String(process.env.ACTIVE_ORDER_STATUSES || "1,2")
+    .split(",")
+    .map(value => Number(value.trim()))
+    .filter(Number.isInteger);
+const orderPageConcurrency = Math.max(2, Math.min(10, Number(process.env.ORDER_PAGE_CONCURRENCY || 6)));
+const orderCheckMs = Math.max(5000, Number(process.env.ORDER_CHECK_SECONDS || 10) * 1000);
+let activeOrderCache = null;
+let activeOrderPromise = null;
+let nextOrderCheckAt = 0;
 
 function apiDurumunuGuncelle(healthy, message = "") {
     const previous = upstreamStatus.healthy;
@@ -745,7 +779,7 @@ function apiDurumunuGuncelle(healthy, message = "") {
         bildirimOlustur(
             "api_recovered",
             "Qukasoft API bağlantısı düzeldi",
-            "Trendyol ve Zorabutik siparişleri yeniden güncelleniyor.",
+            "Trendyol ve Zoombutik siparişleri yeniden güncelleniyor.",
             "",
             "admin"
         );
@@ -769,6 +803,91 @@ function apiHatasiGonder(err, res) {
         res.status(err.response.status).json(err.response.data);
     } else {
         res.status(500).json({ error: err.message });
+    }
+}
+
+function siparisListesi(data) {
+    return Array.isArray(data?.result?.list) ? data.result.list : [];
+}
+
+function siparisKimligi(item) {
+    return String(item?.order?.code || item?.code || item?.orderCode || item?.order?.id || item?.id || "");
+}
+
+async function aktifSiparisleriGetir() {
+    if (activeOrderCache && Date.now() < nextOrderCheckAt) {
+        return activeOrderCache;
+    }
+    if (activeOrderPromise) {
+        return activeOrderPromise;
+    }
+
+    activeOrderPromise = (async () => {
+        const firstPages = await Promise.all(activeOrderStatuses.map(async status => {
+            const url = `/order/listsV2?pageStart=0&pageSize=100&orderBy=id&sort=desc&status=${status}`;
+            const response = await API.get(url);
+            const list = siparisListesi(response.data);
+            return {
+                status,
+                list,
+                total: Number(response.data?.result?.total || list.length),
+                pageSize: Number(response.data?.result?.pageSize || list.length || 30)
+            };
+        }));
+        const signature = firstPages
+            .map(page => `${page.status}:${page.total}:${siparisKimligi(page.list[0])}`)
+            .join("|");
+
+        if (activeOrderCache?.signature === signature) {
+            nextOrderCheckAt = Date.now() + orderCheckMs;
+            apiDurumunuGuncelle(true);
+            return activeOrderCache;
+        }
+
+        const allPages = [];
+        for (const first of firstPages) {
+            allPages.push(first.list);
+            const starts = [];
+            for (let start = first.pageSize; start < first.total; start += first.pageSize) {
+                starts.push(start);
+            }
+            for (let index = 0; index < starts.length; index += orderPageConcurrency) {
+                const batch = starts.slice(index, index + orderPageConcurrency);
+                const batchPages = await Promise.all(batch.map(async pageStart => {
+                    const url = `/order/listsV2?pageStart=${pageStart}&pageSize=${first.pageSize}&orderBy=id&sort=desc&status=${first.status}`;
+                    const response = await API.get(url);
+                    return siparisListesi(response.data);
+                }));
+                allPages.push(...batchPages);
+            }
+        }
+
+        const unique = new Map();
+        allPages.flat().forEach(item => {
+            const key = siparisKimligi(item);
+            if (key && !unique.has(key)) unique.set(key, item);
+        });
+        const list = [...unique.values()].sort((a, b) =>
+            Number(b?.order?.id || b?.id || 0) - Number(a?.order?.id || a?.id || 0)
+        );
+        activeOrderCache = {
+            code: 200,
+            signature,
+            result: {
+                total: list.length,
+                pageSize: list.length,
+                list
+            }
+        };
+        nextOrderCheckAt = Date.now() + orderCheckMs;
+        apiDurumunuGuncelle(true);
+        return activeOrderCache;
+    })();
+
+    try {
+        return await activeOrderPromise;
+    } finally {
+        activeOrderPromise = null;
     }
 }
 
@@ -994,12 +1113,7 @@ app.get("/test", async (req, res) => {
 
 app.get("/orders", async (req, res) => {
     try {
-        const response = await API.get(
-            "/order/listsV2?pageStart=0&pageSize=200&orderBy=id&sort=desc"
-        );
-
-        apiDurumunuGuncelle(true);
-        res.json(response.data);
+        res.json(await aktifSiparisleriGetir());
     } catch (err) {
         apiDurumunuGuncelle(false, err.response?.data?.error || err.message);
         apiHatasiGonder(err, res);
@@ -1014,19 +1128,16 @@ app.get("/api-status", (req, res) => {
         lastErrorAt: upstreamStatus.lastErrorAt,
         platforms: {
             trendyol: upstreamStatus.healthy,
-            zorabutik: upstreamStatus.healthy
+            zoombutik: upstreamStatus.healthy
         }
     });
 });
 
 app.get("/order/:code", async (req, res) => {
     try {
-        const response = await API.get(
-            "/order/listsV2?pageStart=0&pageSize=200&orderBy=id&sort=desc"
-        );
-
-        const siparis = response.data.result.list.find(
-            item => item.order.code === req.params.code
+        const data = await aktifSiparisleriGetir();
+        const siparis = data.result.list.find(
+            item => siparisKimligi(item).toUpperCase() === String(req.params.code).toUpperCase()
         );
 
         if (!siparis) {
@@ -1368,7 +1479,7 @@ app.get("/reports/preparations.pdf", (req, res) => {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", 'attachment; filename="hazirlama-gecmisi.pdf"');
     doc.pipe(res);
-    doc.fontSize(18).text("Zora Depo Pro - Hazırlama Geçmişi");
+    doc.fontSize(18).text("Zoom Depo Pro - Hazırlama Geçmişi");
     doc.moveDown(0.4).fontSize(9).fillColor("#667085").text(`Kayıt sayısı: ${records.length}`);
     doc.moveDown(0.8).fillColor("#111827");
     records.forEach((item, index) => {
@@ -1879,5 +1990,5 @@ app.put("/shipments/:orderCode", (req, res) => {
 });
 
 app.listen(port, "0.0.0.0", () => {
-    console.log(`Zora Depo Pro calisiyor: http://0.0.0.0:${port}`);
+    console.log(`Zoom Depo Pro calisiyor: http://0.0.0.0:${port}`);
 });
