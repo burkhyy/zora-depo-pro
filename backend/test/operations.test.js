@@ -196,3 +196,28 @@ test("yapılandırılmamış harici depoya fotoğraf yazılmaz", async () => {
     }, adminCookie);
     assert.equal(complete.response.status, 503);
 });
+
+test("geçmiş temizleme tamamlanan kayıtları siler, açık kilitleri korur", async () => {
+    const adminCookie = await login("testadmin", "TestPassword123!");
+    const activePayload = {
+        orderCode: "KEEP-100",
+        customerName: "Açık Kayıt",
+        platform: "Trendyol",
+        orderSnapshot: { products: [] }
+    };
+    const active = await request("/preparations/start", {
+        method: "POST",
+        body: JSON.stringify(activePayload)
+    }, adminCookie);
+    assert.equal(active.response.status, 200);
+    const cleared = await request("/admin/history", {
+        method: "DELETE",
+        body: JSON.stringify({ mode: "preparations", confirmation: "TEMIZLE" })
+    }, adminCookie);
+    assert.equal(cleared.response.status, 200);
+    assert.ok(cleared.data.result.preparationsDeleted >= 1);
+
+    const board = await request("/operations/board", {}, adminCookie);
+    assert.equal(board.response.status, 200);
+    assert.ok(board.data.result.active.some(item => item.orderCode === "KEEP-100"));
+});

@@ -1022,11 +1022,21 @@ async function urunGorselleriniGetir(productIds) {
             }
         });
 
-        missing.forEach(id => {
-            if (!productImageCache.has(id)) {
-                productImageCache.set(id, "");
-            }
-        });
+        const unresolved = missing.filter(id => !productImageCache.get(id));
+        for (let index = 0; index < unresolved.length; index += 6) {
+            const batch = unresolved.slice(index, index + 6);
+            await Promise.all(batch.map(async id => {
+                try {
+                    const detail = await urunDetayiniGetir(id);
+                    const product = detail?.result || detail?.raw || detail;
+                    const imageUrl = urunGorselUrliniBul(product);
+                    productImageCache.set(id, imageUrl);
+                    if (imageUrl) productImageSave.run(String(id), imageUrl);
+                } catch {
+                    productImageCache.set(id, "");
+                }
+            }));
+        }
     }
 
     return Object.fromEntries(ids.map(id => [id, productImageCache.get(id) || ""]));
@@ -1432,6 +1442,48 @@ function hazirlamaGecmisiGetir() {
 
 app.get("/admin/preparations", yoneticiGerekli, (req, res) => {
     res.json({ result: hazirlamaGecmisiGetir() });
+});
+
+app.delete("/admin/history", yoneticiGerekli, (req, res) => {
+    const mode = String(req.body.mode || "").trim();
+    const confirmation = String(req.body.confirmation || "").trim();
+    if (!["preparations", "audit", "all"].includes(mode)) {
+        return res.status(400).json({ error: "Geçersiz geçmiş türü." });
+    }
+    if (confirmation !== "TEMIZLE") {
+        return res.status(400).json({ error: "Onay metni TEMIZLE olmalı." });
+    }
+
+    let preparationsDeleted = 0;
+    let auditDeleted = 0;
+    database.exec("BEGIN");
+    try {
+        if (mode === "preparations" || mode === "all") {
+            const completedIds = database.prepare(`
+                SELECT id FROM order_preparations WHERE status = 'completed'
+            `).all().map(item => item.id);
+            if (completedIds.length) {
+                const removeScans = database.prepare(`DELETE FROM preparation_scans WHERE preparation_id = ?`);
+                completedIds.forEach(id => removeScans.run(id));
+                preparationsDeleted = database.prepare(`
+                    DELETE FROM order_preparations WHERE status = 'completed'
+                `).run().changes;
+            }
+        }
+        if (mode === "audit" || mode === "all") {
+            auditDeleted = database.prepare(`DELETE FROM audit_logs`).run().changes;
+        }
+        database.exec("COMMIT");
+    } catch (err) {
+        database.exec("ROLLBACK");
+        throw err;
+    }
+
+    denetimKaydiOlustur(req, "history.clear", "system", mode, "İşlem geçmişi yönetici tarafından temizlendi", {
+        preparationsDeleted,
+        auditDeleted
+    });
+    res.json({ result: { preparationsDeleted, auditDeleted } });
 });
 
 app.get("/preparations", (req, res) => {

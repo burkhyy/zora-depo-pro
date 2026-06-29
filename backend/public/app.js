@@ -22,6 +22,9 @@ let sevkiyatAramaMetni = "";
 let aktifSiparisPlatformu = "trendyol";
 let aktifSiparisSiralama = "newest";
 let aktifSiparisDurumFiltresi = "";
+let aktifSiparisGorunumu = "single";
+let aktifTopluGruplar = [];
+let aktifTopluSiparisler = [];
 let aktifEksikPlatformu = "trendyol";
 let aktifSevkiyatPlatformu = "trendyol";
 let aktifGecmisPlatformu = "trendyol";
@@ -235,14 +238,20 @@ async function urunGorselleriniYukle() {
         return {};
     }
 
-    urunGorselleriPromise = fetch("/product-images", {
+    const batches = [];
+    for (let index = 0; index < ids.length; index += 100) {
+        batches.push(ids.slice(index, index + 100));
+    }
+
+    urunGorselleriPromise = Promise.all(batches.map(batch => fetch("/product-images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids })
-    })
-        .then(response => response.ok ? response.json() : Promise.reject(new Error("Ürün görselleri alınamadı.")))
-        .then(data => {
-            urunGorselleri = { ...urunGorselleri, ...data.result };
+        body: JSON.stringify({ ids: batch })
+    }).then(response => response.ok ? response.json() : Promise.reject(new Error("Ürün görselleri alınamadı.")))))
+        .then(responses => {
+            responses.forEach(data => {
+                urunGorselleri = { ...urunGorselleri, ...data.result };
+            });
 
             if (aktifSekme === "orders" && !aktifSiparis) {
                 listeGoster(aktifListe);
@@ -303,6 +312,17 @@ function urunBedeni(urun) {
         return dogrudanBeden;
     }
 
+    const variants = Array.isArray(urun?.variants) ? urun.variants : [];
+    const bedenVaryanti = variants.find(item =>
+        aramaNormalize(item?.name || item?.key || item?.title).includes("beden")
+    );
+    if (bedenVaryanti) {
+        const value = bedenVaryanti.value ?? bedenVaryanti.nameValue ?? bedenVaryanti.optionValue;
+        if (value !== undefined && value !== null && String(value).trim()) {
+            return String(value).trim();
+        }
+    }
+
     const varyantAlanlari = [
         ["variant1Name", "value1"],
         ["variant2Name", "value2"],
@@ -326,6 +346,47 @@ function urunBedeni(urun) {
     }
 
     return "-";
+}
+
+function urunRafKodu(urun) {
+    return String(urun.__location || "").trim() || "-";
+}
+
+async function siparisRafRotasiniUygula(siparis) {
+    await rafKayitlariniGetir().catch(() => []);
+    const locations = new Map(rafKayitListesi.map(item => [barkodKarsilastir(item.barcode), item.location]));
+    (siparis.products || []).forEach(urun => {
+        urun.__location = locations.get(barkodKarsilastir(urunBarkodu(urun))) || "";
+    });
+    siparis.products = [...(siparis.products || [])].sort((a, b) => {
+        const locationA = urunRafKodu(a) === "-" ? "ZZZZZZ" : urunRafKodu(a);
+        const locationB = urunRafKodu(b) === "-" ? "ZZZZZZ" : urunRafKodu(b);
+        return locationA.localeCompare(locationB, "tr", { numeric: true })
+            || urunAdi(a).localeCompare(urunAdi(b), "tr");
+    });
+    return siparis;
+}
+
+function siparisUrunImzasi(siparis) {
+    return (siparis.products || [])
+        .filter(urun => !hizmetUrunuMu(urun))
+        .map(urun => `${barkodKarsilastir(urunBarkodu(urun))}|${urunAdedi(urun)}`)
+        .sort()
+        .join(";");
+}
+
+function ayniUrunluSiparisGruplari(liste) {
+    const groups = new Map();
+    liste.forEach(siparis => {
+        const signature = siparisUrunImzasi(siparis);
+        if (!signature) return;
+        if (!groups.has(signature)) groups.set(signature, []);
+        groups.get(signature).push(siparis);
+    });
+    return [...groups.entries()]
+        .filter(([, orders]) => orders.length > 1)
+        .map(([signature, orders]) => ({ signature, orders }))
+        .sort((a, b) => b.orders.length - a.orders.length);
 }
 
 function urunAdedi(urun) {
@@ -714,16 +775,9 @@ function barkodIsle(okunanBarkod) {
         quantityIndex: taramaDurumu[eksikUrun.index],
         scannedAt: new Date().toISOString()
     });
-    fetch("/preparations/heartbeat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderCode: siparisKodu(aktifSiparis) })
-    }).then(async response => {
-        if (!response.ok) {
-            const data = await response.json().catch(() => ({}));
-            mesajGoster("error", "Hazırlama kilidi yenilenemedi", data.error || "Bağlantıyı kontrol edin.");
-        }
-    }).catch(() => mesajGoster("warning", "Bağlantı kesildi", "Hazırlama kilidi yenilenemedi."));
+    hazirlamaKilitleriniYenile().catch(() =>
+        mesajGoster("warning", "Bağlantı kesildi", "Hazırlama kilidi yenilenemedi.")
+    );
     mesajGoster("success", "✅ Doğru ürün okutuldu", urunAdi(eksikUrun.urun));
     bildirimSesi("success");
     ekranVurgula("success");
@@ -737,6 +791,20 @@ function barkodIsle(okunanBarkod) {
 
         scannerDurdur();
         siparisiTamamla();
+    }
+}
+
+async function hazirlamaKilitleriniYenile() {
+    const orders = aktifTopluSiparisler.length ? aktifTopluSiparisler : [aktifSiparis];
+    const responses = await Promise.all(orders.map(order => fetch("/preparations/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderCode: siparisKodu(order) })
+    })));
+    const failed = responses.find(response => !response.ok);
+    if (failed) {
+        const data = await failed.json().catch(() => ({}));
+        mesajGoster("error", "Hazırlama kilidi yenilenemedi", data.error || "Bağlantıyı kontrol edin.");
     }
 }
 
@@ -980,6 +1048,7 @@ document.addEventListener("visibilitychange", () => {
 function listeGoster(liste) {
     scannerDurdur();
     aktifSiparis = null;
+    aktifTopluSiparisler = [];
     aktifSekme = "orders";
     aktifListe = liste;
     searchInput.disabled = false;
@@ -1015,12 +1084,43 @@ function listeGoster(liste) {
                     <option value="2" ${aktifSiparisDurumFiltresi === "2" ? "selected" : ""}>Hazırlanıyor</option>
                 </select>
             </label>
+            <label>
+                <span>Hazırlama şekli</span>
+                <select id="orderViewMode">
+                    <option value="single" ${aktifSiparisGorunumu === "single" ? "selected" : ""}>Tek Siparişler</option>
+                    <option value="batch" ${aktifSiparisGorunumu === "batch" ? "selected" : ""}>Aynı Ürünlü Gruplar</option>
+                </select>
+            </label>
             <div class="orderResultCount">
                 <span>Gösterilen</span>
                 <strong>${temizle(platformListesi.length)} sipariş</strong>
             </div>
         </div>
     `;
+
+    if (aktifSiparisGorunumu === "batch") {
+        aktifTopluGruplar = ayniUrunluSiparisGruplari(platformListesi);
+        if (!aktifTopluGruplar.length) {
+            result.innerHTML += `<div class="notfound">Bu listede ürün ve adetleri tamamen aynı olan sipariş grubu yok.</div>`;
+            return;
+        }
+        result.innerHTML += `<div class="batchOrderGrid">${aktifTopluGruplar.map((group, index) => {
+            const sampleProducts = group.orders[0].products.filter(urun => !hizmetUrunuMu(urun));
+            return `
+                <article class="orderCard batchOrderCard">
+                    <div class="cardTop"><div><h2>${temizle(group.orders.length)} Aynı Sipariş</h2>
+                    <p>${temizle(sampleProducts.length)} farklı ürün · toplam ${temizle(siparisToplamAdedi(group.orders[0]) * group.orders.length)} adet</p></div>
+                    <span class="cardStatus">Toplu</span></div>
+                    <div class="batchProductPreview">${sampleProducts.map(urun => `
+                        <span>${temizle(urunAdi(urun))} · ${temizle(urunRengi(urun))} · ${temizle(urunBedeni(urun))} · ${temizle(urunAdedi(urun))} adet</span>
+                    `).join("")}</div>
+                    <div class="batchOrderCodes">${group.orders.map(order => `<small>${temizle(siparisKodu(order))}</small>`).join("")}</div>
+                    <button class="openOrderButton" type="button" data-batch-index="${index}">Toplu Hazırlamayı Aç</button>
+                </article>
+            `;
+        }).join("")}</div>`;
+        return;
+    }
 
     if (platformListesi.length === 0) {
         result.innerHTML += `
@@ -2165,6 +2265,10 @@ async function hazirlamaGecmisiEkraniGoster() {
                         <span id="activityResultCount">${temizle(data.result.length)} / ${temizle(data.result.length)} kayıt</span>
                         <a id="excelReportLink" class="reportDownloadButton" href="/reports/preparations.xlsx">Excel İndir</a>
                         <a id="pdfReportLink" class="reportDownloadButton secondary" href="/reports/preparations.pdf">PDF İndir</a>
+                        ${aktifKullanici?.role === "admin" ? `
+                            <button class="clearHistoryButton" type="button" data-clear-history="preparations">Hazırlama Geçmişini Temizle</button>
+                            <button class="clearHistoryButton" type="button" data-clear-history="audit">Denetim Geçmişini Temizle</button>
+                        ` : ""}
                     </div>
                 </div>
                 <div class="activityFilters">
@@ -2281,7 +2385,8 @@ const denetimEtiketleri = {
     "alert.create": "Kritik uyarı",
     "alert.manual_check": "Uyarı kontrolü",
     "api.outage": "API kesintisi",
-    "api.recovered": "API düzeldi"
+    "api.recovered": "API düzeldi",
+    "history.clear": "Geçmiş temizleme"
 };
 
 function dosyaBoyutuGoster(bytes) {
@@ -2909,6 +3014,10 @@ function urunListesiHtml(urunler) {
                                 <dd>${temizle(urunBarkodu(urun))}</dd>
                             </div>
                             <div>
+                                <dt>Raf</dt>
+                                <dd>${temizle(urunRafKodu(urun))}</dd>
+                            </div>
+                            <div>
                                 <dt>Adet</dt>
                                 <dd>${hizmet ? "-" : `${temizle(okutulan)} / ${temizle(gereken)}`}</dd>
                             </div>
@@ -3019,8 +3128,8 @@ function siparisDetayGoster(siparis) {
             </button>
 
             <div class="sectionTitle">
-                <h3>Siparişteki Ürünler</h3>
-                <span>${temizle(urunler.length)} ürün</span>
+                <h3>Siparişteki Ürünler · Raf Rotası</h3>
+                <span>${temizle(urunler.length)} ürün · raf sırasına göre</span>
             </div>
 
             <div class="productList" id="productList">
@@ -3031,30 +3140,37 @@ function siparisDetayGoster(siparis) {
 }
 
 function siparisHazirEkraniGoster() {
+    const batchCount = aktifTopluSiparisler.length;
     result.innerHTML = `
         <section class="completeScreen">
             <div class="completeIcon">🎉</div>
-            <p class="eyebrow">Sipariş Hazır</p>
-            <h2>${temizle(musteriAdi(aktifSiparis))}</h2>
-            <p>Sipariş No: <strong>${temizle(siparisKodu(aktifSiparis))}</strong></p>
+            <p class="eyebrow">${batchCount ? "Toplu Hazırlama Tamamlandı" : "Sipariş Hazır"}</p>
+            <h2>${batchCount ? `${temizle(batchCount)} sipariş hazır` : temizle(musteriAdi(aktifSiparis))}</h2>
+            <p>${batchCount
+                ? aktifTopluSiparisler.map(order => temizle(siparisKodu(order))).join(" · ")
+                : `Sipariş No: <strong>${temizle(siparisKodu(aktifSiparis))}</strong>`}</p>
             <button class="openOrderButton" type="button" id="backToList">Yeni Sipariş Ara</button>
         </section>
     `;
 }
 
 function siparisOzeti(siparis) {
+    const products = (siparis.products || []).map(urun => ({
+        barcode: urunBarkodu(urun),
+        name: urunAdi(urun),
+        quantity: urunAdedi(urun),
+        color: urunRengi(urun),
+        size: urunBedeni(urun)
+    })).sort((a, b) =>
+        barkodKarsilastir(a.barcode).localeCompare(barkodKarsilastir(b.barcode))
+        || a.name.localeCompare(b.name, "tr")
+    );
     return {
         orderCode: siparisKodu(siparis),
         platform: platformAdi(siparis),
         customerName: musteriAdi(siparis),
         total: toplamTutar(siparis),
-        products: (siparis.products || []).map(urun => ({
-            barcode: urunBarkodu(urun),
-            name: urunAdi(urun),
-            quantity: urunAdedi(urun),
-            color: urunRengi(urun),
-            size: urunBedeni(urun)
-        }))
+        products
     };
 }
 
@@ -3071,6 +3187,10 @@ async function dosyayiKucukVeriAdresineCevir(input) {
 }
 
 async function siparisiTamamla() {
+    if (aktifTopluSiparisler.length) {
+        await topluSiparisleriTamamla();
+        return;
+    }
     try {
         scannerDurdur();
         const orderResponse = await fetch(`/order/${encodeURIComponent(siparisKodu(aktifSiparis))}`, { cache: "no-store" });
@@ -3088,6 +3208,35 @@ async function siparisiTamamla() {
         siparisHazirEkraniGoster();
     } catch (err) {
         mesajGoster("error", "Sipariş tamamlanamadı", err.message);
+    }
+}
+
+async function topluSiparisleriTamamla() {
+    try {
+        scannerDurdur();
+        const currentOrders = await Promise.all(aktifTopluSiparisler.map(async order => {
+            const response = await fetch(`/order/${encodeURIComponent(siparisKodu(order))}`, { cache: "no-store" });
+            const current = await response.json();
+            if (!response.ok) throw new Error(`${siparisKodu(order)} artık aktif değil.`);
+            if (siparisUrunImzasi(current) !== siparisUrunImzasi(order)) {
+                throw new Error(`${siparisKodu(order)} siparişinin ürünleri değişti.`);
+            }
+            return current;
+        }));
+
+        for (const current of currentOrders) {
+            const scans = [];
+            (current.products || []).filter(urun => !hizmetUrunuMu(urun)).forEach(urun => {
+                for (let quantityIndex = 1; quantityIndex <= urunAdedi(urun); quantityIndex += 1) {
+                    scans.push({ barcode: urunBarkodu(urun), productName: urunAdi(urun), quantityIndex });
+                }
+            });
+            await hazirlamaKaydiGonder("complete", current, { scans, orderSnapshot: siparisOzeti(current) });
+            await sevkiyatDurumuKaydet(current, "ready");
+        }
+        siparisHazirEkraniGoster();
+    } catch (err) {
+        mesajGoster("error", "Toplu hazırlama tamamlanamadı", err.message);
     }
 }
 
@@ -3124,6 +3273,7 @@ async function siparisSec(kod) {
     }
 
     try {
+        await siparisRafRotasiniUygula(siparis);
         aktifSiparisSorunlari = await siparisSorunlariniGetir(kod);
     } catch (err) {
         aktifSiparisSorunlari = [];
@@ -3144,6 +3294,45 @@ async function siparisSec(kod) {
     }
 }
 
+async function topluSiparisSec(index) {
+    const group = aktifTopluGruplar[index];
+    if (!group) return;
+    const locked = [];
+    try {
+        for (const order of group.orders) {
+            await siparisRafRotasiniUygula(order);
+            await hazirlamaKaydiGonder("start", order);
+            locked.push(order);
+        }
+        aktifSiparisSorunlari = [];
+        aktifTopluSiparisler = group.orders;
+        const first = group.orders[0];
+        const synthetic = {
+            ...first,
+            order: {
+                ...(first.order || {}),
+                code: `TOPLU-${group.orders.length}`,
+                platform: platformAdi(first)
+            },
+            customer: {
+                ...(first.customer || {}),
+                name: `${group.orders.length} siparişlik toplu grup`
+            },
+            products: (first.products || []).map(product => ({
+                ...product,
+                quantity: urunAdedi(product) * group.orders.length
+            }))
+        };
+        siparisDetayGoster(synthetic);
+        aktifTopluSiparisler = group.orders;
+    } catch (err) {
+        await Promise.all(locked.map(order =>
+            fetch(`/preparations/${encodeURIComponent(siparisKodu(order))}/lock`, { method: "DELETE" }).catch(() => {})
+        ));
+        result.innerHTML = `<div class="notfound"><strong>Toplu grup açılamadı</strong><p>${temizle(err.message)}</p></div>`;
+    }
+}
+
 searchInput.addEventListener("keyup", function () {
     const ara = this.value.toLowerCase().trim();
 
@@ -3158,6 +3347,31 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const clearHistoryButton = event.target.closest("[data-clear-history]");
+    if (clearHistoryButton) {
+        const confirmation = prompt("Bu işlem geri alınamaz. Devam etmek için TEMIZLE yazın.");
+        if (confirmation !== "TEMIZLE") return;
+        const response = await fetch("/admin/history", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: clearHistoryButton.dataset.clearHistory, confirmation })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            alert(data.error || "Geçmiş temizlenemedi.");
+            return;
+        }
+        alert(`${data.result.preparationsDeleted} hazırlama, ${data.result.auditDeleted} denetim kaydı temizlendi.`);
+        hazirlamaGecmisiEkraniGoster();
+        return;
+    }
+
+    const batchButton = event.target.closest("[data-batch-index]");
+    if (batchButton) {
+        await topluSiparisSec(Number(batchButton.dataset.batchIndex));
+        return;
+    }
+
     const unlockButton = event.target.closest("[data-unlock-order]");
     if (unlockButton) {
         if (!confirm(`${unlockButton.dataset.unlockOrder} siparişinin hazırlama kilidi kaldırılsın mı?`)) return;
@@ -3850,6 +4064,12 @@ result.addEventListener("change", function (event) {
 
     if (event.target.id === "orderStatusFilter") {
         aktifSiparisDurumFiltresi = event.target.value;
+        listeGoster(aktifListe);
+        return;
+    }
+
+    if (event.target.id === "orderViewMode") {
+        aktifSiparisGorunumu = event.target.value;
         listeGoster(aktifListe);
         return;
     }

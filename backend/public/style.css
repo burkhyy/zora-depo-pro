@@ -282,7 +282,7 @@ h1{
 
 .orderListControls{
     display:grid;
-    grid-template-columns:minmax(190px, 1fr) minmax(170px, 1fr) auto;
+    grid-template-columns:repeat(3,minmax(160px,1fr)) auto;
     align-items:end;
     gap:10px;
     margin-bottom:14px;
@@ -328,6 +328,26 @@ h1{
 .orderResultCount strong{
     color:#101828;
     font-size:15px;
+}
+
+.batchOrderGrid{display:grid;gap:12px}
+.batchOrderCard{border-left:4px solid #175cd3}
+.batchProductPreview,.batchOrderCodes{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.batchProductPreview span,.batchOrderCodes small{
+    border:1px solid #d0d5dd;
+    border-radius:6px;
+    padding:6px 8px;
+    background:#f9fafb;
+    color:#344054;
+}
+.clearHistoryButton{
+    border:1px solid #d92d20;
+    border-radius:6px;
+    padding:8px 10px;
+    background:#fff;
+    color:#b42318;
+    font-weight:700;
+    cursor:pointer;
 }
 
 .detailMode .searchBox{
