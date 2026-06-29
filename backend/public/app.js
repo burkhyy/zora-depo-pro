@@ -714,6 +714,16 @@ function barkodIsle(okunanBarkod) {
         quantityIndex: taramaDurumu[eksikUrun.index],
         scannedAt: new Date().toISOString()
     });
+    fetch("/preparations/heartbeat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderCode: siparisKodu(aktifSiparis) })
+    }).then(async response => {
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            mesajGoster("error", "Hazırlama kilidi yenilenemedi", data.error || "Bağlantıyı kontrol edin.");
+        }
+    }).catch(() => mesajGoster("warning", "Bağlantı kesildi", "Hazırlama kilidi yenilenemedi."));
     mesajGoster("success", "✅ Doğru ürün okutuldu", urunAdi(eksikUrun.urun));
     bildirimSesi("success");
     ekranVurgula("success");
@@ -3148,6 +3158,19 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const unlockButton = event.target.closest("[data-unlock-order]");
+    if (unlockButton) {
+        if (!confirm(`${unlockButton.dataset.unlockOrder} siparişinin hazırlama kilidi kaldırılsın mı?`)) return;
+        const response = await fetch(`/preparations/${encodeURIComponent(unlockButton.dataset.unlockOrder)}/lock`, { method: "DELETE" });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            alert(data.error || "Kilit kaldırılamadı.");
+            return;
+        }
+        operasyonPanosuGoster();
+        return;
+    }
+
     const trackingButton = event.target.closest("[data-tracking-order]");
     if (trackingButton) {
         kargoTakipFormuGoster(trackingButton.dataset.trackingOrder);
@@ -3886,7 +3909,8 @@ async function operasyonPanosuGoster() {
                     ${board.active.length ? board.active.map(item => `
                         <article><div><strong>${temizle(item.customerName || item.orderCode)}</strong>
                         <span>${temizle(item.orderCode)} · ${temizle(item.platform)}</span></div>
-                        <div><b>${temizle(item.worker)}</b><span>${temizle(tarihSaatGoster(item.startedAt))}</span></div></article>
+                        <div><b>${temizle(item.worker)}</b><span>${temizle(tarihSaatGoster(item.startedAt))}</span>
+                        ${aktifKullanici?.role === "admin" ? `<button class="unlockOrderButton" type="button" data-unlock-order="${temizle(item.orderCode)}">Kilidi Kaldır</button>` : ""}</div></article>
                     `).join("") : `<div class="notfound compact">Şu anda açık hazırlama kaydı yok.</div>`}
                 </div>
             </section>

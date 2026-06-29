@@ -1,4 +1,4 @@
-# Zora Depo Pro - Railway Deployment
+# Zoom Depo Pro - Railway Deployment
 
 ## Railway setup
 
@@ -11,10 +11,16 @@
    - `APP_USERNAME`
    - `APP_PASSWORD`
    - `DATA_DIR=/app/data`
+   - `PREPARATION_LOCK_MINUTES=120`
+   - `CLOUDINARY_CLOUD_NAME`
+   - `CLOUDINARY_API_KEY`
+   - `CLOUDINARY_API_SECRET`
 4. Generate a Railway domain for the service.
-5. Open the HTTPS address and install Zora Depo from the browser menu.
+5. Open the HTTPS address and install Zoom Depo from the browser menu.
 
 Railway supplies `PORT` automatically. Do not add API secrets to GitHub.
+Cloudinary variables are required only for package-photo uploads. The API secret
+is used by the backend and is never sent to the browser.
 
 ## Updates
 

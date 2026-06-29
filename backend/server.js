@@ -16,6 +16,12 @@ const dataDirectory = process.env.DATA_DIR
     || path.join(__dirname, "data");
 const appUsername = process.env.APP_USERNAME || "";
 const appPassword = process.env.APP_PASSWORD || "";
+const preparationLockMinimum = process.env.NODE_ENV === "test" ? 0.01 : 15;
+const preparationLockMinutes = Math.max(preparationLockMinimum, Number(process.env.PREPARATION_LOCK_MINUTES || 120));
+const cloudinaryCloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim();
+const cloudinaryApiKey = String(process.env.CLOUDINARY_API_KEY || "").trim();
+const cloudinaryApiSecret = String(process.env.CLOUDINARY_API_SECRET || "").trim();
+const externalProofStorageConfigured = Boolean(cloudinaryCloudName && cloudinaryApiKey && cloudinaryApiSecret);
 
 if (process.env.RAILWAY_ENVIRONMENT && (!appUsername || !appPassword)) {
     throw new Error("Railway ortaminda APP_USERNAME ve APP_PASSWORD zorunludur.");
@@ -198,6 +204,15 @@ if (!preparationColumns.has("order_fingerprint")) {
 
 if (!preparationColumns.has("proof_image")) {
     database.exec(`ALTER TABLE order_preparations ADD COLUMN proof_image TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!preparationColumns.has("lock_expires_at")) {
+    database.exec(`ALTER TABLE order_preparations ADD COLUMN lock_expires_at TEXT`);
+    database.exec(`
+        UPDATE order_preparations
+        SET lock_expires_at = datetime(started_at, '+${preparationLockMinutes} minutes')
+        WHERE status = 'started' AND lock_expires_at IS NULL
+    `);
 }
 
 if (!issueColumns.has("platform")) {
@@ -760,6 +775,8 @@ app.get("/admin/operations/status", yoneticiGerekli, (req, res) => {
     res.json({
         latestBackup,
         backupRetentionDays,
+        preparationLockMinutes,
+        externalProofStorageConfigured,
         thresholds: {
             preparationHours: preparationAlertHours,
             issueHours: issueAlertHours,
@@ -1773,6 +1790,57 @@ function siparisParmakIzi(snapshot) {
         : "";
 }
 
+function zamaniAsmisKilitleriTemizle() {
+    const expired = database.prepare(`
+        SELECT id, order_code FROM order_preparations
+        WHERE status = 'started' AND lock_expires_at IS NOT NULL
+          AND lock_expires_at <= CURRENT_TIMESTAMP
+    `).all();
+    const remove = database.prepare(`DELETE FROM order_preparations WHERE id = ?`);
+    expired.forEach(item => {
+        remove.run(item.id);
+        denetimKaydiOlustur(null, "preparation.timeout", "order", item.order_code, `${item.order_code} hazırlama kilidi zaman aşımıyla kaldırıldı`);
+    });
+    return expired.length;
+}
+setInterval(zamaniAsmisKilitleriTemizle, 5 * 60 * 1000).unref();
+
+async function paketFotografiniYukle(dataUri, orderCode) {
+    if (!dataUri) return "";
+    if (!externalProofStorageConfigured) {
+        const error = new Error("Paket fotoğrafı depolaması henüz yapılandırılmadı. Cloudinary bilgilerini Railway'e ekleyin.");
+        error.statusCode = 503;
+        throw error;
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const folder = "zoom-depo-pro/package-proofs";
+    const publicId = `${String(orderCode).replace(/[^a-z0-9_-]/gi, "_")}-${timestamp}`;
+    const signatureSource = `folder=${folder}&public_id=${publicId}&timestamp=${timestamp}${cloudinaryApiSecret}`;
+    const signature = crypto.createHash("sha1").update(signatureSource).digest("hex");
+    const form = new URLSearchParams({
+        file: dataUri,
+        api_key: cloudinaryApiKey,
+        timestamp: String(timestamp),
+        folder,
+        public_id: publicId,
+        signature
+    });
+    const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudinaryCloudName)}/image/upload`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form,
+        signal: AbortSignal.timeout(20000)
+    });
+    const data = await response.json();
+    if (!response.ok || !data.secure_url) {
+        const error = new Error(data.error?.message || "Paket fotoğrafı harici depoya yüklenemedi.");
+        error.statusCode = 502;
+        throw error;
+    }
+    return String(data.secure_url);
+}
+
 app.post("/preparations/start", (req, res) => {
     const orderCode = String(req.body.orderCode || "").trim();
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
@@ -1784,6 +1852,7 @@ app.post("/preparations/start", (req, res) => {
         return res.status(400).json({ error: "Sipariş kodu gerekli." });
     }
 
+    zamaniAsmisKilitleriTemizle();
     let preparation = database.prepare(`
         SELECT preparations.*, users.display_name AS owner_name
         FROM order_preparations preparations
@@ -1804,9 +1873,10 @@ app.post("/preparations/start", (req, res) => {
     if (!preparation) {
         const result = database.prepare(`
             INSERT INTO order_preparations (
-                order_code, customer_name, platform, started_by_user_id, order_snapshot, order_fingerprint
-            ) VALUES (?, ?, ?, ?, ?, ?)
-        `).run(orderCode, customerName, platform, req.user.id, orderSnapshot, orderFingerprint);
+                order_code, customer_name, platform, started_by_user_id, order_snapshot,
+                order_fingerprint, lock_expires_at
+            ) VALUES (?, ?, ?, ?, ?, ?, datetime('now', ?))
+        `).run(orderCode, customerName, platform, req.user.id, orderSnapshot, orderFingerprint, `+${preparationLockMinutes} minutes`);
         preparation = database.prepare(`SELECT * FROM order_preparations WHERE id = ?`).get(result.lastInsertRowid);
         denetimKaydiOlustur(req, "preparation.start", "order", orderCode, `${orderCode} hazırlanmaya başlandı`, {
             customerName,
@@ -1817,6 +1887,11 @@ app.post("/preparations/start", (req, res) => {
         preparation.platform = platform;
     }
 
+    database.prepare(`
+        UPDATE order_preparations SET lock_expires_at = datetime('now', ?) WHERE id = ?
+    `).run(`+${preparationLockMinutes} minutes`, preparation.id);
+    preparation.lock_expires_at = database.prepare(`SELECT lock_expires_at FROM order_preparations WHERE id = ?`).get(preparation.id).lock_expires_at;
+
     res.json({
         result: {
             ...preparation,
@@ -1826,7 +1901,26 @@ app.post("/preparations/start", (req, res) => {
     });
 });
 
-app.post("/preparations/complete", (req, res) => {
+app.post("/preparations/heartbeat", (req, res) => {
+    const orderCode = String(req.body.orderCode || "").trim();
+    zamaniAsmisKilitleriTemizle();
+    const preparation = database.prepare(`
+        SELECT * FROM order_preparations
+        WHERE order_code = ? COLLATE NOCASE AND status = 'started'
+        ORDER BY id DESC LIMIT 1
+    `).get(orderCode);
+    if (!preparation) return res.status(409).json({ error: "Hazırlama kilidinin süresi doldu.", code: "LOCK_EXPIRED" });
+    if (preparation.started_by_user_id !== req.user.id && req.user.role !== "admin") {
+        return res.status(403).json({ error: "Sipariş başka bir personel tarafından hazırlanıyor." });
+    }
+    database.prepare(`UPDATE order_preparations SET lock_expires_at = datetime('now', ?) WHERE id = ?`)
+        .run(`+${preparationLockMinutes} minutes`, preparation.id);
+    const row = database.prepare(`SELECT lock_expires_at FROM order_preparations WHERE id = ?`).get(preparation.id);
+    res.json({ result: { lockExpiresAt: row.lock_expires_at } });
+});
+
+app.post("/preparations/complete", async (req, res, next) => {
+    try {
     const orderCode = String(req.body.orderCode || "").trim();
     const customerName = String(req.body.customerName || "").trim().slice(0, 300);
     const platform = String(req.body.platform || "").trim().slice(0, 100);
@@ -1859,6 +1953,7 @@ app.post("/preparations/complete", (req, res) => {
     if (proofImage && (!/^data:image\/(jpeg|png|webp);base64,/i.test(proofImage) || proofImage.length > 1500000)) {
         return res.status(400).json({ error: "Paket fotoğrafı geçersiz veya çok büyük." });
     }
+    const proofImageUrl = await paketFotografiniYukle(proofImage, orderCode);
 
     if (!preparation) {
         const result = database.prepare(`
@@ -1879,7 +1974,7 @@ app.post("/preparations/complete", (req, res) => {
             completed_at = CURRENT_TIMESTAMP,
             proof_image = ?
         WHERE id = ?
-        `).run(platform, req.user.id, proofImage, preparation.id);
+        `).run(platform, req.user.id, proofImageUrl, preparation.id);
 
         const insertScan = database.prepare(`
             INSERT INTO preparation_scans (
@@ -1911,7 +2006,11 @@ app.post("/preparations/complete", (req, res) => {
         platform
     });
 
-    res.json({ result: { id: preparation.id, status: "completed" } });
+    res.json({ result: { id: preparation.id, status: "completed", proofImageUrl } });
+    } catch (err) {
+        if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+        next(err);
+    }
 });
 
 app.delete("/preparations/:orderCode/lock", (req, res) => {
@@ -2060,6 +2159,7 @@ app.get("/shipments", (req, res) => {
 });
 
 app.get("/operations/board", (req, res) => {
+    zamaniAsmisKilitleriTemizle();
     const counts = {
         preparing: database.prepare(`SELECT COUNT(*) AS count FROM order_preparations WHERE status = 'started'`).get().count,
         completedToday: database.prepare(`
@@ -2075,7 +2175,9 @@ app.get("/operations/board", (req, res) => {
     };
     const active = database.prepare(`
         SELECT preparations.order_code AS orderCode, preparations.customer_name AS customerName,
-               preparations.platform, preparations.started_at AS startedAt, users.display_name AS worker
+               preparations.platform, preparations.started_at AS startedAt,
+               preparations.lock_expires_at AS lockExpiresAt,
+               preparations.started_by_user_id AS workerUserId, users.display_name AS worker
         FROM order_preparations preparations
         JOIN app_users users ON users.id = preparations.started_by_user_id
         WHERE preparations.status = 'started'
