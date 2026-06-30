@@ -1,7 +1,7 @@
-const CACHE_NAME = "zoom-depo-v3.4.0";
+const CACHE_NAME = "zoom-depo-v3.5.0";
 const STATIC_ASSETS = [
     "/style.css",
-    "/app.js?v=3.4.0",
+    "/app.js?v=3.5.0",
     "/manifest.webmanifest",
     "/icons/zoom-depo-192.png",
     "/icons/zoom-depo-512.png"
@@ -45,6 +45,7 @@ self.addEventListener("fetch", event => {
         || url.pathname.startsWith("/product-image/")
         || url.pathname.startsWith("/locations")
         || url.pathname.startsWith("/shipments")
+        || url.pathname.startsWith("/label-prints")
         || url.pathname.startsWith("/auth/")
         || url.pathname.startsWith("/admin/")
         || url.pathname.startsWith("/issues")

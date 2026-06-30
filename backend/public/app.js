@@ -27,6 +27,9 @@ let aktifTopluGruplar = [];
 let aktifTopluSiparisler = [];
 let aktifTopluSiparisIndex = 0;
 const secilenSiparisKodlari = new Set();
+let etiketBaskiKayitlari = {};
+let siparisSayfaBoyutu = 10;
+let aktifSiparisSayfasi = 1;
 let aktifEksikPlatformu = "trendyol";
 let aktifSevkiyatPlatformu = "trendyol";
 let aktifGecmisPlatformu = "trendyol";
@@ -989,7 +992,10 @@ async function oturumuBaslat() {
 
 async function yukle() {
     try {
-        const response = await fetch("/orders");
+        const [response] = await Promise.all([
+            fetch("/orders"),
+            etiketBaskiKayitlariniGetir()
+        ]);
         const data = await response.json();
 
         siparisler = data.result.list;
@@ -1075,6 +1081,10 @@ function listeGoster(liste) {
         platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
         && (!aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
     ));
+    const toplamSayfa = Math.max(1, Math.ceil(platformListesi.length / siparisSayfaBoyutu));
+    aktifSiparisSayfasi = Math.min(Math.max(1, aktifSiparisSayfasi), toplamSayfa);
+    const sayfaBaslangici = (aktifSiparisSayfasi - 1) * siparisSayfaBoyutu;
+    const sayfadakiSiparisler = platformListesi.slice(sayfaBaslangici, sayfaBaslangici + siparisSayfaBoyutu);
     result.innerHTML = `
         ${platformSekmeleriHtml("orders", aktifSiparisPlatformu, liste, platformAdi)}
         <div class="orderListControls">
@@ -1102,9 +1112,15 @@ function listeGoster(liste) {
                     <option value="batch" ${aktifSiparisGorunumu === "batch" ? "selected" : ""}>Aynı Ürünlü Gruplar</option>
                 </select>
             </label>
+            <label>
+                <span>Sayfa boyutu</span>
+                <select id="orderPageSize">
+                    ${[10, 30, 50].map(size => `<option value="${size}" ${siparisSayfaBoyutu === size ? "selected" : ""}>${size} sipariş</option>`).join("")}
+                </select>
+            </label>
             <div class="orderResultCount">
                 <span>Gösterilen</span>
-                <strong>${temizle(platformListesi.length)} sipariş</strong>
+                <strong>${temizle(sayfadakiSiparisler.length)} / ${temizle(platformListesi.length)} sipariş</strong>
             </div>
         </div>
         <div class="bulkLabelControls" ${aktifSiparisGorunumu === "single" ? "" : "hidden"}>
@@ -1117,6 +1133,11 @@ function listeGoster(liste) {
             <button class="cargoLabelButton" type="button" data-print-selected-orders ${secilenSiparisKodlari.size ? "" : "disabled"}>
                 Seçilen Kargo Etiketlerini Yazdır
             </button>
+        </div>
+        <div class="orderPagination" ${platformListesi.length > siparisSayfaBoyutu ? "" : "hidden"}>
+            <button type="button" data-order-page="${aktifSiparisSayfasi - 1}" ${aktifSiparisSayfasi <= 1 ? "disabled" : ""}>← Önceki</button>
+            <strong>Sayfa ${temizle(aktifSiparisSayfasi)} / ${temizle(toplamSayfa)}</strong>
+            <button type="button" data-order-page="${aktifSiparisSayfasi + 1}" ${aktifSiparisSayfasi >= toplamSayfa ? "disabled" : ""}>Sonraki →</button>
         </div>
     `;
 
@@ -1155,7 +1176,7 @@ function listeGoster(liste) {
         return;
     }
 
-    platformListesi.forEach(item => {
+    sayfadakiSiparisler.forEach(item => {
         const kod = siparisKodu(item);
         const urunSayisi = (item.products || []).length;
 
@@ -1171,6 +1192,11 @@ function listeGoster(liste) {
                     <div class="orderCardIdentity">
                         <h2>${temizle(musteriAdi(item))}</h2>
                         <p>Sipariş No: <strong>${temizle(kod)}</strong></p>
+                        ${etiketBaskiKaydi(item) ? `
+                            <span class="printedLabelBadge" title="${temizle(etiketBaskiKaydi(item).lastPrintedBy)} · ${temizle(tarihSaatGoster(etiketBaskiKaydi(item).lastPrintedAt))}">
+                                ✓ Yazdırıldı · ${temizle(etiketBaskiKaydi(item).printCount)} kez
+                            </span>
+                        ` : ""}
                     </div>
                     <span class="cardStatus">${temizle(siparisDurumu(item))}</span>
                 </div>
@@ -1846,12 +1872,46 @@ function teslimatAdresi(siparis) {
     };
 }
 
+async function etiketBaskiKayitlariniGetir() {
+    try {
+        const response = await fetch("/label-prints", { cache: "no-store" });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Etiket geçmişi alınamadı.");
+        etiketBaskiKayitlari = Object.fromEntries(
+            (data.result || []).map(item => [String(item.orderCode).toUpperCase(), item])
+        );
+    } catch (err) {
+        console.error(err);
+    }
+}
+
+function etiketBaskiKaydi(order) {
+    return etiketBaskiKayitlari[siparisKodu(order).toUpperCase()] || null;
+}
+
+async function etiketBaskisiniKaydet(orders) {
+    const orderCodes = orders.map(siparisKodu).filter(Boolean);
+    const response = await fetch("/label-prints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderCodes })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Etiket baskısı kaydedilemedi.");
+    await etiketBaskiKayitlariniGetir();
+}
+
 function kargoCikisEtiketiGoster(siparis) {
     const shipmentCode = kargoGonderiKodu(siparis);
     if (!shipmentCode) {
         mesajGoster("warning", "Kargo kodu henüz oluşmadı", `${siparisKodu(siparis)} için Qukasoft shipmentCode göndermedi.`);
         return;
     }
+    const previousPrint = etiketBaskiKaydi(siparis);
+    if (previousPrint && !confirm(
+        `Bu siparişin etiketi daha önce ${previousPrint.printCount} kez yazdırıldı.\n`
+        + `Son baskı: ${previousPrint.lastPrintedBy} · ${tarihSaatGoster(previousPrint.lastPrintedAt)}\n\nTekrar yazdırılsın mı?`
+    )) return;
 
     document.getElementById("barcodePrintModal")?.remove();
     const delivery = teslimatAdresi(siparis);
@@ -1906,7 +1966,13 @@ function kargoCikisEtiketiGoster(siparis) {
     modal.querySelectorAll(".closePrintModal").forEach(button =>
         button.addEventListener("click", () => modal.remove())
     );
-    modal.querySelector("#printCargoNow").addEventListener("click", () => {
+    modal.querySelector("#printCargoNow").addEventListener("click", async () => {
+        try {
+            await etiketBaskisiniKaydet([siparis]);
+        } catch (err) {
+            mesajGoster("error", "Baskı kaydı oluşturulamadı", err.message);
+            return;
+        }
         const pageStyle = document.createElement("style");
         pageStyle.textContent = "@page{size:100mm 50mm;margin:0}";
         document.head.appendChild(pageStyle);
@@ -1921,6 +1987,11 @@ function topluKargoEtiketleriGoster(orders) {
         mesajGoster("warning", "Yazdırılabilir etiket yok", "Seçilen siparişlerin kargo kodu henüz oluşmamış.");
         return;
     }
+    const previouslyPrinted = printable.filter(order => etiketBaskiKaydi(order));
+    if (previouslyPrinted.length && !confirm(
+        `${previouslyPrinted.length} sipariş etiketi daha önce yazdırılmış.\n`
+        + `Toplam ${printable.length} etiket tekrar yazdırılsın mı?`
+    )) return;
 
     document.getElementById("barcodePrintModal")?.remove();
     const modal = document.createElement("div");
@@ -1978,7 +2049,13 @@ function topluKargoEtiketleriGoster(orders) {
     modal.querySelectorAll(".closePrintModal").forEach(button =>
         button.addEventListener("click", () => modal.remove())
     );
-    modal.querySelector("#printBulkCargoNow").addEventListener("click", () => {
+    modal.querySelector("#printBulkCargoNow").addEventListener("click", async () => {
+        try {
+            await etiketBaskisiniKaydet(printable);
+        } catch (err) {
+            mesajGoster("error", "Baskı kayıtları oluşturulamadı", err.message);
+            return;
+        }
         const pageStyle = document.createElement("style");
         pageStyle.textContent = "@page{size:100mm 50mm;margin:0}";
         document.head.appendChild(pageStyle);
@@ -2592,7 +2669,8 @@ const denetimEtiketleri = {
     "alert.manual_check": "Uyarı kontrolü",
     "api.outage": "API kesintisi",
     "api.recovered": "API düzeldi",
-    "history.clear": "Geçmiş temizleme"
+    "history.clear": "Geçmiş temizleme",
+    "label.print": "Kargo etiketi baskısı"
 };
 
 function dosyaBoyutuGoster(bytes) {
@@ -3542,7 +3620,8 @@ async function topluSiparisSec(index) {
     }
 }
 
-searchInput.addEventListener("keyup", function () {
+searchInput.addEventListener("keyup", function (event) {
+    if (event.isTrusted) aktifSiparisSayfasi = 1;
     const ara = this.value.toLowerCase().trim();
 
     const filtre = siparisler.filter(item => {
@@ -3556,6 +3635,14 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const pageButton = event.target.closest("[data-order-page]");
+    if (pageButton && !pageButton.disabled) {
+        aktifSiparisSayfasi = Number(pageButton.dataset.orderPage) || 1;
+        listeGoster(aktifListe);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+    }
+
     if (event.target.closest("[data-select-all-orders]")) {
         result.querySelectorAll("[data-select-order]:not(:disabled)").forEach(input => {
             input.checked = true;
@@ -3723,6 +3810,7 @@ result.addEventListener("click", async function (event) {
 
         if (scope === "orders") {
             aktifSiparisPlatformu = platform;
+            aktifSiparisSayfasi = 1;
             listeGoster(aktifListe);
         } else if (scope === "issues") {
             aktifEksikPlatformu = platform;
@@ -4315,18 +4403,28 @@ result.addEventListener("change", function (event) {
 
     if (event.target.id === "orderSort") {
         aktifSiparisSiralama = event.target.value;
+        aktifSiparisSayfasi = 1;
         listeGoster(aktifListe);
         return;
     }
 
     if (event.target.id === "orderStatusFilter") {
         aktifSiparisDurumFiltresi = event.target.value;
+        aktifSiparisSayfasi = 1;
         listeGoster(aktifListe);
         return;
     }
 
     if (event.target.id === "orderViewMode") {
         aktifSiparisGorunumu = event.target.value;
+        aktifSiparisSayfasi = 1;
+        listeGoster(aktifListe);
+        return;
+    }
+
+    if (event.target.id === "orderPageSize") {
+        siparisSayfaBoyutu = Number(event.target.value) || 10;
+        aktifSiparisSayfasi = 1;
         listeGoster(aktifListe);
         return;
     }

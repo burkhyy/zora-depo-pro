@@ -221,3 +221,19 @@ test("geçmiş temizleme tamamlanan kayıtları siler, açık kilitleri korur", 
     assert.equal(board.response.status, 200);
     assert.ok(board.data.result.active.some(item => item.orderCode === "KEEP-100"));
 });
+
+test("kargo etiketi baskı adedi ve personeli kalıcı kaydedilir", async () => {
+    const adminCookie = await login("testadmin", "TestPassword123!");
+    for (let index = 0; index < 2; index += 1) {
+        const saved = await request("/label-prints", {
+            method: "POST",
+            body: JSON.stringify({ orderCodes: ["LABEL-100"] })
+        }, adminCookie);
+        assert.equal(saved.response.status, 200);
+    }
+    const history = await request("/label-prints", {}, adminCookie);
+    assert.equal(history.response.status, 200);
+    const record = history.data.result.find(item => item.orderCode === "LABEL-100");
+    assert.equal(record.printCount, 2);
+    assert.equal(record.lastPrintedBy, "Zoom Yönetici");
+});
