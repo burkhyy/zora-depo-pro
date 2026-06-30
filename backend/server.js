@@ -1258,6 +1258,28 @@ app.post("/product-images", async (req, res) => {
     }
 });
 
+app.get("/product-image/:id", async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return res.status(400).end();
+        const images = await urunGorselleriniGetir([id]);
+        const imageUrl = images[id];
+        if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return res.status(404).end();
+        const response = await axios.get(imageUrl, {
+            responseType: "arraybuffer",
+            timeout: 15000,
+            maxContentLength: 8 * 1024 * 1024
+        });
+        res.set({
+            "Content-Type": response.headers["content-type"] || "image/jpeg",
+            "Cache-Control": "public, max-age=21600, stale-while-revalidate=86400"
+        });
+        res.send(Buffer.from(response.data));
+    } catch {
+        res.status(404).end();
+    }
+});
+
 app.get("/products/:id", async (req, res) => {
     try {
         const data = await urunDetayiniGetir(req.params.id);

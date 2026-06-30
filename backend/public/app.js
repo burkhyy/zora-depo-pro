@@ -223,7 +223,9 @@ function urunGorseli(urun) {
         "images.0.url"
     ], "");
 
-    return dogrudan || urunGorselleri[String(urunProductId(urun))] || "";
+    const productId = urunProductId(urun);
+    const resolved = dogrudan || urunGorselleri[String(productId)] || "";
+    return resolved && productId ? `/product-image/${encodeURIComponent(productId)}` : resolved;
 }
 
 async function urunGorselleriniYukle() {
@@ -1156,9 +1158,14 @@ function listeGoster(liste) {
                     <span><b>Ürün Sayısı</b>${temizle(urunSayisi)}</span>
                 </div>
 
-                <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}">
-                    📦 Siparişi Aç
-                </button>
+                <div class="orderCardActions">
+                    <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(kod)}">
+                        100×50 Kargo Etiketi
+                    </button>
+                    <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}">
+                        📦 Siparişi Aç
+                    </button>
+                </div>
             </article>
         `;
     });
@@ -3087,7 +3094,9 @@ function urunListesiHtml(urunler) {
                 <div class="productMain">
                     <span class="productIndex">${temizle(sira)}</span>
                     <div class="productImageWrap">
-                        ${gorselUrl
+                        ${hizmet
+                            ? `<span>Hizmet</span>`
+                            : gorselUrl
                             ? `<img src="${temizle(gorselUrl)}" alt="${temizle(urunAdi(urun))}" loading="lazy">`
                             : `<span>Görsel yok</span>`}
                     </div>

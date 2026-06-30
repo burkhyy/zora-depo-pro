@@ -1873,6 +1873,12 @@ h1{
     font-weight:800;
     cursor:pointer;
 }
+.orderCardActions{
+    display:grid;
+    grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);
+    gap:8px;
+}
+.orderCardActions .openOrderButton{margin:0}
 
 .shipmentTool{
     background:#fff;
@@ -2156,6 +2162,7 @@ h1{
     .activePreparationList article{align-items:flex-start;flex-direction:column}
     .activePreparationList article>div:last-child{text-align:left}
     .batchProgress{flex-direction:column}
+    .orderCardActions{grid-template-columns:1fr}
 }
 
 .checkOperationsButton,
