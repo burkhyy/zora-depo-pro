@@ -11,6 +11,7 @@ let aktifTaramaModu = "order";
 let apiUrunleri = null;
 let apiUrunleriPromise = null;
 let rafKayitListesi = [];
+let sonRafAramaKayitlari = [];
 let rafKayitlariPromise = null;
 let sevkiyatKayitlari = [];
 let aktifKullanici = null;
@@ -41,6 +42,8 @@ let siparisYenileniyor = false;
 let urunGorselleri = {};
 let urunGorselleriPromise = null;
 let denetimAramaZamanlayici = null;
+let rafAramaZamanlayici = null;
+let rafAramaIstekNo = 0;
 let aktifTaramaKaniti = [];
 const apiUrunDetayCache = new Map();
 
@@ -1337,6 +1340,27 @@ async function apiUrunleriniGetir() {
     return apiUrunleri;
 }
 
+async function apiUrunAraSunucuda(query = "", barcode = "") {
+    const params = new URLSearchParams();
+    if (query) params.set("q", query);
+    if (barcode) params.set("barcode", barcode);
+    const response = await fetch(`/products/search?${params}`, { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) {
+        const error = new Error(data.error || "Ürün araması yapılamadı.");
+        error.code = data.code;
+        throw error;
+    }
+    return (Array.isArray(data.result) ? data.result : []).map(item => ({
+        ...item,
+        rawProduct: item,
+        rawVariant: item,
+        rawListItem: item,
+        rawListVariant: item,
+        rawDetailItem: null
+    }));
+}
+
 async function apiUrunDetayiniGetir(productId) {
     if (!productId) {
         return null;
@@ -1554,7 +1578,8 @@ function barkodEtiketiGoster(kayit) {
 
 function urunKaydiniBarkodlaBul(barkod) {
     const key = barkodKarsilastir(barkod);
-    return apiUrunleri?.find(item => barkodKarsilastir(item.barcode) === key)
+    return sonRafAramaKayitlari.find(item => barkodKarsilastir(item.barcode) === key)
+        || apiUrunleri?.find(item => barkodKarsilastir(item.barcode) === key)
         || rafKayitListesi.find(item => barkodKarsilastir(item.barcode) === key)
         || null;
 }
@@ -1681,6 +1706,7 @@ function rafSonucGoster(kayit, kaynak = "scan") {
     if (!sonuc) {
         return;
     }
+    sonRafAramaKayitlari = [kayit];
 
     if (kayit.hasLocation) {
         mesajGoster("success", "Ürün raf kaydı bulundu", kaynak === "scan" ? `Okunan barkod: ${kayit.barcode}` : "Manuel arama sonucu");
@@ -1724,9 +1750,9 @@ async function rafBarkodIsle(okunanBarkod) {
     }
 
     try {
-        mesajGoster("info", "Raf kaydı bulunamadı", "Ürün API listesinde aranıyor...");
-        const urunler = await apiUrunleriniGetir();
-        const apiUrun = apiUrunBarkodlaBul(urunler, barkod);
+        mesajGoster("info", "Raf kaydı bulunamadı", "Ürün kataloğunda aranıyor...");
+        const urunler = await apiUrunAraSunucuda("", barkod);
+        const apiUrun = urunler[0];
 
         if (apiUrun) {
             const zenginKayit = await depoYerKodunuDetaydanTamamla(apiUrun);
@@ -1761,9 +1787,10 @@ async function rafAramaSonuclariGoster(sonuclar) {
     }
 
     try {
-        mesajGoster("info", "Ürünler aranıyor", "Raf kayıtları ve ürün listesi kontrol ediliyor...");
-        const urunler = await apiUrunleriniGetir();
-        const apiSonuclar = apiUrunAra(urunler, arama.value);
+        const istekNo = ++rafAramaIstekNo;
+        mesajGoster("info", "Ürünler aranıyor", "Hızlı ürün kataloğu kontrol ediliyor...");
+        const apiSonuclar = await apiUrunAraSunucuda(arama.value);
+        if (istekNo !== rafAramaIstekNo) return;
         const birlesik = new Map();
 
         [...apiSonuclar, ...sonuclar].forEach(kayit => {
@@ -1777,6 +1804,7 @@ async function rafAramaSonuclariGoster(sonuclar) {
         });
 
         const zenginSonuclar = await kayitlariDetaylaZenginlestir(Array.from(birlesik.values()));
+        sonRafAramaKayitlari = zenginSonuclar;
 
         if (!zenginSonuclar.length) {
             rafBulunamadiGoster("");
@@ -2670,7 +2698,8 @@ const denetimEtiketleri = {
     "api.outage": "API kesintisi",
     "api.recovered": "API düzeldi",
     "history.clear": "Geçmiş temizleme",
-    "label.print": "Kargo etiketi baskısı"
+    "label.print": "Kargo etiketi baskısı",
+    "products.sync": "Ürün kataloğu güncelleme"
 };
 
 function dosyaBoyutuGoster(bytes) {
@@ -4386,8 +4415,14 @@ result.addEventListener("input", function (event) {
         return;
     }
 
-    const sonuclar = rafKaydiAra(event.target.value);
-    rafAramaSonuclariGoster(sonuclar);
+    clearTimeout(rafAramaZamanlayici);
+    const value = event.target.value;
+    const sonuclar = rafKaydiAra(value);
+    if (!value.trim()) {
+        rafAramaSonuclariGoster([]);
+        return;
+    }
+    rafAramaZamanlayici = setTimeout(() => rafAramaSonuclariGoster(sonuclar), 300);
 });
 
 result.addEventListener("change", function (event) {

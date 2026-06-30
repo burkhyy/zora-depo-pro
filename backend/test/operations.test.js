@@ -4,6 +4,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { DatabaseSync } = require("node:sqlite");
 
 const port = 32000 + Math.floor(Math.random() * 1000);
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -236,4 +237,28 @@ test("kargo etiketi baskı adedi ve personeli kalıcı kaydedilir", async () => 
     const record = history.data.result.find(item => item.orderCode === "LABEL-100");
     assert.equal(record.printCount, 2);
     assert.equal(record.lastPrintedBy, "Zoom Yönetici");
+});
+
+test("ürün kataloğu isim ve barkodla hızlı aranır", async () => {
+    const adminCookie = await login("testadmin", "TestPassword123!");
+    const db = new DatabaseSync(path.join(dataDir, "locations.db"));
+    db.prepare(`
+        INSERT OR REPLACE INTO product_catalog_meta (id, product_count, variant_count)
+        VALUES (1, 1, 1)
+    `).run();
+    db.prepare(`
+        INSERT OR REPLACE INTO product_search_catalog
+            (barcode, product_id, name, color, size, search_text)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `).run("4422548804418", "20091", "Boyun Bağlamalı Güpürlü Elbise - KAHVE", "Kahve", "L",
+        "boyun bağlamalı güpürlü elbise kahve 4422548804418 l");
+    db.close();
+
+    const byName = await request("/products/search?q=boyun%20bağlamalı", {}, adminCookie);
+    assert.equal(byName.response.status, 200);
+    assert.equal(byName.data.result[0].size, "L");
+
+    const byBarcode = await request("/products/search?barcode=4422548804418", {}, adminCookie);
+    assert.equal(byBarcode.response.status, 200);
+    assert.equal(byBarcode.data.result[0].productId, "20091");
 });

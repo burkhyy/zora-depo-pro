@@ -189,6 +189,26 @@ database.exec(`
         last_printed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (last_printed_by_user_id) REFERENCES app_users(id)
     );
+
+    CREATE TABLE IF NOT EXISTS product_search_catalog (
+        barcode TEXT PRIMARY KEY COLLATE NOCASE,
+        product_id TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL DEFAULT '',
+        color TEXT NOT NULL DEFAULT '',
+        size TEXT NOT NULL DEFAULT '',
+        search_text TEXT NOT NULL DEFAULT '',
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_product_catalog_product_id
+        ON product_search_catalog(product_id);
+
+    CREATE TABLE IF NOT EXISTS product_catalog_meta (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        product_count INTEGER NOT NULL DEFAULT 0,
+        variant_count INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
 `);
 
 const issueColumns = new Set(
@@ -1143,6 +1163,91 @@ async function urunListesiniGetir() {
     }
 }
 
+let productCatalogSyncPromise = null;
+
+function katalogMetni(deger) {
+    return String(deger || "").toLocaleLowerCase("tr-TR").replace(/\s+/g, " ").trim();
+}
+
+function katalogRengi(product) {
+    const attributes = Array.isArray(product?.attributes) ? product.attributes : [];
+    const color = attributes.find(item => katalogMetni(item?.name).includes("renk"));
+    if (color?.value) return String(color.value);
+    const nameParts = String(product?.name || "").split(/\s+-\s+/);
+    return nameParts.length > 1 ? nameParts[nameParts.length - 1].trim() : "";
+}
+
+function katalogKayitlari(product) {
+    const productId = String(product?.id ?? product?.productId ?? "");
+    const name = String(product?.name || product?.productName || product?.title || "");
+    const color = katalogRengi(product);
+    const variants = Array.isArray(product?.variants) && product.variants.length ? product.variants : [product];
+    return variants.map(variant => {
+        const barcode = String(variant?.barcode || variant?.barCode || product?.barcode || product?.barCode || "").trim();
+        const size = String(
+            variant?.size
+            || (katalogMetni(product?.variant1Name).includes("beden") ? variant?.value1 : "")
+            || (katalogMetni(product?.variant2Name).includes("beden") ? variant?.value2 : "")
+            || (katalogMetni(product?.variant3Name).includes("beden") ? variant?.value3 : "")
+            || ""
+        ).trim();
+        return {
+            barcode,
+            productId,
+            name,
+            color,
+            size,
+            searchText: katalogMetni([name, barcode, color, size, product?.code, productId].filter(Boolean).join(" "))
+        };
+    }).filter(item => item.barcode);
+}
+
+async function urunKatalogunuGuncelle() {
+    if (productCatalogSyncPromise) return productCatalogSyncPromise;
+    productCatalogSyncPromise = (async () => {
+        const data = await urunListesiniGetir();
+        const products = Array.isArray(data?.result?.list) ? data.result.list : [];
+        const records = products.flatMap(katalogKayitlari);
+        const insert = database.prepare(`
+            INSERT INTO product_search_catalog (
+                barcode, product_id, name, color, size, search_text, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(barcode) DO UPDATE SET
+                product_id = excluded.product_id,
+                name = excluded.name,
+                color = excluded.color,
+                size = excluded.size,
+                search_text = excluded.search_text,
+                updated_at = CURRENT_TIMESTAMP
+        `);
+        database.exec("BEGIN");
+        try {
+            database.exec("DELETE FROM product_search_catalog");
+            records.forEach(item => insert.run(
+                item.barcode, item.productId, item.name, item.color, item.size, item.searchText
+            ));
+            database.prepare(`
+                INSERT INTO product_catalog_meta (id, product_count, variant_count, updated_at)
+                VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(id) DO UPDATE SET
+                    product_count = excluded.product_count,
+                    variant_count = excluded.variant_count,
+                    updated_at = CURRENT_TIMESTAMP
+            `).run(products.length, records.length);
+            database.exec("COMMIT");
+        } catch (err) {
+            database.exec("ROLLBACK");
+            throw err;
+        }
+        return { productCount: products.length, variantCount: records.length };
+    })();
+    try {
+        return await productCatalogSyncPromise;
+    } finally {
+        productCatalogSyncPromise = null;
+    }
+}
+
 async function urunDetayiniGetir(id) {
     const encodedId = encodeURIComponent(id);
     const endpoints = [
@@ -1254,6 +1359,65 @@ app.get("/products", async (req, res) => {
         res.json(data);
     } catch (err) {
         apiHatasiGonder(err, res);
+    }
+});
+
+app.get("/products/search", (req, res) => {
+    const query = katalogMetni(req.query.q).slice(0, 120);
+    const barcode = String(req.query.barcode || "").trim().slice(0, 120);
+    const meta = database.prepare(`SELECT * FROM product_catalog_meta WHERE id = 1`).get() || null;
+    if (!meta) {
+        urunKatalogunuGuncelle().catch(err => console.error("Ürün kataloğu oluşturulamadı:", err.message));
+        return res.status(503).json({
+            error: "Ürün kataloğu hazırlanıyor. Birkaç saniye sonra tekrar deneyin.",
+            code: "CATALOG_BUILDING"
+        });
+    }
+
+    let rows = [];
+    if (barcode) {
+        rows = database.prepare(`
+            SELECT * FROM product_search_catalog
+            WHERE barcode = ? COLLATE NOCASE
+            LIMIT 10
+        `).all(barcode);
+    } else if (query.length >= 2) {
+        rows = database.prepare(`
+            SELECT * FROM product_search_catalog
+            WHERE search_text LIKE ?
+            ORDER BY
+                CASE WHEN search_text LIKE ? THEN 0 ELSE 1 END,
+                name COLLATE NOCASE, size COLLATE NOCASE
+            LIMIT 60
+        `).all(`%${query}%`, `${query}%`);
+    }
+
+    res.json({
+        meta: {
+            productCount: meta.product_count,
+            variantCount: meta.variant_count,
+            updatedAt: meta.updated_at
+        },
+        result: rows.map(row => ({
+            productId: row.product_id,
+            barcode: row.barcode,
+            name: row.name,
+            color: row.color || "-",
+            size: row.size || "-",
+            location: "",
+            hasLocation: false,
+            source: "catalog"
+        }))
+    });
+});
+
+app.post("/admin/products/sync", yoneticiGerekli, async (req, res, next) => {
+    try {
+        const result = await urunKatalogunuGuncelle();
+        denetimKaydiOlustur(req, "products.sync", "system", "", "Ürün arama kataloğu güncellendi", result);
+        res.json({ result });
+    } catch (err) {
+        next(err);
     }
 });
 
@@ -2425,6 +2589,13 @@ app.put("/shipments/:orderCode", (req, res) => {
     });
     res.json({ result: sevkiyatKaydiniDonustur(row) });
 });
+
+setTimeout(() => urunKatalogunuGuncelle().catch(err =>
+    console.error("Ürün kataloğu ilk senkronizasyonu başarısız:", err.message)
+), 2000).unref();
+setInterval(() => urunKatalogunuGuncelle().catch(err =>
+    console.error("Ürün kataloğu senkronizasyonu başarısız:", err.message)
+), 30 * 60 * 1000).unref();
 
 app.listen(port, "0.0.0.0", () => {
     console.log(`Zoom Depo Pro calisiyor: http://0.0.0.0:${port}`);
