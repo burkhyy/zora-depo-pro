@@ -26,6 +26,7 @@ let aktifSiparisGorunumu = "single";
 let aktifTopluGruplar = [];
 let aktifTopluSiparisler = [];
 let aktifTopluSiparisIndex = 0;
+const secilenSiparisKodlari = new Set();
 let aktifEksikPlatformu = "trendyol";
 let aktifSevkiyatPlatformu = "trendyol";
 let aktifGecmisPlatformu = "trendyol";
@@ -1052,6 +1053,10 @@ document.addEventListener("visibilitychange", () => {
 
 function listeGoster(liste) {
     scannerDurdur();
+    const activeCodes = new Set(siparisler.map(siparisKodu));
+    [...secilenSiparisKodlari].forEach(code => {
+        if (!activeCodes.has(code)) secilenSiparisKodlari.delete(code);
+    });
     aktifSiparis = null;
     aktifTopluSiparisler = [];
     aktifTopluSiparisIndex = 0;
@@ -1102,6 +1107,17 @@ function listeGoster(liste) {
                 <strong>${temizle(platformListesi.length)} sipariş</strong>
             </div>
         </div>
+        <div class="bulkLabelControls" ${aktifSiparisGorunumu === "single" ? "" : "hidden"}>
+            <div>
+                <strong>Kargo etiketi seçimi</strong>
+                <span id="selectedOrderCount">${temizle(secilenSiparisKodlari.size)} sipariş seçildi</span>
+            </div>
+            <button type="button" data-select-all-orders>Tümünü Seç</button>
+            <button type="button" data-clear-order-selection>Seçimi Kaldır</button>
+            <button class="cargoLabelButton" type="button" data-print-selected-orders ${secilenSiparisKodlari.size ? "" : "disabled"}>
+                Seçilen Kargo Etiketlerini Yazdır
+            </button>
+        </div>
     `;
 
     if (aktifSiparisGorunumu === "batch") {
@@ -1146,7 +1162,13 @@ function listeGoster(liste) {
         result.innerHTML += `
             <article class="orderCard">
                 <div class="cardTop">
-                    <div>
+                    <label class="orderSelect">
+                        <input type="checkbox" data-select-order="${temizle(kod)}"
+                            ${secilenSiparisKodlari.has(kod) ? "checked" : ""}
+                            ${kargoGonderiKodu(item) ? "" : "disabled"}>
+                        <span>${kargoGonderiKodu(item) ? "Etiket için seç" : "Kargo kodu bekleniyor"}</span>
+                    </label>
+                    <div class="orderCardIdentity">
                         <h2>${temizle(musteriAdi(item))}</h2>
                         <p>Sipariş No: <strong>${temizle(kod)}</strong></p>
                     </div>
@@ -1175,6 +1197,13 @@ function sekmeDurumuGuncelle() {
     tabButtons.forEach(button => {
         button.classList.toggle("active", button.dataset.tab === aktifSekme);
     });
+}
+
+function secimKontrolleriniGuncelle() {
+    const count = document.getElementById("selectedOrderCount");
+    const printButton = document.querySelector("[data-print-selected-orders]");
+    if (count) count.textContent = `${secilenSiparisKodlari.size} sipariş seçildi`;
+    if (printButton) printButton.disabled = secilenSiparisKodlari.size === 0;
 }
 
 function rafKayitlari() {
@@ -1878,6 +1907,78 @@ function kargoCikisEtiketiGoster(siparis) {
         button.addEventListener("click", () => modal.remove())
     );
     modal.querySelector("#printCargoNow").addEventListener("click", () => {
+        const pageStyle = document.createElement("style");
+        pageStyle.textContent = "@page{size:100mm 50mm;margin:0}";
+        document.head.appendChild(pageStyle);
+        window.print();
+        window.setTimeout(() => pageStyle.remove(), 500);
+    });
+}
+
+function topluKargoEtiketleriGoster(orders) {
+    const printable = orders.filter(order => kargoGonderiKodu(order));
+    if (!printable.length) {
+        mesajGoster("warning", "Yazdırılabilir etiket yok", "Seçilen siparişlerin kargo kodu henüz oluşmamış.");
+        return;
+    }
+
+    document.getElementById("barcodePrintModal")?.remove();
+    const modal = document.createElement("div");
+    modal.id = "barcodePrintModal";
+    modal.className = "barcodePrintModal cargoPrintModal bulkCargoPrintModal";
+    modal.innerHTML = `
+        <div class="barcodePrintDialog" role="dialog" aria-modal="true" aria-labelledby="bulkCargoPrintTitle">
+            <div class="barcodePrintHeader">
+                <div><p class="eyebrow">100 x 50 mm Zebra Etiketleri</p>
+                <h2 id="bulkCargoPrintTitle">${temizle(printable.length)} Kargo Etiketi</h2></div>
+                <button class="closePrintModal" type="button" aria-label="Kapat">&times;</button>
+            </div>
+            <div class="bulkCargoLabels">
+                ${printable.map((order, index) => {
+                    const delivery = teslimatAdresi(order);
+                    const carrier = alanOku(order, ["order.shipmentFirmName", "shipmentFirmName"], "Kargo");
+                    const phone = alanOku(order, ["customer.phone", "phone"], "");
+                    return `
+                        <div class="barcodeLabel cargoShippingLabel">
+                            <div class="cargoLabelTop"><strong>${temizle(carrier)}</strong><span>${temizle(platformAdi(order))}</span></div>
+                            <div class="cargoCustomer"><strong>${temizle(musteriAdi(order))}</strong>${phone ? `<span>${temizle(phone)}</span>` : ""}</div>
+                            <p class="cargoAddress">${temizle(delivery.address || "Adres bilgisi yok")}</p>
+                            <strong class="cargoCity">${temizle([delivery.district, delivery.city].filter(Boolean).join(" / ") || "-")}</strong>
+                            <div class="cargoBarcodeArea">
+                                <svg id="bulkCargoBarcode${index}" aria-label="${temizle(kargoGonderiKodu(order))}"></svg>
+                                <span>Sipariş: ${temizle(siparisKodu(order))}</span>
+                            </div>
+                        </div>
+                    `;
+                }).join("")}
+            </div>
+            <div class="barcodePrintActions">
+                <button class="removeLocationButton closePrintModal" type="button">İptal</button>
+                <button class="saveLocationButton" id="printBulkCargoNow" type="button">${temizle(printable.length)} Etiketi Yazdır</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    if (typeof JsBarcode !== "function") {
+        modal.remove();
+        mesajGoster("error", "Barkod oluşturulamadı", "Barkod kütüphanesi yüklenemedi.");
+        return;
+    }
+    printable.forEach((order, index) => {
+        JsBarcode(`#bulkCargoBarcode${index}`, kargoGonderiKodu(order), {
+            format: "CODE128",
+            width: 2.2,
+            height: 55,
+            displayValue: true,
+            fontSize: 15,
+            margin: 0
+        });
+    });
+    modal.querySelectorAll(".closePrintModal").forEach(button =>
+        button.addEventListener("click", () => modal.remove())
+    );
+    modal.querySelector("#printBulkCargoNow").addEventListener("click", () => {
         const pageStyle = document.createElement("style");
         pageStyle.textContent = "@page{size:100mm 50mm;margin:0}";
         document.head.appendChild(pageStyle);
@@ -3455,6 +3556,30 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    if (event.target.closest("[data-select-all-orders]")) {
+        result.querySelectorAll("[data-select-order]:not(:disabled)").forEach(input => {
+            input.checked = true;
+            secilenSiparisKodlari.add(input.dataset.selectOrder);
+        });
+        secimKontrolleriniGuncelle();
+        return;
+    }
+
+    if (event.target.closest("[data-clear-order-selection]")) {
+        secilenSiparisKodlari.clear();
+        result.querySelectorAll("[data-select-order]").forEach(input => {
+            input.checked = false;
+        });
+        secimKontrolleriniGuncelle();
+        return;
+    }
+
+    if (event.target.closest("[data-print-selected-orders]")) {
+        const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
+        topluKargoEtiketleriGoster(orders);
+        return;
+    }
+
     const cargoPrintButton = event.target.closest("[data-print-cargo-order]");
     if (cargoPrintButton) {
         const code = cargoPrintButton.dataset.printCargoOrder;
@@ -4178,6 +4303,16 @@ result.addEventListener("input", function (event) {
 });
 
 result.addEventListener("change", function (event) {
+    if (event.target.matches("[data-select-order]")) {
+        if (event.target.checked) {
+            secilenSiparisKodlari.add(event.target.dataset.selectOrder);
+        } else {
+            secilenSiparisKodlari.delete(event.target.dataset.selectOrder);
+        }
+        secimKontrolleriniGuncelle();
+        return;
+    }
+
     if (event.target.id === "orderSort") {
         aktifSiparisSiralama = event.target.value;
         listeGoster(aktifListe);

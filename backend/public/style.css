@@ -1879,6 +1879,40 @@ h1{
     gap:8px;
 }
 .orderCardActions .openOrderButton{margin:0}
+.bulkLabelControls{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    margin:0 0 14px;
+    border:1px solid #b2ccff;
+    border-radius:7px;
+    padding:10px;
+    background:#eff4ff;
+}
+.bulkLabelControls>div{display:grid;margin-right:auto}
+.bulkLabelControls span{color:#475467;font-size:12px}
+.bulkLabelControls>button:not(.cargoLabelButton){
+    border:1px solid #98a2b3;
+    border-radius:6px;
+    padding:9px 11px;
+    background:#fff;
+    color:#344054;
+    font-weight:700;
+    cursor:pointer;
+}
+.bulkLabelControls button:disabled{cursor:not-allowed;opacity:.5}
+.orderSelect{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    color:#344054;
+    font-size:12px;
+    font-weight:700;
+}
+.orderSelect input{width:18px;height:18px;accent-color:#175cd3}
+.orderSelect input:disabled+span{color:#98a2b3}
+.orderCardIdentity{flex:1}
+.bulkCargoLabels{display:grid;gap:12px;max-height:55vh;overflow:auto}
 
 .shipmentTool{
     background:#fff;
@@ -2163,6 +2197,8 @@ h1{
     .activePreparationList article>div:last-child{text-align:left}
     .batchProgress{flex-direction:column}
     .orderCardActions{grid-template-columns:1fr}
+    .bulkLabelControls{align-items:stretch;flex-direction:column}
+    .bulkLabelControls>div{margin-right:0}
 }
 
 .checkOperationsButton,
@@ -2828,5 +2864,26 @@ h1{
     #barcodePrintModal.cargoPrintModal .cargoShippingLabel{
         width:100mm;
         height:50mm;
+    }
+
+    #barcodePrintModal.bulkCargoPrintModal .barcodePrintDialog{
+        width:100mm;
+        height:auto;
+    }
+
+    #barcodePrintModal.bulkCargoPrintModal .bulkCargoLabels{
+        display:block;
+        max-height:none;
+        overflow:visible;
+    }
+
+    #barcodePrintModal.bulkCargoPrintModal .cargoShippingLabel{
+        break-after:page;
+        page-break-after:always;
+    }
+
+    #barcodePrintModal.bulkCargoPrintModal .cargoShippingLabel:last-child{
+        break-after:auto;
+        page-break-after:auto;
     }
 }
