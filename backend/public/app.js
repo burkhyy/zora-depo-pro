@@ -1789,6 +1789,96 @@ function sevkiyatBarkodu(siparis) {
     return `ZOOM-ORDER-${siparisKodu(siparis)}`;
 }
 
+function kargoGonderiKodu(siparis) {
+    return String(alanOku(siparis, [
+        "order.shipmentCode",
+        "order.shipmentCode2",
+        "shipmentCode",
+        "cargoCode",
+        "trackingNumber"
+    ], "")).trim();
+}
+
+function teslimatAdresi(siparis) {
+    const address = alanOku(siparis, ["customer.delivery.address", "delivery.address", "shippingAddress.address"], "");
+    const district = alanOku(siparis, ["customer.delivery.district", "delivery.district", "shippingAddress.district"], "");
+    const city = alanOku(siparis, ["customer.delivery.city", "delivery.city", "shippingAddress.city"], "");
+    return {
+        address: String(address || "").trim(),
+        district: String(district || "").trim(),
+        city: String(city || "").trim()
+    };
+}
+
+function kargoCikisEtiketiGoster(siparis) {
+    const shipmentCode = kargoGonderiKodu(siparis);
+    if (!shipmentCode) {
+        mesajGoster("warning", "Kargo kodu henüz oluşmadı", `${siparisKodu(siparis)} için Qukasoft shipmentCode göndermedi.`);
+        return;
+    }
+
+    document.getElementById("barcodePrintModal")?.remove();
+    const delivery = teslimatAdresi(siparis);
+    const carrier = alanOku(siparis, ["order.shipmentFirmName", "shipmentFirmName"], "Kargo");
+    const phone = alanOku(siparis, ["customer.phone", "phone"], "");
+    const modal = document.createElement("div");
+    modal.id = "barcodePrintModal";
+    modal.className = "barcodePrintModal cargoPrintModal";
+    modal.innerHTML = `
+        <div class="barcodePrintDialog" role="dialog" aria-modal="true" aria-labelledby="cargoPrintTitle">
+            <div class="barcodePrintHeader">
+                <div><p class="eyebrow">100 x 50 mm Zebra Etiketi</p><h2 id="cargoPrintTitle">Kargo Çıkış Etiketi</h2></div>
+                <button class="closePrintModal" type="button" aria-label="Kapat">&times;</button>
+            </div>
+            <div class="barcodeLabel cargoShippingLabel">
+                <div class="cargoLabelTop">
+                    <strong>${temizle(carrier)}</strong>
+                    <span>${temizle(platformAdi(siparis))}</span>
+                </div>
+                <div class="cargoCustomer">
+                    <strong>${temizle(musteriAdi(siparis))}</strong>
+                    ${phone ? `<span>${temizle(phone)}</span>` : ""}
+                </div>
+                <p class="cargoAddress">${temizle(delivery.address || "Adres bilgisi yok")}</p>
+                <strong class="cargoCity">${temizle([delivery.district, delivery.city].filter(Boolean).join(" / ") || "-")}</strong>
+                <div class="cargoBarcodeArea">
+                    <svg id="cargoBarcodeSvg" aria-label="${temizle(shipmentCode)}"></svg>
+                    <span>Sipariş: ${temizle(siparisKodu(siparis))}</span>
+                </div>
+            </div>
+            <div class="barcodePrintActions">
+                <button class="removeLocationButton closePrintModal" type="button">İptal</button>
+                <button class="saveLocationButton" id="printCargoNow" type="button">Zebra'ya Yazdır</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    if (typeof JsBarcode !== "function") {
+        modal.remove();
+        mesajGoster("error", "Barkod oluşturulamadı", "Barkod kütüphanesi yüklenemedi.");
+        return;
+    }
+    JsBarcode("#cargoBarcodeSvg", shipmentCode, {
+        format: "CODE128",
+        width: 2.2,
+        height: 55,
+        displayValue: true,
+        fontSize: 15,
+        margin: 0
+    });
+    modal.querySelectorAll(".closePrintModal").forEach(button =>
+        button.addEventListener("click", () => modal.remove())
+    );
+    modal.querySelector("#printCargoNow").addEventListener("click", () => {
+        const pageStyle = document.createElement("style");
+        pageStyle.textContent = "@page{size:100mm 50mm;margin:0}";
+        document.head.appendChild(pageStyle);
+        window.print();
+        window.setTimeout(() => pageStyle.remove(), 500);
+    });
+}
+
 function sevkiyatKodunuAyikla(barkod) {
     const deger = barkodNormalize(barkod);
     const upper = deger.toUpperCase();
@@ -1854,6 +1944,9 @@ function sevkiyatKarti(siparis, kayit, shipped = false) {
             <div class="shipmentActions">
                 <button type="button" class="printShipmentButton" data-print-shipment="${temizle(code)}">
                     Sevkiyat Barkodu
+                </button>
+                <button type="button" class="printShipmentButton" data-print-cargo-order="${temizle(code)}">
+                    100×50 Kargo Etiketi
                 </button>
                 <button type="button" class="printShipmentButton" data-tracking-order="${temizle(code)}">
                     Takip Bilgisi
@@ -3160,6 +3253,13 @@ function siparisHazirEkraniGoster() {
             <p>${batchCount
                 ? aktifTopluSiparisler.map(order => temizle(siparisKodu(order))).join(" · ")
                 : `Sipariş No: <strong>${temizle(siparisKodu(aktifSiparis))}</strong>`}</p>
+            <div class="completeLabelActions">
+                ${(batchCount ? aktifTopluSiparisler : [aktifSiparis]).map(order => `
+                    <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(siparisKodu(order))}">
+                        ${batchCount ? `${temizle(siparisKodu(order))} · ` : ""}100×50 Kargo Etiketi
+                    </button>
+                `).join("")}
+            </div>
             <button class="openOrderButton" type="button" id="backToList">Yeni Sipariş Ara</button>
         </section>
     `;
@@ -3346,6 +3446,20 @@ searchInput.addEventListener("keyup", function () {
 });
 
 result.addEventListener("click", async function (event) {
+    const cargoPrintButton = event.target.closest("[data-print-cargo-order]");
+    if (cargoPrintButton) {
+        const code = cargoPrintButton.dataset.printCargoOrder;
+        const order = aktifTopluSiparisler.find(item => siparisKodu(item) === code)
+            || siparisler.find(item => siparisKodu(item) === code)
+            || (aktifSiparis && siparisKodu(aktifSiparis) === code ? aktifSiparis : null);
+        if (!order) {
+            mesajGoster("error", "Sipariş bulunamadı", code);
+            return;
+        }
+        kargoCikisEtiketiGoster(order);
+        return;
+    }
+
     const clearHistoryButton = event.target.closest("[data-clear-history]");
     if (clearHistoryButton) {
         const confirmation = prompt("Bu işlem geri alınamaz. Devam etmek için TEMIZLE yazın.");
