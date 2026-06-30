@@ -25,6 +25,7 @@ let aktifSiparisDurumFiltresi = "";
 let aktifSiparisGorunumu = "single";
 let aktifTopluGruplar = [];
 let aktifTopluSiparisler = [];
+let aktifTopluSiparisIndex = 0;
 let aktifEksikPlatformu = "trendyol";
 let aktifSevkiyatPlatformu = "trendyol";
 let aktifGecmisPlatformu = "trendyol";
@@ -795,7 +796,9 @@ function barkodIsle(okunanBarkod) {
 }
 
 async function hazirlamaKilitleriniYenile() {
-    const orders = aktifTopluSiparisler.length ? aktifTopluSiparisler : [aktifSiparis];
+    const orders = aktifTopluSiparisler.length
+        ? aktifTopluSiparisler.slice(aktifTopluSiparisIndex)
+        : [aktifSiparis];
     const responses = await Promise.all(orders.map(order => fetch("/preparations/heartbeat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1049,6 +1052,7 @@ function listeGoster(liste) {
     scannerDurdur();
     aktifSiparis = null;
     aktifTopluSiparisler = [];
+    aktifTopluSiparisIndex = 0;
     aktifSekme = "orders";
     aktifListe = liste;
     searchInput.disabled = false;
@@ -1115,6 +1119,7 @@ function listeGoster(liste) {
                         <span>${temizle(urunAdi(urun))} · ${temizle(urunRengi(urun))} · ${temizle(urunBedeni(urun))} · ${temizle(urunAdedi(urun))} adet</span>
                     `).join("")}</div>
                     <div class="batchOrderCodes">${group.orders.map(order => `<small>${temizle(siparisKodu(order))}</small>`).join("")}</div>
+                    <p class="batchHint">Siparişler sırayla açılır; her sipariş için barkodlar ayrı okutulur.</p>
                     <button class="openOrderButton" type="button" data-batch-index="${index}">Toplu Hazırlamayı Aç</button>
                 </article>
             `;
@@ -3069,6 +3074,12 @@ function siparisDetayGoster(siparis) {
     result.innerHTML = `
         <section class="detail">
             <button class="backButton" type="button" id="backToList">← Geri</button>
+            ${aktifTopluSiparisler.length ? `
+                <div class="batchProgress">
+                    <strong>Toplu grup: ${temizle(aktifTopluSiparisIndex + 1)} / ${temizle(aktifTopluSiparisler.length)}. sipariş</strong>
+                    <span>Bu siparişin barkodlarını ayrı okutun. Tamamlanınca sıradaki sipariş açılır.</span>
+                </div>
+            ` : ""}
 
             <div class="detailHeader">
                 <div>
@@ -3188,7 +3199,7 @@ async function dosyayiKucukVeriAdresineCevir(input) {
 
 async function siparisiTamamla() {
     if (aktifTopluSiparisler.length) {
-        await topluSiparisleriTamamla();
+        await topluAktifSiparisiTamamla();
         return;
     }
     try {
@@ -3211,32 +3222,36 @@ async function siparisiTamamla() {
     }
 }
 
-async function topluSiparisleriTamamla() {
+async function topluAktifSiparisiTamamla() {
     try {
         scannerDurdur();
-        const currentOrders = await Promise.all(aktifTopluSiparisler.map(async order => {
-            const response = await fetch(`/order/${encodeURIComponent(siparisKodu(order))}`, { cache: "no-store" });
-            const current = await response.json();
-            if (!response.ok) throw new Error(`${siparisKodu(order)} artık aktif değil.`);
-            if (siparisUrunImzasi(current) !== siparisUrunImzasi(order)) {
-                throw new Error(`${siparisKodu(order)} siparişinin ürünleri değişti.`);
-            }
-            return current;
-        }));
-
-        for (const current of currentOrders) {
-            const scans = [];
-            (current.products || []).filter(urun => !hizmetUrunuMu(urun)).forEach(urun => {
-                for (let quantityIndex = 1; quantityIndex <= urunAdedi(urun); quantityIndex += 1) {
-                    scans.push({ barcode: urunBarkodu(urun), productName: urunAdi(urun), quantityIndex });
-                }
-            });
-            await hazirlamaKaydiGonder("complete", current, { scans, orderSnapshot: siparisOzeti(current) });
-            await sevkiyatDurumuKaydet(current, "ready");
+        const original = aktifTopluSiparisler[aktifTopluSiparisIndex];
+        const response = await fetch(`/order/${encodeURIComponent(siparisKodu(original))}`, { cache: "no-store" });
+        const current = await response.json();
+        if (!response.ok) throw new Error(`${siparisKodu(original)} artık aktif değil.`);
+        if (siparisUrunImzasi(current) !== siparisUrunImzasi(original)) {
+            throw new Error(`${siparisKodu(original)} siparişinin ürünleri değişti.`);
         }
-        siparisHazirEkraniGoster();
+
+        const proofImage = await dosyayiKucukVeriAdresineCevir(document.getElementById("packageProof"));
+        await hazirlamaKaydiGonder("complete", original, {
+            proofImage,
+            scans: aktifTaramaKaniti,
+            orderSnapshot: siparisOzeti(current)
+        });
+        await sevkiyatDurumuKaydet(original, "ready");
+
+        aktifTopluSiparisIndex += 1;
+        if (aktifTopluSiparisIndex >= aktifTopluSiparisler.length) {
+            siparisHazirEkraniGoster();
+            return;
+        }
+
+        const nextOrder = aktifTopluSiparisler[aktifTopluSiparisIndex];
+        aktifSiparisSorunlari = await siparisSorunlariniGetir(siparisKodu(nextOrder)).catch(() => []);
+        siparisDetayGoster(nextOrder);
     } catch (err) {
-        mesajGoster("error", "Toplu hazırlama tamamlanamadı", err.message);
+        mesajGoster("error", "Bu sipariş tamamlanamadı", err.message);
     }
 }
 
@@ -3306,25 +3321,9 @@ async function topluSiparisSec(index) {
         }
         aktifSiparisSorunlari = [];
         aktifTopluSiparisler = group.orders;
-        const first = group.orders[0];
-        const synthetic = {
-            ...first,
-            order: {
-                ...(first.order || {}),
-                code: `TOPLU-${group.orders.length}`,
-                platform: platformAdi(first)
-            },
-            customer: {
-                ...(first.customer || {}),
-                name: `${group.orders.length} siparişlik toplu grup`
-            },
-            products: (first.products || []).map(product => ({
-                ...product,
-                quantity: urunAdedi(product) * group.orders.length
-            }))
-        };
-        siparisDetayGoster(synthetic);
-        aktifTopluSiparisler = group.orders;
+        aktifTopluSiparisIndex = 0;
+        aktifSiparisSorunlari = await siparisSorunlariniGetir(siparisKodu(group.orders[0])).catch(() => []);
+        siparisDetayGoster(group.orders[0]);
     } catch (err) {
         await Promise.all(locked.map(order =>
             fetch(`/preparations/${encodeURIComponent(siparisKodu(order))}/lock`, { method: "DELETE" }).catch(() => {})

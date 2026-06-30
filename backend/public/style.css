@@ -340,6 +340,18 @@ h1{
     background:#f9fafb;
     color:#344054;
 }
+.batchProgress{
+    display:flex;
+    justify-content:space-between;
+    gap:12px;
+    margin:12px 0;
+    border:1px solid #84adff;
+    border-radius:7px;
+    padding:12px;
+    background:#eff4ff;
+    color:#1849a9;
+}
+.batchProgress span{font-size:13px}
 .clearHistoryButton{
     border:1px solid #d92d20;
     border-radius:6px;
@@ -2094,6 +2106,7 @@ h1{
     .operationsMetrics{grid-template-columns:repeat(2,minmax(0,1fr))}
     .activePreparationList article{align-items:flex-start;flex-direction:column}
     .activePreparationList article>div:last-child{text-align:left}
+    .batchProgress{flex-direction:column}
 }
 
 .checkOperationsButton,
