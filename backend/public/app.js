@@ -914,7 +914,9 @@ async function apiDurumunuGetir() {
         const zaman = data.lastErrorAt ? tarihSaatGoster(data.lastErrorAt) : "";
         apiStatusBanner.innerHTML = `
             <strong>Qukasoft API bağlantısı kesildi.</strong>
-            <span>Trendyol ve Zoombutik siparişleri şu anda güncellenemiyor.${zaman ? ` Son hata: ${temizle(zaman)}` : ""}</span>
+            <span>${siparisler.length
+                ? "Son başarılı sipariş listesi gösteriliyor; yeni siparişler bağlantı gelince otomatik eklenecek."
+                : "Siparişler şu anda alınamıyor."}${zaman ? ` Son hata: ${temizle(zaman)}` : ""}</span>
         `;
         apiStatusBanner.hidden = false;
     } catch (err) {
@@ -1007,6 +1009,14 @@ async function yukle() {
 
         if (aktifSekme === "orders") {
             listeGoster(aktifListe);
+            if (data.stale) {
+                result.insertAdjacentHTML("afterbegin", `
+                    <div class="staleOrdersNotice">
+                        <strong>Çevrimdışı sipariş listesi</strong>
+                        <span>${temizle(data.warning || "Son başarılı kayıtlar gösteriliyor.")}</span>
+                    </div>
+                `);
+            }
         } else if (aktifSekme === "shipments") {
             sevkiyatListeleriniGoster();
         }

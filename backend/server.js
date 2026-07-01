@@ -209,6 +209,13 @@ database.exec(`
         variant_count INTEGER NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS order_api_cache (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        signature TEXT NOT NULL DEFAULT '',
+        payload_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
 `);
 
 const issueColumns = new Set(
@@ -860,9 +867,26 @@ const activeOrderStatuses = String(process.env.ACTIVE_ORDER_STATUSES || "1,2")
     .filter(Number.isInteger);
 const orderPageConcurrency = Math.max(2, Math.min(10, Number(process.env.ORDER_PAGE_CONCURRENCY || 6)));
 const orderCheckMs = Math.max(5000, Number(process.env.ORDER_CHECK_SECONDS || 10) * 1000);
-let activeOrderCache = null;
+const persistedOrderCache = database.prepare(`SELECT * FROM order_api_cache WHERE id = 1`).get();
+let activeOrderCache = (() => {
+    if (!persistedOrderCache) return null;
+    try {
+        return JSON.parse(persistedOrderCache.payload_json);
+    } catch {
+        return null;
+    }
+})();
+let activeOrderCacheUpdatedAt = persistedOrderCache?.updated_at || null;
 let activeOrderPromise = null;
 let nextOrderCheckAt = 0;
+const saveOrderCache = database.prepare(`
+    INSERT INTO order_api_cache (id, signature, payload_json, updated_at)
+    VALUES (1, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(id) DO UPDATE SET
+        signature = excluded.signature,
+        payload_json = excluded.payload_json,
+        updated_at = CURRENT_TIMESTAMP
+`);
 
 function apiDurumunuGuncelle(healthy, message = "") {
     const previous = upstreamStatus.healthy;
@@ -985,6 +1009,8 @@ async function aktifSiparisleriGetir() {
                 list
             }
         };
+        saveOrderCache.run(signature, JSON.stringify(activeOrderCache));
+        activeOrderCacheUpdatedAt = new Date().toISOString();
         nextOrderCheckAt = Date.now() + orderCheckMs;
         apiDurumunuGuncelle(true);
         return activeOrderCache;
@@ -992,6 +1018,18 @@ async function aktifSiparisleriGetir() {
 
     try {
         return await activeOrderPromise;
+    } catch (err) {
+        apiDurumunuGuncelle(false, err.response?.data?.error || err.message);
+        nextOrderCheckAt = Date.now() + Math.max(orderCheckMs, 15000);
+        if (activeOrderCache) {
+            return {
+                ...activeOrderCache,
+                stale: true,
+                cachedAt: activeOrderCacheUpdatedAt,
+                warning: "Qukasoft bağlantısı kesik. Son başarılı sipariş listesi gösteriliyor."
+            };
+        }
+        throw err;
     } finally {
         activeOrderPromise = null;
     }
@@ -2590,12 +2628,22 @@ app.put("/shipments/:orderCode", (req, res) => {
     res.json({ result: sevkiyatKaydiniDonustur(row) });
 });
 
-setTimeout(() => urunKatalogunuGuncelle().catch(err =>
-    console.error("Ürün kataloğu ilk senkronizasyonu başarısız:", err.message)
-), 2000).unref();
+function urunKataloguEskiMi() {
+    const meta = database.prepare(`SELECT updated_at FROM product_catalog_meta WHERE id = 1`).get();
+    if (!meta?.updated_at) return true;
+    const updatedAt = new Date(`${String(meta.updated_at).replace(" ", "T")}Z`).getTime();
+    return !Number.isFinite(updatedAt) || Date.now() - updatedAt > 6 * 60 * 60 * 1000;
+}
+
+setTimeout(() => {
+    if (!urunKataloguEskiMi()) return;
+    urunKatalogunuGuncelle().catch(err =>
+        console.error("Ürün kataloğu ilk senkronizasyonu başarısız:", err.message)
+    );
+}, 5000).unref();
 setInterval(() => urunKatalogunuGuncelle().catch(err =>
     console.error("Ürün kataloğu senkronizasyonu başarısız:", err.message)
-), 30 * 60 * 1000).unref();
+), 6 * 60 * 60 * 1000).unref();
 
 app.listen(port, "0.0.0.0", () => {
     console.log(`Zoom Depo Pro calisiyor: http://0.0.0.0:${port}`);

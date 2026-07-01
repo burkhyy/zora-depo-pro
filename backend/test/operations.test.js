@@ -49,6 +49,28 @@ async function login(username, password) {
 }
 
 test.before(async () => {
+    const seedDb = new DatabaseSync(path.join(dataDir, "locations.db"));
+    seedDb.exec(`
+        CREATE TABLE order_api_cache (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            signature TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    `);
+    seedDb.prepare(`
+        INSERT INTO order_api_cache (id, signature, payload_json)
+        VALUES (1, ?, ?)
+    `).run("cached-signature", JSON.stringify({
+        code: 200,
+        signature: "cached-signature",
+        result: {
+            total: 1,
+            pageSize: 1,
+            list: [{ order: { code: "CACHED-ORDER", platform: "Zoombutik" }, products: [] }]
+        }
+    }));
+    seedDb.close();
     server = spawn(process.execPath, ["server.js"], {
         cwd: path.join(__dirname, ".."),
         env: {
@@ -58,11 +80,22 @@ test.before(async () => {
             DATA_DIR: dataDir,
             APP_USERNAME: "testadmin",
             APP_PASSWORD: "TestPassword123!",
-            PREPARATION_LOCK_MINUTES: "0.02"
+            PREPARATION_LOCK_MINUTES: "0.02",
+            API_URL: "http://127.0.0.1:9",
+            API_KEY: "test",
+            API_SECRET: "test"
         },
         stdio: "ignore"
     });
     await waitForServer();
+});
+
+test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", async () => {
+    const adminCookie = await login("testadmin", "TestPassword123!");
+    const orders = await request("/orders", {}, adminCookie);
+    assert.equal(orders.response.status, 200);
+    assert.equal(orders.data.stale, true);
+    assert.equal(orders.data.result.list[0].order.code, "CACHED-ORDER");
 });
 
 test.after(async () => {

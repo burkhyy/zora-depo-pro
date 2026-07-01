@@ -280,6 +280,18 @@ h1{
     font-weight:800;
 }
 
+.staleOrdersNotice{
+    display:grid;
+    gap:3px;
+    margin-bottom:12px;
+    border:1px solid #fec84b;
+    border-radius:7px;
+    padding:10px 12px;
+    background:#fffaeb;
+    color:#93370d;
+}
+.staleOrdersNotice span{font-size:12px}
+
 .orderListControls{
     display:grid;
     grid-template-columns:repeat(4,minmax(140px,1fr)) auto;
