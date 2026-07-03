@@ -91,6 +91,9 @@ function New-ShippingLabelZpl($Payload) {
     $city = Convert-ToZplText ("{0} / {1}" -f $Payload.delivery.district, $Payload.delivery.city) 48
     $barcode = Convert-ToZplText $Payload.barcode 45
     $products = @($Payload.products)
+    $productGroups = @($products | Group-Object {
+        if ($_.code) { [string]$_.code } else { [string]$_.name }
+    })
 
     $zpl = "^XA^PW800^LL400^LH0,0^LT0^LS0^PON^FWN^CI27^PR3^MD15"
     $zpl += "^FO38,16^A0N,30,30^FD$customer^FS"
@@ -103,26 +106,29 @@ function New-ShippingLabelZpl($Payload) {
     $zpl += "^FO38,158^GB724,1,1^FS"
     $zpl += "^FO38,168^A0N,19,19^FDUrunler:^FS"
 
-    $visibleCount = [Math]::Min(2, $products.Count)
+    $visibleCount = [Math]::Min(2, $productGroups.Count)
     for ($index = 0; $index -lt $visibleCount; $index++) {
-        $product = $products[$index]
-        $name = Convert-ToZplText $product.name 44
-        $code = Convert-ToZplText $product.code 24
-        $color = Convert-ToZplText $product.color 12
-        $size = Convert-ToZplText $product.size 8
-        $quantity = [Math]::Max(1, [int]$product.quantity)
-        $variant = @($color, $size) | Where-Object { $_ -and $_ -ne "-" }
+        $group = $productGroups[$index]
+        $product = $group.Group[0]
+        $name = Convert-ToZplText $product.name 30
+        $code = Convert-ToZplText $product.code 20
+        $variantDetails = @($group.Group | ForEach-Object {
+            $color = Convert-ToZplText $_.color 10
+            $size = Convert-ToZplText $_.size 7
+            $quantity = [Math]::Max(1, [int]$_.quantity)
+            $variant = @($color, $size) | Where-Object { $_ -and $_ -ne "-" }
+            if ($variant.Count) { ($variant -join "/") + " x$quantity" } else { "x$quantity" }
+        })
         $detail = "$name"
         if ($code) { $detail += " [$code]" }
-        if ($variant.Count) { $detail += " - " + ($variant -join "/") }
-        $detail += " x$quantity"
+        if ($variantDetails.Count) { $detail += " - " + ($variantDetails -join ", ") }
         $line = Convert-ToZplText $detail 72
         $y = 194 + ($index * 23)
         $zpl += "^FO38,$y^A0N,18,18^FD$line^FS"
     }
-    if ($products.Count -gt 2) {
-        $remaining = $products.Count - 2
-        $zpl += "^FO38,240^A0N,17,17^FD+$remaining urun daha^FS"
+    if ($productGroups.Count -gt 2) {
+        $remaining = $productGroups.Count - 2
+        $zpl += "^FO38,240^A0N,17,17^FD+$remaining urun grubu daha^FS"
     }
 
     $zpl += "^FO120,266^BY3,2,78^BCN,78,Y,N,N^FD$barcode^FS"

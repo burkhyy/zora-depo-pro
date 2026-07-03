@@ -54,6 +54,18 @@ database.exec(`
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
 `);
+
+const locationColumns = new Set(
+    database.prepare(`PRAGMA table_info(product_locations)`).all().map(column => column.name)
+);
+
+if (!locationColumns.has("product_code")) {
+    database.exec(`ALTER TABLE product_locations ADD COLUMN product_code TEXT NOT NULL DEFAULT ''`);
+}
+
+if (!locationColumns.has("source_scope")) {
+    database.exec(`ALTER TABLE product_locations ADD COLUMN source_scope TEXT NOT NULL DEFAULT ''`);
+}
 database.exec(`
     CREATE TABLE IF NOT EXISTS app_users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1485,6 +1497,21 @@ async function urunKatalogunuGuncelle() {
                 item.barcode, item.productId, item.name, item.code, item.color, item.size, item.searchText
             ));
             database.prepare(`
+                UPDATE product_locations
+                SET source_scope = ?,
+                    product_code = COALESCE(NULLIF(product_code, ''), (
+                        SELECT catalog.product_code
+                        FROM product_search_catalog catalog
+                        WHERE catalog.barcode = product_locations.barcode COLLATE NOCASE
+                        LIMIT 1
+                    ), '')
+                WHERE source_scope = ''
+                  AND EXISTS (
+                      SELECT 1 FROM product_search_catalog catalog
+                      WHERE catalog.barcode = product_locations.barcode COLLATE NOCASE
+                  )
+            `).run(apiDataScope);
+            database.prepare(`
                 INSERT INTO product_catalog_meta (id, product_count, variant_count, updated_at)
                 VALUES (1, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
@@ -2601,6 +2628,7 @@ function rafKaydiniDonustur(row) {
         productId: row.product_id || "",
         barcode: row.barcode,
         name: row.name,
+        code: row.product_code || "",
         color: row.color,
         size: row.size,
         location: row.location_code,
@@ -2613,8 +2641,9 @@ app.get("/locations", (req, res) => {
     const rows = database.prepare(`
         SELECT *
         FROM product_locations
+        WHERE source_scope = ?
         ORDER BY location_code, name, barcode
-    `).all();
+    `).all(apiDataScope);
 
     res.json({ result: rows.map(rafKaydiniDonustur) });
 });
@@ -2633,28 +2662,32 @@ app.put("/locations/:barcode", (req, res) => {
 
     const productId = String(req.body.productId || "").trim().slice(0, 128);
     const name = String(req.body.name || "").trim().slice(0, 500);
+    const code = String(req.body.code || "").trim().slice(0, 300);
     const color = String(req.body.color || "").trim().slice(0, 100);
     const size = String(req.body.size || "").trim().slice(0, 100);
 
     database.prepare(`
         INSERT INTO product_locations (
-            barcode, product_id, name, color, size, location_code
-        ) VALUES (?, ?, ?, ?, ?, ?)
+            barcode, product_id, name, product_code, color, size, location_code, source_scope
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(barcode) DO UPDATE SET
             product_id = excluded.product_id,
             name = excluded.name,
+            product_code = excluded.product_code,
             color = excluded.color,
             size = excluded.size,
             location_code = excluded.location_code,
+            source_scope = excluded.source_scope,
             updated_at = CURRENT_TIMESTAMP
-    `).run(barcode, productId, name, color, size, location);
+    `).run(barcode, productId, name, code, color, size, location, apiDataScope);
 
     const row = database.prepare(`
-        SELECT * FROM product_locations WHERE barcode = ? COLLATE NOCASE
-    `).get(barcode);
+        SELECT * FROM product_locations WHERE barcode = ? COLLATE NOCASE AND source_scope = ?
+    `).get(barcode, apiDataScope);
 
     denetimKaydiOlustur(req, "location.save", "product", barcode, `${name || barcode} rafı ${location} olarak kaydedildi`, {
         productId,
+        code,
         color,
         size,
         location
@@ -2665,11 +2698,11 @@ app.put("/locations/:barcode", (req, res) => {
 app.delete("/locations/:barcode", (req, res) => {
     const barcode = String(req.params.barcode || "").trim();
     const previous = database.prepare(`
-        SELECT * FROM product_locations WHERE barcode = ? COLLATE NOCASE
-    `).get(barcode);
+        SELECT * FROM product_locations WHERE barcode = ? COLLATE NOCASE AND source_scope = ?
+    `).get(barcode, apiDataScope);
     const result = database.prepare(`
-        DELETE FROM product_locations WHERE barcode = ? COLLATE NOCASE
-    `).run(barcode);
+        DELETE FROM product_locations WHERE barcode = ? COLLATE NOCASE AND source_scope = ?
+    `).run(barcode, apiDataScope);
 
     if (!result.changes) {
         return res.status(404).json({ error: "Raf kaydi bulunamadi." });

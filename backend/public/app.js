@@ -1672,6 +1672,7 @@ async function rafAta(kayit, location) {
         body: JSON.stringify({
             productId: kayit.productId,
             name: kayit.name,
+            code: kayit.code || "",
             color: kayit.color,
             size: kayit.size,
             location
