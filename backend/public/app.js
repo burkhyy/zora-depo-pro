@@ -1612,15 +1612,20 @@ function barkodEtiketiGoster(kayit) {
         pageStyle.textContent = "@page{size:50mm 30mm;margin:0}";
         document.head.appendChild(pageStyle);
 
-        requestAnimationFrame(() => {
-            try {
-                window.print();
-            } finally {
-                pageStyle.remove();
-                yazdirButonu.disabled = false;
-                yazdirButonu.textContent = "Yazdır";
-            }
-        });
+        const baskiyiTemizle = () => {
+            pageStyle.remove();
+            yazdirButonu.disabled = false;
+            yazdirButonu.textContent = "Yazdır";
+        };
+
+        window.addEventListener("afterprint", baskiyiTemizle, { once: true });
+
+        try {
+            window.print();
+        } catch {
+            baskiyiTemizle();
+            mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının yazdırma iznini kontrol edip tekrar deneyin.");
+        }
     });
 }
 
@@ -4115,22 +4120,27 @@ result.addEventListener("click", async function (event) {
     const barkodYazdirButonu = event.target.closest("[data-print-barcode]");
 
     if (barkodYazdirButonu) {
-        let kayit = urunKaydiniBarkodlaBul(barkodYazdirButonu.dataset.printBarcode);
+        const kayit = urunKaydiniBarkodlaBul(barkodYazdirButonu.dataset.printBarcode);
 
         if (kayit) {
-            let code = kayit.code || urunKodu(kayit.rawVariant) || urunKodu(kayit.rawProduct);
+            const code = kayit.code || urunKodu(kayit.rawVariant) || urunKodu(kayit.rawProduct);
+            barkodEtiketiGoster({ ...kayit, code });
 
             if (!code && kayit.productId) {
-                try {
-                    const detail = await apiUrunDetayiniGetir(kayit.productId);
-                    code = urunKodu(detail);
-                } catch {
-                    // Etiket, ürün detayı geçici olarak alınamasa da yazdırılabilsin.
-                }
-            }
+                apiUrunDetayiniGetir(kayit.productId)
+                    .then(detail => {
+                        const detailCode = urunKodu(detail);
+                        const etiket = document.getElementById("barcodeLabel");
+                        const urunAdiAlani = etiket?.querySelector(".barcodeLabelName");
+                        if (!detailCode || !etiket || !urunAdiAlani || etiket.querySelector(".barcodeLabelCode")) return;
 
-            kayit = { ...kayit, code };
-            barkodEtiketiGoster(kayit);
+                        urunAdiAlani.insertAdjacentHTML(
+                            "afterend",
+                            `<span class="barcodeLabelCode">Ürün Kodu: ${temizle(detailCode)}</span>`
+                        );
+                    })
+                    .catch(() => {});
+            }
         }
         return;
     }
