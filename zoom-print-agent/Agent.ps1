@@ -68,40 +68,64 @@ function Convert-ToZplText([object]$Value, [int]$MaxLength = 80) {
     return $text
 }
 
+function Split-ZplText([string]$Text, [int]$LineLength = 58) {
+    $words = @($Text -split ' ')
+    $lines = @("")
+    foreach ($word in $words) {
+        $candidate = ($lines[-1] + " " + $word).Trim()
+        if ($candidate.Length -le $LineLength) {
+            $lines[-1] = $candidate
+        } elseif ($lines.Count -lt 2) {
+            $lines += $word
+        }
+    }
+    return @($lines | ForEach-Object { Convert-ToZplText $_ $LineLength })
+}
+
 function New-ShippingLabelZpl($Payload) {
     $customer = Convert-ToZplText $Payload.customerName 42
     $phone = Convert-ToZplText $Payload.phone 25
     $orderCode = Convert-ToZplText $Payload.orderCode 35
     $platform = Convert-ToZplText $Payload.platform 20
-    $address = Convert-ToZplText $Payload.delivery.address 76
+    $addressLines = Split-ZplText (Convert-ToZplText $Payload.delivery.address 116) 58
     $city = Convert-ToZplText ("{0} / {1}" -f $Payload.delivery.district, $Payload.delivery.city) 48
     $barcode = Convert-ToZplText $Payload.barcode 45
     $products = @($Payload.products)
 
-    $zpl = "^XA^PW800^LL400^LH0,0^CI27"
-    $zpl += "^FO24,18^A0N,31,31^FD$customer^FS"
-    if ($phone) { $zpl += "^FO520,22^A0N,22,22^FD$phone^FS" }
-    $zpl += "^FO24,56^A0N,21,21^FDSiparis: $orderCode  $platform^FS"
-    $zpl += "^FO24,84^GB752,1,1^FS"
-    $zpl += "^FO24,96^A0N,21,21^FB752,2,2,L,0^FD$address^FS"
-    $zpl += "^FO24,142^A0N,23,23^FD$city^FS"
-    $zpl += "^FO24,172^GB752,1,1^FS"
-    $zpl += "^FO24,181^A0N,20,20^FDUrunler:^FS"
+    $zpl = "^XA^PW800^LL400^LH0,0^LT0^LS0^PON^FWN^CI27^PR3^MD15"
+    $zpl += "^FO38,16^A0N,30,30^FD$customer^FS"
+    if ($phone) { $zpl += "^FO555,20^A0N,18,18^FD$phone^FS" }
+    $zpl += "^FO38,52^A0N,20,20^FDSiparis: $orderCode  $platform^FS"
+    $zpl += "^FO38,78^GB724,1,1^FS"
+    if ($addressLines.Count -gt 0) { $zpl += "^FO38,88^A0N,18,18^FD$($addressLines[0])^FS" }
+    if ($addressLines.Count -gt 1) { $zpl += "^FO38,110^A0N,18,18^FD$($addressLines[1])^FS" }
+    $zpl += "^FO38,132^A0N,20,20^FD$city^FS"
+    $zpl += "^FO38,158^GB724,1,1^FS"
+    $zpl += "^FO38,168^A0N,19,19^FDUrunler:^FS"
 
-    $visibleCount = [Math]::Min(3, $products.Count)
+    $visibleCount = [Math]::Min(2, $products.Count)
     for ($index = 0; $index -lt $visibleCount; $index++) {
         $product = $products[$index]
-        $detail = "{0} - {1}/{2} x{3}" -f $product.name, $product.color, $product.size, $product.quantity
-        $line = Convert-ToZplText $detail 67
-        $y = 207 + ($index * 24)
-        $zpl += "^FO24,$y^A0N,19,19^FD$line^FS"
+        $name = Convert-ToZplText $product.name 44
+        $code = Convert-ToZplText $product.code 24
+        $color = Convert-ToZplText $product.color 12
+        $size = Convert-ToZplText $product.size 8
+        $quantity = [Math]::Max(1, [int]$product.quantity)
+        $variant = @($color, $size) | Where-Object { $_ -and $_ -ne "-" }
+        $detail = "$name"
+        if ($code) { $detail += " [$code]" }
+        if ($variant.Count) { $detail += " - " + ($variant -join "/") }
+        $detail += " x$quantity"
+        $line = Convert-ToZplText $detail 72
+        $y = 194 + ($index * 23)
+        $zpl += "^FO38,$y^A0N,18,18^FD$line^FS"
     }
-    if ($products.Count -gt 3) {
-        $remaining = $products.Count - 3
-        $zpl += "^FO24,279^A0N,18,18^FD+$remaining urun daha^FS"
+    if ($products.Count -gt 2) {
+        $remaining = $products.Count - 2
+        $zpl += "^FO38,240^A0N,17,17^FD+$remaining urun daha^FS"
     }
 
-    $zpl += "^FO150,302^BY3,2,62^BCN,62,Y,N,N^FD$barcode^FS"
+    $zpl += "^FO120,266^BY3,2,78^BCN,78,Y,N,N^FD$barcode^FS"
     $zpl += "^XZ"
     return $zpl
 }

@@ -249,13 +249,14 @@ function urunProductId(urun) {
 }
 
 function urunGorseli(urun) {
-    const dogrudan = alanOku(urun, [
+    const dogrudanDeger = alanOku(urun, [
         "imageUrl",
         "image",
         "images.0.imagesUrl",
         "images.0.imageUrl",
         "images.0.url"
     ], "");
+    const dogrudan = typeof dogrudanDeger === "string" ? dogrudanDeger : "";
 
     const productId = urunProductId(urun);
     const resolved = dogrudan || urunGorselleri[String(productId)] || "";
@@ -1482,6 +1483,7 @@ function apiUrunAra(urunler, metin) {
     return urunler.filter(urun => {
         return [
             urun.name,
+            urun.code,
             urun.barcode,
             urun.color,
             urun.size
@@ -1494,12 +1496,21 @@ function rafSonucKarti(kayit) {
     const kartClass = kayit.hasLocation ? "" : " unassigned";
     const debugHtml = debugUrunVerisiHtml(kayit);
     const debugId = `debug-${barkodKarsilastir(kayit.barcode).replace(/[^A-Z0-9]/g, "")}-${Math.random().toString(36).slice(2, 8)}`;
+    const gorselUrl = kayit.imageUrl || (kayit.productId ? `/product-image/${encodeURIComponent(kayit.productId)}` : "");
 
     return `
         <article class="locationResultCard${kartClass}">
-            <div>
-                <p class="eyebrow">${kayit.hasLocation ? "Raf Konumu" : "Ürün Bulundu"}</p>
-                <h3>${temizle(kayit.name)}</h3>
+            <div class="locationProductHeader">
+                <div class="locationProductImage">
+                    ${gorselUrl
+                        ? `<img src="${temizle(gorselUrl)}" alt="${temizle(kayit.name)}" loading="lazy">`
+                        : `<span>Görsel yok</span>`}
+                </div>
+                <div>
+                    <p class="eyebrow">${kayit.hasLocation ? "Raf Konumu" : "Ürün Bulundu"}</p>
+                    <h3>${temizle(kayit.name)}</h3>
+                    <span class="locationProductCode">Ürün Kodu: ${temizle(kayit.code || "Tanımlı değil")}</span>
+                </div>
             </div>
             <strong class="locationCode">${temizle(raf)}</strong>
             <dl class="locationFacts">
@@ -1514,6 +1525,10 @@ function rafSonucKarti(kayit) {
                 <div>
                     <dt>Beden</dt>
                     <dd>${temizle(kayit.size)}</dd>
+                </div>
+                <div>
+                    <dt>Ürün Kodu</dt>
+                    <dd>${temizle(kayit.code || "-")}</dd>
                 </div>
             </dl>
             <form class="locationAssignment" data-location-form="${temizle(kayit.barcode)}">
@@ -3408,11 +3423,16 @@ function urunListesiHtml(urunler) {
                     <div>
                         <div class="productTitleLine">
                             <h3>${temizle(urunAdi(urun))}</h3>
+                            <span>Ürün Kodu: ${temizle(urunKodu(urun) || "-")}</span>
                             <span>Renk: ${temizle(urunRengi(urun))}</span>
                             <span>Beden: ${temizle(urunBedeni(urun))}</span>
                             <span>Barkod: ${temizle(urunBarkodu(urun))}</span>
                         </div>
                         <dl class="productFacts">
+                            <div>
+                                <dt>Ürün Kodu</dt>
+                                <dd>${temizle(urunKodu(urun) || "-")}</dd>
+                            </div>
                             <div>
                                 <dt>Renk</dt>
                                 <dd>${temizle(urunRengi(urun))}</dd>
@@ -3583,6 +3603,7 @@ function siparisOzeti(siparis) {
     const products = (siparis.products || []).map(urun => ({
         barcode: urunBarkodu(urun),
         name: urunAdi(urun),
+        code: urunKodu(urun),
         quantity: urunAdedi(urun),
         color: urunRengi(urun),
         size: urunBedeni(urun)

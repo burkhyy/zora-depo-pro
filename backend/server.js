@@ -22,6 +22,7 @@ const cloudinaryCloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim
 const cloudinaryApiKey = String(process.env.CLOUDINARY_API_KEY || "").trim();
 const cloudinaryApiSecret = String(process.env.CLOUDINARY_API_SECRET || "").trim();
 const externalProofStorageConfigured = Boolean(cloudinaryCloudName && cloudinaryApiKey && cloudinaryApiSecret);
+const apiDataScope = crypto.createHash("sha256").update(String(process.env.API_URL || "")).digest("hex").slice(0, 16);
 
 if (process.env.RAILWAY_ENVIRONMENT && (!appUsername || !appPassword)) {
     throw new Error("Railway ortaminda APP_USERNAME ve APP_PASSWORD zorunludur.");
@@ -248,6 +249,22 @@ database.exec(`
 const issueColumns = new Set(
     database.prepare(`PRAGMA table_info(order_product_issues)`).all().map(column => column.name)
 );
+
+const imageCacheColumns = new Set(
+    database.prepare(`PRAGMA table_info(product_image_cache)`).all().map(column => column.name)
+);
+
+if (!imageCacheColumns.has("source_scope")) {
+    database.exec(`ALTER TABLE product_image_cache ADD COLUMN source_scope TEXT NOT NULL DEFAULT ''`);
+}
+
+const productCatalogColumns = new Set(
+    database.prepare(`PRAGMA table_info(product_search_catalog)`).all().map(column => column.name)
+);
+
+if (!productCatalogColumns.has("product_code")) {
+    database.exec(`ALTER TABLE product_search_catalog ADD COLUMN product_code TEXT NOT NULL DEFAULT ''`);
+}
 
 const preparationColumns = new Set(
     database.prepare(`PRAGMA table_info(order_preparations)`).all().map(column => column.name)
@@ -1020,7 +1037,7 @@ const API = axios.create({
     }
 });
 const productImageCache = new Map(
-    database.prepare(`SELECT product_id, image_url FROM product_image_cache`).all()
+    database.prepare(`SELECT product_id, image_url FROM product_image_cache WHERE source_scope = ?`).all(apiDataScope)
         .map(item => [Number(item.product_id), item.image_url])
 );
 const productPageCache = new Map();
@@ -1028,10 +1045,11 @@ let fullProductListCache = null;
 let fullProductListPromise = null;
 const productListCacheMs = Math.max(60, Number(process.env.PRODUCT_CACHE_SECONDS || 600)) * 1000;
 const productImageSave = database.prepare(`
-    INSERT INTO product_image_cache (product_id, image_url, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO product_image_cache (product_id, image_url, source_scope, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
     ON CONFLICT(product_id) DO UPDATE SET
         image_url = excluded.image_url,
+        source_scope = excluded.source_scope,
         updated_at = CURRENT_TIMESTAMP
 `);
 const upstreamStatus = {
@@ -1215,6 +1233,9 @@ async function aktifSiparisleriGetir() {
 }
 
 function urunGorselUrliniBul(product) {
+    if (Array.isArray(product)) {
+        return product.map(urunGorselUrliniBul).find(Boolean) || "";
+    }
     const images = Array.isArray(product?.images) ? product.images : [];
     const first = images[0];
 
@@ -1222,7 +1243,14 @@ function urunGorselUrliniBul(product) {
         return first;
     }
 
-    return first?.imagesUrl || first?.imageUrl || first?.url || product?.imageUrl || product?.image || "";
+    return first?.imagesUrl
+        || first?.imageUrl
+        || first?.url
+        || product?.imagesUrl
+        || product?.imageUrl
+        || product?.image
+        || product?.variant?.images?.[0]?.imagesUrl
+        || "";
 }
 
 async function urunSayfasiniGetir(pageStart) {
@@ -1240,7 +1268,7 @@ async function urunSayfasiniGetir(pageStart) {
 
 async function urunGorselleriniGetir(productIds) {
     const ids = [...new Set(productIds.map(id => Number(id)).filter(Number.isFinite))];
-    const missing = ids.filter(id => !productImageCache.has(id));
+    const missing = ids.filter(id => !productImageCache.get(id));
 
     if (missing.length) {
         const firstPage = await urunSayfasiniGetir(0);
@@ -1263,7 +1291,7 @@ async function urunGorselleriniGetir(productIds) {
                 productImageCache.set(id, imageUrl);
 
                 if (imageUrl) {
-                    productImageSave.run(String(id), imageUrl);
+                    productImageSave.run(String(id), imageUrl, apiDataScope);
                 }
             }
         });
@@ -1277,7 +1305,7 @@ async function urunGorselleriniGetir(productIds) {
                     const product = detail?.result || detail?.raw || detail;
                     const imageUrl = urunGorselUrliniBul(product);
                     productImageCache.set(id, imageUrl);
-                    if (imageUrl) productImageSave.run(String(id), imageUrl);
+                    if (imageUrl) productImageSave.run(String(id), imageUrl, apiDataScope);
                 } catch {
                     productImageCache.set(id, "");
                 }
@@ -1398,6 +1426,7 @@ function katalogKayitlari(product) {
     const productId = String(product?.id ?? product?.productId ?? "");
     const name = String(product?.name || product?.productName || product?.title || "");
     const color = katalogRengi(product);
+    const code = String(product?.code || product?.productCode || product?.modelCode || product?.mpn || "").trim();
     const variants = Array.isArray(product?.variants) && product.variants.length ? product.variants : [product];
     return variants.map(variant => {
         const barcode = String(variant?.barcode || variant?.barCode || product?.barcode || product?.barCode || "").trim();
@@ -1412,9 +1441,10 @@ function katalogKayitlari(product) {
             barcode,
             productId,
             name,
+            code,
             color,
             size,
-            searchText: katalogMetni([name, barcode, color, size, product?.code, productId].filter(Boolean).join(" "))
+            searchText: katalogMetni([name, barcode, color, size, code, productId].filter(Boolean).join(" "))
         };
     }).filter(item => item.barcode);
 }
@@ -1427,11 +1457,12 @@ async function urunKatalogunuGuncelle() {
         const records = products.flatMap(katalogKayitlari);
         const insert = database.prepare(`
             INSERT INTO product_search_catalog (
-                barcode, product_id, name, color, size, search_text, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                barcode, product_id, name, product_code, color, size, search_text, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(barcode) DO UPDATE SET
                 product_id = excluded.product_id,
                 name = excluded.name,
+                product_code = excluded.product_code,
                 color = excluded.color,
                 size = excluded.size,
                 search_text = excluded.search_text,
@@ -1441,7 +1472,7 @@ async function urunKatalogunuGuncelle() {
         try {
             database.exec("DELETE FROM product_search_catalog");
             records.forEach(item => insert.run(
-                item.barcode, item.productId, item.name, item.color, item.size, item.searchText
+                item.barcode, item.productId, item.name, item.code, item.color, item.size, item.searchText
             ));
             database.prepare(`
                 INSERT INTO product_catalog_meta (id, product_count, variant_count, updated_at)
@@ -1485,13 +1516,16 @@ async function urunDetayiniGetir(id) {
     for (const endpoint of endpoints) {
         try {
             const response = await API.get(endpoint);
-            const result = response.data?.result || response.data?.data || response.data;
+            const apiResult = response.data?.result || response.data?.data || response.data;
 
-            if (Array.isArray(result) && result.length === 0) {
+            if (Array.isArray(apiResult) && apiResult.length === 0) {
                 sonHata = new Error(`Bos detay yaniti: ${endpoint}`);
                 continue;
             }
 
+            const result = Array.isArray(apiResult)
+                ? apiResult.find(item => String(item?.id ?? item?.productId ?? "") === String(id)) || apiResult[0]
+                : apiResult;
             return { source: endpoint, result, raw: response.data };
         } catch (err) {
             sonHata = err;
@@ -1643,8 +1677,10 @@ app.get("/products/search", (req, res) => {
             productId: row.product_id,
             barcode: row.barcode,
             name: row.name,
+            code: row.product_code || "",
             color: row.color || "-",
             size: row.size || "-",
+            imageUrl: row.product_id ? `/product-image/${encodeURIComponent(row.product_id)}` : "",
             location: "",
             hasLocation: false,
             source: "catalog"
@@ -2845,6 +2881,10 @@ app.put("/shipments/:orderCode", (req, res) => {
 function urunKataloguEskiMi() {
     const meta = database.prepare(`SELECT updated_at FROM product_catalog_meta WHERE id = 1`).get();
     if (!meta?.updated_at) return true;
+    const missingCodes = database.prepare(`
+        SELECT COUNT(*) AS count FROM product_search_catalog WHERE product_code = ''
+    `).get().count;
+    if (missingCodes > 0) return true;
     const updatedAt = new Date(`${String(meta.updated_at).replace(" ", "T")}Z`).getTime();
     return !Number.isFinite(updatedAt) || Date.now() - updatedAt > 6 * 60 * 60 * 1000;
 }

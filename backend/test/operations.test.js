@@ -331,15 +331,17 @@ test("ürün kataloğu isim ve barkodla hızlı aranır", async () => {
     `).run();
     db.prepare(`
         INSERT OR REPLACE INTO product_search_catalog
-            (barcode, product_id, name, color, size, search_text)
-        VALUES (?, ?, ?, ?, ?, ?)
-    `).run("4422548804418", "20091", "Boyun Bağlamalı Güpürlü Elbise - KAHVE", "Kahve", "L",
+            (barcode, product_id, name, product_code, color, size, search_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run("4422548804418", "20091", "Boyun Bağlamalı Güpürlü Elbise - KAHVE", "MODEL-KORSE-01", "Kahve", "L",
         "boyun bağlamalı güpürlü elbise kahve 4422548804418 l");
     db.close();
 
     const byName = await request("/products/search?q=boyun%20bağlamalı", {}, adminCookie);
     assert.equal(byName.response.status, 200);
     assert.equal(byName.data.result[0].size, "L");
+    assert.equal(byName.data.result[0].code, "MODEL-KORSE-01");
+    assert.equal(byName.data.result[0].imageUrl, "/product-image/20091");
 
     const byBarcode = await request("/products/search?barcode=4422548804418", {}, adminCookie);
     assert.equal(byBarcode.response.status, 200);

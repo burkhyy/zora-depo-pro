@@ -1583,6 +1583,42 @@ h1{
     overflow-wrap:anywhere;
 }
 
+.locationProductHeader{
+    display:grid;
+    grid-template-columns:88px minmax(0, 1fr);
+    align-items:center;
+    gap:12px;
+    margin-bottom:12px;
+}
+
+.locationProductImage{
+    width:88px;
+    aspect-ratio:3/4;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    border:1px solid #d0d5dd;
+    border-radius:6px;
+    background:#fff;
+    color:#667085;
+    font-size:11px;
+    font-weight:700;
+}
+
+.locationProductImage img{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+}
+
+.locationProductCode{
+    display:block;
+    color:#475467;
+    font-size:13px;
+    font-weight:700;
+}
+
 .locationCode{
     display:block;
     background:#101828;
@@ -1601,7 +1637,7 @@ h1{
 
 .locationFacts{
     display:grid;
-    grid-template-columns:repeat(3, minmax(0, 1fr));
+    grid-template-columns:repeat(4, minmax(0, 1fr));
     gap:8px;
 }
 
