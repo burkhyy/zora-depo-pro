@@ -1911,6 +1911,64 @@ h1{
     font-weight:800;
     cursor:pointer;
 }
+
+.printQueueAdminSection{
+    margin-top:18px;
+    padding:18px;
+    border:1px solid #d0d5dd;
+    border-radius:8px;
+    background:#fff;
+}
+
+.printAgentStatus{
+    display:flex;
+    flex-direction:column;
+    gap:3px;
+    margin:12px 0;
+    padding:12px;
+    border-left:4px solid #f79009;
+    background:#fffaeb;
+}
+
+.printAgentStatus.online{
+    border-left-color:#12b76a;
+    background:#ecfdf3;
+}
+
+.printAgentStatus span,
+.printQueueItem span,
+.printQueueItem small{
+    color:#475467;
+}
+
+.printQueueList{
+    display:grid;
+    gap:8px;
+}
+
+.printQueueItem{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:10px 12px;
+    border:1px solid #e4e7ec;
+}
+
+.printQueueItem>div{
+    display:flex;
+    min-width:0;
+    flex-direction:column;
+    gap:2px;
+}
+
+.printQueueItem.failed{
+    border-left:4px solid #d92d20;
+}
+
+.printQueueItem.printed{
+    border-left:4px solid #12b76a;
+}
 .orderCardActions{
     display:grid;
     grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);

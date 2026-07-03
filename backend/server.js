@@ -216,6 +216,33 @@ database.exec(`
         payload_json TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS print_agent_config (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        token_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_seen_at TEXT,
+        agent_name TEXT NOT NULL DEFAULT ''
+    );
+
+    CREATE TABLE IF NOT EXISTS print_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        order_code TEXT NOT NULL COLLATE NOCASE,
+        label_type TEXT NOT NULL DEFAULT 'shipping',
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending', 'processing', 'printed', 'failed')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error_message TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        picked_at TEXT,
+        printed_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(order_code, label_type)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_print_jobs_status
+        ON print_jobs(status, created_at);
 `);
 
 const issueColumns = new Set(
@@ -562,11 +589,163 @@ app.get("/auth/me", oturumGerekli, (req, res) => {
 });
 
 app.use((req, res, next) => {
-    if (req.path === "/") {
+    if (req.path === "/" || req.path.startsWith("/print-agent/")) {
         return next();
     }
 
     oturumGerekli(req, res, next);
+});
+
+function yazdirmaAjanTokeniDogrula(req, res, next) {
+    const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+    const config = database.prepare(`SELECT token_hash FROM print_agent_config WHERE id = 1`).get();
+    if (!token || !config) return res.status(401).json({ error: "Yazdırma ajanı yetkilendirilmedi." });
+
+    const actual = Buffer.from(crypto.createHash("sha256").update(token).digest("hex"));
+    const expected = Buffer.from(config.token_hash);
+    if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+        return res.status(401).json({ error: "Yazdırma ajanı anahtarı geçersiz." });
+    }
+
+    database.prepare(`
+        UPDATE print_agent_config
+        SET last_seen_at = CURRENT_TIMESTAMP,
+            agent_name = CASE WHEN ? = '' THEN agent_name ELSE ? END
+        WHERE id = 1
+    `).run(String(req.headers["x-agent-name"] || "").slice(0, 100), String(req.headers["x-agent-name"] || "").slice(0, 100));
+    next();
+}
+
+function yazdirmaIsiDonustur(row) {
+    let payload = {};
+    try {
+        payload = JSON.parse(row.payload_json || "{}");
+    } catch {
+        payload = {};
+    }
+    return {
+        id: row.id,
+        orderCode: row.order_code,
+        labelType: row.label_type,
+        payload,
+        status: row.status,
+        attempts: row.attempts,
+        errorMessage: row.error_message,
+        createdAt: row.created_at,
+        pickedAt: row.picked_at,
+        printedAt: row.printed_at,
+        updatedAt: row.updated_at
+    };
+}
+
+function otomatikEtiketiKuyrugaEkle(orderCode, snapshot) {
+    const payload = {
+        ...snapshot,
+        orderCode,
+        barcode: String(snapshot?.shipmentCode || `ZOOM-ORDER-${orderCode}`)
+    };
+    database.prepare(`
+        INSERT INTO print_jobs (order_code, label_type, payload_json)
+        VALUES (?, 'shipping', ?)
+        ON CONFLICT(order_code, label_type) DO UPDATE SET
+            payload_json = excluded.payload_json,
+            status = CASE WHEN print_jobs.status = 'printed' THEN 'printed' ELSE 'pending' END,
+            error_message = '',
+            updated_at = CURRENT_TIMESTAMP
+    `).run(orderCode, JSON.stringify(payload).slice(0, 250000));
+}
+
+app.post("/admin/print-agent/token", yoneticiGerekli, (req, res) => {
+    const token = crypto.randomBytes(32).toString("base64url");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+    database.prepare(`
+        INSERT INTO print_agent_config (id, token_hash)
+        VALUES (1, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            token_hash = excluded.token_hash,
+            created_at = CURRENT_TIMESTAMP,
+            last_seen_at = NULL,
+            agent_name = ''
+    `).run(tokenHash);
+    denetimKaydiOlustur(req, "print_agent.token_rotate", "system", "", "Zebra yazdırma ajanı anahtarı oluşturuldu");
+    res.status(201).json({ token });
+});
+
+app.get("/admin/print-jobs", yoneticiGerekli, (req, res) => {
+    const config = database.prepare(`
+        SELECT created_at, last_seen_at, agent_name FROM print_agent_config WHERE id = 1
+    `).get() || null;
+    const rows = database.prepare(`
+        SELECT * FROM print_jobs ORDER BY created_at DESC LIMIT 100
+    `).all();
+    res.json({
+        agent: config ? {
+            configured: true,
+            createdAt: config.created_at,
+            lastSeenAt: config.last_seen_at,
+            name: config.agent_name
+        } : { configured: false, createdAt: null, lastSeenAt: null, name: "" },
+        result: rows.map(yazdirmaIsiDonustur)
+    });
+});
+
+app.post("/admin/print-jobs/:id/retry", yoneticiGerekli, (req, res) => {
+    const result = database.prepare(`
+        UPDATE print_jobs
+        SET status = 'pending', attempts = 0, error_message = '',
+            picked_at = NULL, printed_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(Number(req.params.id));
+    if (!result.changes) return res.status(404).json({ error: "Yazdırma işi bulunamadı." });
+    denetimKaydiOlustur(req, "print_job.retry", "print_job", req.params.id, "Etiket yeniden yazdırma kuyruğuna alındı");
+    res.json({ status: "pending" });
+});
+
+app.get("/print-agent/jobs/next", yazdirmaAjanTokeniDogrula, (req, res) => {
+    database.prepare(`
+        UPDATE print_jobs
+        SET status = 'pending', picked_at = NULL, updated_at = CURRENT_TIMESTAMP
+        WHERE status = 'processing' AND picked_at < datetime('now', '-5 minutes')
+    `).run();
+
+    database.exec("BEGIN IMMEDIATE");
+    try {
+        const job = database.prepare(`
+            SELECT * FROM print_jobs
+            WHERE status IN ('pending', 'failed') AND attempts < 5
+            ORDER BY created_at ASC LIMIT 1
+        `).get();
+        if (!job) {
+            database.exec("COMMIT");
+            return res.status(204).end();
+        }
+        database.prepare(`
+            UPDATE print_jobs
+            SET status = 'processing', attempts = attempts + 1,
+                picked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `).run(job.id);
+        database.exec("COMMIT");
+        const current = database.prepare(`SELECT * FROM print_jobs WHERE id = ?`).get(job.id);
+        res.json({ result: yazdirmaIsiDonustur(current) });
+    } catch (err) {
+        database.exec("ROLLBACK");
+        throw err;
+    }
+});
+
+app.post("/print-agent/jobs/:id/result", yazdirmaAjanTokeniDogrula, (req, res) => {
+    const success = req.body?.success === true;
+    const errorMessage = String(req.body?.error || "").slice(0, 1000);
+    const result = database.prepare(`
+        UPDATE print_jobs
+        SET status = ?, error_message = ?,
+            printed_at = CASE WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE printed_at END,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'processing'
+    `).run(success ? "printed" : "failed", success ? "" : errorMessage, success ? 1 : 0, Number(req.params.id));
+    if (!result.changes) return res.status(409).json({ error: "Yazdırma işi işlem durumunda değil." });
+    res.json({ status: success ? "printed" : "failed" });
 });
 
 function bildirimOlustur(type, title, message, orderCode = "", audience = "all") {
@@ -2297,6 +2476,17 @@ app.post("/preparations/complete", async (req, res, next) => {
             Math.max(1, Number(scan.quantityIndex) || 1),
             req.user.id
         ));
+        let printSnapshot = {};
+        try {
+            printSnapshot = JSON.parse(currentSnapshot || "{}");
+        } catch {
+            printSnapshot = {};
+        }
+        otomatikEtiketiKuyrugaEkle(orderCode, {
+            ...printSnapshot,
+            customerName: printSnapshot.customerName || customerName,
+            platform: printSnapshot.platform || platform
+        });
         database.exec("COMMIT");
     } catch (err) {
         database.exec("ROLLBACK");

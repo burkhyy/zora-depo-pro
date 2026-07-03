@@ -103,7 +103,15 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
             orderCode: "CACHED-ORDER",
             customerName: "Test Müşteri",
             platform: "Zoombutik",
-            orderSnapshot: { orderCode: "CACHED-ORDER", products: [] },
+            orderSnapshot: {
+                orderCode: "CACHED-ORDER",
+                customerName: "Test Müşteri",
+                platform: "Zoombutik",
+                phone: "5551112233",
+                delivery: { address: "Test Mahallesi 1", district: "Kadıköy", city: "İstanbul" },
+                shipmentCode: "TEST-SHIPMENT-1",
+                products: [{ name: "Test Elbise", color: "Siyah", size: "M", quantity: 1 }]
+            },
             scans: []
         })
     }, adminCookie);
@@ -111,6 +119,33 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
 
     const refreshedOrders = await request("/orders", {}, adminCookie);
     assert.equal(refreshedOrders.data.result.list[0].localPreparationStatus, "completed");
+
+    const queue = await request("/admin/print-jobs", {}, adminCookie);
+    assert.equal(queue.response.status, 200);
+    assert.equal(queue.data.result[0].payload.products[0].name, "Test Elbise");
+    assert.equal(queue.data.result[0].payload.delivery.city, "İstanbul");
+
+    const tokenResult = await request("/admin/print-agent/token", {
+        method: "POST",
+        body: "{}"
+    }, adminCookie);
+    assert.equal(tokenResult.response.status, 201);
+
+    const agentHeaders = {
+        Authorization: `Bearer ${tokenResult.data.token}`,
+        "X-Agent-Name": "TEST-ZEBRA"
+    };
+    const nextJob = await request("/print-agent/jobs/next", { headers: agentHeaders });
+    assert.equal(nextJob.response.status, 200);
+    assert.equal(nextJob.data.result.orderCode, "CACHED-ORDER");
+
+    const printed = await request(`/print-agent/jobs/${nextJob.data.result.id}/result`, {
+        method: "POST",
+        headers: agentHeaders,
+        body: JSON.stringify({ success: true })
+    });
+    assert.equal(printed.response.status, 200);
+    assert.equal(printed.data.status, "printed");
 });
 
 test.after(async () => {

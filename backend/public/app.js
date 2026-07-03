@@ -2830,21 +2830,23 @@ async function yonetimEkraniGoster() {
     result.innerHTML = `<div class="loading">Kullanıcılar ve işlem geçmişi yükleniyor...</div>`;
 
     try {
-        const [usersResponse, historyResponse, auditResponse, backupsResponse, operationsResponse] = await Promise.all([
+        const [usersResponse, historyResponse, auditResponse, backupsResponse, operationsResponse, printJobsResponse] = await Promise.all([
             fetch("/admin/users"),
             fetch("/admin/preparations"),
             fetch("/admin/audit-logs"),
             fetch("/admin/backups"),
-            fetch("/admin/operations/status")
+            fetch("/admin/operations/status"),
+            fetch("/admin/print-jobs")
         ]);
         const usersData = await usersResponse.json();
         const historyData = await historyResponse.json();
         const auditData = await auditResponse.json();
         const backupsData = await backupsResponse.json();
         const operationsData = await operationsResponse.json();
+        const printJobsData = await printJobsResponse.json();
 
-        if (!usersResponse.ok || !historyResponse.ok || !auditResponse.ok || !backupsResponse.ok || !operationsResponse.ok) {
-            throw new Error(usersData.error || historyData.error || auditData.error || backupsData.error || operationsData.error || "Yönetim verileri alınamadı.");
+        if (!usersResponse.ok || !historyResponse.ok || !auditResponse.ok || !backupsResponse.ok || !operationsResponse.ok || !printJobsResponse.ok) {
+            throw new Error(usersData.error || historyData.error || auditData.error || backupsData.error || operationsData.error || printJobsData.error || "Yönetim verileri alınamadı.");
         }
 
         yonetimHazirlamaKayitlari = historyData.result;
@@ -2949,6 +2951,35 @@ async function yonetimEkraniGoster() {
                         </div>
                     </section>
                 </div>
+                <section class="printQueueAdminSection">
+                    <div class="sectionTitle">
+                        <div>
+                            <p class="eyebrow">Otomatik Zebra Yazdırma</p>
+                            <h3>100×50 mm etiket kuyruğu</h3>
+                        </div>
+                        <a class="reportDownloadButton" href="/downloads/zoom-print-agent.zip">Windows Ajanını İndir</a>
+                    </div>
+                    <div class="printAgentStatus ${printJobsData.agent.lastSeenAt ? "online" : ""}">
+                        <strong>${printJobsData.agent.lastSeenAt ? "Yazdırma ajanı bağlı" : printJobsData.agent.configured ? "Ajan henüz bağlanmadı" : "Yazdırma ajanı kurulmadı"}</strong>
+                        <span>${printJobsData.agent.lastSeenAt
+                            ? `${temizle(printJobsData.agent.name || "Zebra bilgisayarı")} · Son bağlantı: ${temizle(tarihSaatGoster(printJobsData.agent.lastSeenAt))}`
+                            : "Windows ajanını Zebra'nın bağlı olduğu bilgisayara kurun."}</span>
+                    </div>
+                    <div class="printQueueList">
+                        ${printJobsData.result.length ? printJobsData.result.slice(0, 20).map(job => `
+                            <div class="printQueueItem ${temizle(job.status)}">
+                                <div>
+                                    <strong>${temizle(job.orderCode)} · ${temizle(job.payload.customerName || "Müşteri")}</strong>
+                                    <span>${job.status === "printed" ? "Yazdırıldı" : job.status === "processing" ? "Yazdırılıyor" : job.status === "failed" ? "Hata" : "Kuyrukta"} · ${temizle(tarihSaatGoster(job.updatedAt))}</span>
+                                    ${job.errorMessage ? `<small>${temizle(job.errorMessage)}</small>` : ""}
+                                </div>
+                                ${job.status === "failed" || job.status === "printed"
+                                    ? `<button type="button" data-retry-print-job="${temizle(job.id)}">${job.status === "printed" ? "Tekrar Yazdır" : "Yeniden Dene"}</button>`
+                                    : ""}
+                            </div>
+                        `).join("") : `<div class="emptyActivity">Henüz otomatik etiket işi yok.</div>`}
+                    </div>
+                </section>
                 <section class="operationsAdminSection">
                     <div class="sectionTitle">
                         <div>
@@ -3563,6 +3594,15 @@ function siparisOzeti(siparis) {
         orderCode: siparisKodu(siparis),
         platform: platformAdi(siparis),
         customerName: musteriAdi(siparis),
+        phone: alanOku(siparis, [
+            "customer.phone",
+            "customer.mobilePhone",
+            "customer.delivery.phone",
+            "delivery.phone",
+            "shippingAddress.phone"
+        ], ""),
+        delivery: teslimatAdresi(siparis),
+        shipmentCode: kargoGonderiKodu(siparis) || sevkiyatBarkodu(siparis),
         total: toplamTutar(siparis),
         products
     };
@@ -3794,6 +3834,23 @@ result.addEventListener("click", async function (event) {
         }
         alert(`${data.result.preparationsDeleted} hazırlama, ${data.result.auditDeleted} denetim kaydı temizlendi.`);
         hazirlamaGecmisiEkraniGoster();
+        return;
+    }
+
+    const retryPrintJobButton = event.target.closest("[data-retry-print-job]");
+    if (retryPrintJobButton) {
+        retryPrintJobButton.disabled = true;
+        try {
+            const response = await fetch(`/admin/print-jobs/${encodeURIComponent(retryPrintJobButton.dataset.retryPrintJob)}/retry`, {
+                method: "POST"
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Etiket kuyruğa alınamadı.");
+            await yonetimEkraniGoster();
+        } catch (err) {
+            retryPrintJobButton.disabled = false;
+            alert(err.message);
+        }
         return;
     }
 
