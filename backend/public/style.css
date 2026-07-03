@@ -2878,29 +2878,53 @@ h1{
         margin:0;
     }
 
-    body *{
-        visibility:hidden !important;
+    html,
+    body{
+        width:50mm !important;
+        height:30mm !important;
+        margin:0 !important;
+        padding:0 !important;
+        overflow:hidden !important;
     }
 
-    #barcodePrintModal,
-    #barcodePrintModal .barcodeLabel,
-    #barcodePrintModal .barcodeLabel *{
-        visibility:visible !important;
+    body > *:not(#barcodePrintModal){
+        display:none !important;
+    }
+
+    html:has(#barcodePrintModal.cargoPrintModal),
+    body:has(#barcodePrintModal.cargoPrintModal){
+        width:100mm !important;
+        height:50mm !important;
+        overflow:visible !important;
+    }
+
+    html:has(#barcodePrintModal.bulkCargoPrintModal),
+    body:has(#barcodePrintModal.bulkCargoPrintModal){
+        height:auto !important;
     }
 
     #barcodePrintModal{
-        position:fixed;
-        inset:0;
+        position:absolute;
+        top:0;
+        left:0;
         display:block;
+        width:50mm;
+        height:30mm;
+        margin:0;
         padding:0;
+        overflow:hidden;
         background:#fff;
     }
 
     .barcodePrintDialog{
         width:50mm;
         height:30mm;
+        margin:0;
         padding:0;
+        overflow:hidden;
         box-shadow:none;
+        border:0;
+        border-radius:0;
     }
 
     .barcodePrintHeader,
@@ -2909,7 +2933,21 @@ h1{
     }
 
     .barcodeLabel{
+        box-sizing:border-box;
+        width:50mm;
+        height:30mm;
+        margin:0;
         border:0;
+    }
+
+    #barcodePrintModal.cargoPrintModal{
+        width:100mm;
+        height:50mm;
+        overflow:visible;
+    }
+
+    #barcodePrintModal.bulkCargoPrintModal{
+        height:auto;
     }
 
     #barcodePrintModal.cargoPrintModal .barcodePrintDialog,

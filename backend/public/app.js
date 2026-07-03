@@ -1591,11 +1591,16 @@ function barkodEtiketiGoster(kayit) {
     yazdirButonu.addEventListener("click", () => {
         yazdirButonu.disabled = true;
         yazdirButonu.textContent = "Yazdırılıyor...";
+        const pageStyle = document.createElement("style");
+        pageStyle.id = "productLabelPageStyle";
+        pageStyle.textContent = "@page{size:50mm 30mm;margin:0}";
+        document.head.appendChild(pageStyle);
 
         requestAnimationFrame(() => {
             try {
                 window.print();
             } finally {
+                pageStyle.remove();
                 yazdirButonu.disabled = false;
                 yazdirButonu.textContent = "Yazdır";
             }
