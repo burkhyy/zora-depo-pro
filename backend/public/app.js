@@ -1536,6 +1536,18 @@ function rafSonucKarti(kayit) {
     `;
 }
 
+function barkodYazdirmaFormati(barkod) {
+    const deger = String(barkod || "").trim();
+    if (!/^\d{13}$/.test(deger)) return "CODE128";
+
+    const toplam = deger
+        .slice(0, 12)
+        .split("")
+        .reduce((sum, rakam, index) => sum + Number(rakam) * (index % 2 === 0 ? 1 : 3), 0);
+    const kontrolBasamagi = (10 - (toplam % 10)) % 10;
+    return kontrolBasamagi === Number(deger[12]) ? "EAN13" : "CODE128";
+}
+
 function barkodEtiketiGoster(kayit) {
     document.getElementById("barcodePrintModal")?.remove();
 
@@ -1575,12 +1587,16 @@ function barkodEtiketiGoster(kayit) {
     }
 
     JsBarcode("#barcodeLabelSvg", kayit.barcode, {
-        format: "CODE128",
-        width: 2,
-        height: 58,
+        format: barkodYazdirmaFormati(kayit.barcode),
+        width: 2.5,
+        height: 62,
         displayValue: true,
-        fontSize: 16,
-        margin: 0
+        fontSize: 15,
+        textMargin: 2,
+        marginTop: 0,
+        marginBottom: 0,
+        marginLeft: 12,
+        marginRight: 12
     });
 
     modal.querySelectorAll(".closePrintModal").forEach(button => {
