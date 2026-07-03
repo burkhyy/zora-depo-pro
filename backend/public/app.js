@@ -126,6 +126,18 @@ function siparisDurumu(item) {
     return durumlar[durum] || durum || "-";
 }
 
+function yereldeHazirlanmisMi(item) {
+    return item?.localPreparationStatus === "completed";
+}
+
+function siparisiYereldeHazirIsaretle(siparis) {
+    const code = siparisKodu(siparis).toUpperCase();
+    siparis.localPreparationStatus = "completed";
+    siparisler.forEach(item => {
+        if (siparisKodu(item).toUpperCase() === code) item.localPreparationStatus = "completed";
+    });
+}
+
 function toplamTutar(item) {
     const tutar = alanOku(item, [
         "order.total",
@@ -1105,7 +1117,8 @@ function listeGoster(liste) {
     document.body.classList.remove("historyMode");
     sekmeDurumuGuncelle();
 
-    const platformListesi = siparisSiralamaUygula(liste.filter(item =>
+    const hazirlanacakListe = liste.filter(item => !yereldeHazirlanmisMi(item));
+    const platformListesi = siparisSiralamaUygula(hazirlanacakListe.filter(item =>
         platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
         && (!aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
     ));
@@ -1114,7 +1127,7 @@ function listeGoster(liste) {
     const sayfaBaslangici = (aktifSiparisSayfasi - 1) * siparisSayfaBoyutu;
     const sayfadakiSiparisler = platformListesi.slice(sayfaBaslangici, sayfaBaslangici + siparisSayfaBoyutu);
     result.innerHTML = `
-        ${platformSekmeleriHtml("orders", aktifSiparisPlatformu, liste, platformAdi)}
+        ${platformSekmeleriHtml("orders", aktifSiparisPlatformu, hazirlanacakListe, platformAdi)}
         <div class="orderListControls">
             <label>
                 <span>Sıralama</span>
@@ -3585,6 +3598,7 @@ async function siparisiTamamla() {
             scans: aktifTaramaKaniti,
             orderSnapshot: siparisOzeti(currentOrder)
         });
+        siparisiYereldeHazirIsaretle(aktifSiparis);
         await sevkiyatDurumuKaydet(aktifSiparis, "ready");
         siparisHazirEkraniGoster();
     } catch (err) {
@@ -3609,6 +3623,7 @@ async function topluAktifSiparisiTamamla() {
             scans: aktifTaramaKaniti,
             orderSnapshot: siparisOzeti(current)
         });
+        siparisiYereldeHazirIsaretle(original);
         await sevkiyatDurumuKaydet(original, "ready");
 
         aktifTopluSiparisIndex += 1;

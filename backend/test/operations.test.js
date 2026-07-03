@@ -96,6 +96,21 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
     assert.equal(orders.response.status, 200);
     assert.equal(orders.data.stale, true);
     assert.equal(orders.data.result.list[0].order.code, "CACHED-ORDER");
+
+    const completed = await request("/preparations/complete", {
+        method: "POST",
+        body: JSON.stringify({
+            orderCode: "CACHED-ORDER",
+            customerName: "Test Müşteri",
+            platform: "Zoombutik",
+            orderSnapshot: { orderCode: "CACHED-ORDER", products: [] },
+            scans: []
+        })
+    }, adminCookie);
+    assert.equal(completed.response.status, 200);
+
+    const refreshedOrders = await request("/orders", {}, adminCookie);
+    assert.equal(refreshedOrders.data.result.list[0].localPreparationStatus, "completed");
 });
 
 test.after(async () => {

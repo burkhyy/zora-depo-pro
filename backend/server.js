@@ -1350,9 +1350,33 @@ app.get("/test", async (req, res) => {
     }
 });
 
+function yerelHazirlamaDurumlariniEkle(data) {
+    const latestStatuses = new Map();
+    database.prepare(`
+        SELECT order_code, status
+        FROM order_preparations
+        ORDER BY id DESC
+    `).all().forEach(row => {
+        const key = String(row.order_code || "").trim().toUpperCase();
+        if (key && !latestStatuses.has(key)) latestStatuses.set(key, row.status);
+    });
+
+    const list = Array.isArray(data?.result?.list) ? data.result.list : [];
+    return {
+        ...data,
+        result: {
+            ...data.result,
+            list: list.map(order => ({
+                ...order,
+                localPreparationStatus: latestStatuses.get(siparisKimligi(order).toUpperCase()) || ""
+            }))
+        }
+    };
+}
+
 app.get("/orders", async (req, res) => {
     try {
-        res.json(await aktifSiparisleriGetir());
+        res.json(yerelHazirlamaDurumlariniEkle(await aktifSiparisleriGetir()));
     } catch (err) {
         apiDurumunuGuncelle(false, err.response?.data?.error || err.message);
         apiHatasiGonder(err, res);
@@ -1374,7 +1398,7 @@ app.get("/api-status", (req, res) => {
 
 app.get("/order/:code", async (req, res) => {
     try {
-        const data = await aktifSiparisleriGetir();
+        const data = yerelHazirlamaDurumlariniEkle(await aktifSiparisleriGetir());
         const siparis = data.result.list.find(
             item => siparisKimligi(item).toUpperCase() === String(req.params.code).toUpperCase()
         );
