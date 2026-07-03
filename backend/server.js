@@ -640,6 +640,16 @@ function yazdirmaIsiDonustur(row) {
     } catch {
         payload = {};
     }
+    if (Array.isArray(payload.products)) {
+        const codeByBarcode = database.prepare(`
+            SELECT product_code FROM product_search_catalog
+            WHERE barcode = ? COLLATE NOCASE LIMIT 1
+        `);
+        payload.products = payload.products.map(product => ({
+            ...product,
+            code: product.code || codeByBarcode.get(String(product.barcode || "").trim())?.product_code || ""
+        }));
+    }
     return {
         id: row.id,
         orderCode: row.order_code,
