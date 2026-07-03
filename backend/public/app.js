@@ -210,6 +210,21 @@ function urunAdi(urun) {
     ]);
 }
 
+function urunKodu(urun) {
+    return alanOku(urun, [
+        "code",
+        "productCode",
+        "product.code",
+        "product.productCode",
+        "sku",
+        "modelCode",
+        "stockCode",
+        "variant.code",
+        "parent.code",
+        "parent.productCode"
+    ], "");
+}
+
 function urunBarkodu(urun) {
     return alanOku(urun, [
         "barcode",
@@ -1317,6 +1332,7 @@ function apiUrunKayitlariOlustur(urunler) {
             productId: urun.productId || urun.id,
             barcode: urunBarkodu(urun),
             name: urunAdi(urun),
+            code: urunKodu(urun),
             color: urunRengi(urun),
             size: urunBedeni(urun),
             location: "",
@@ -1537,6 +1553,7 @@ function barkodEtiketiGoster(kayit) {
             </div>
             <div class="barcodeLabel" id="barcodeLabel">
                 <strong class="barcodeLabelName">${temizle(kayit.name)}</strong>
+                ${kayit.code ? `<span class="barcodeLabelCode">Ürün Kodu: ${temizle(kayit.code)}</span>` : ""}
                 <div class="barcodeLabelVariant">
                     <span>${temizle(kayit.color)}</span>
                     <span>${kayit.labelType === "shipment" ? "Sipariş" : "Beden"}: ${temizle(kayit.size)}</span>
@@ -4077,9 +4094,21 @@ result.addEventListener("click", async function (event) {
     const barkodYazdirButonu = event.target.closest("[data-print-barcode]");
 
     if (barkodYazdirButonu) {
-        const kayit = urunKaydiniBarkodlaBul(barkodYazdirButonu.dataset.printBarcode);
+        let kayit = urunKaydiniBarkodlaBul(barkodYazdirButonu.dataset.printBarcode);
 
         if (kayit) {
+            let code = kayit.code || urunKodu(kayit.rawVariant) || urunKodu(kayit.rawProduct);
+
+            if (!code && kayit.productId) {
+                try {
+                    const detail = await apiUrunDetayiniGetir(kayit.productId);
+                    code = urunKodu(detail);
+                } catch {
+                    // Etiket, ürün detayı geçici olarak alınamasa da yazdırılabilsin.
+                }
+            }
+
+            kayit = { ...kayit, code };
             barkodEtiketiGoster(kayit);
         }
         return;

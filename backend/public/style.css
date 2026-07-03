@@ -1816,6 +1816,18 @@ h1{
     white-space:nowrap;
 }
 
+.barcodeLabelCode{
+    display:block;
+    overflow:hidden;
+    margin-top:.6mm;
+    font-size:7pt;
+    font-weight:700;
+    line-height:1.1;
+    text-align:center;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
 .barcodeLabelVariant{
     display:flex;
     justify-content:center;
@@ -1827,7 +1839,7 @@ h1{
 
 .barcodeLabel svg{
     width:100%;
-    max-height:17mm;
+    max-height:15mm;
 }
 
 .barcodePrintActions{
