@@ -1578,7 +1578,7 @@ function barkodEtiketiGoster(kayit) {
             </div>
             <div class="barcodeLabel" id="barcodeLabel">
                 <strong class="barcodeLabelName">${temizle(kayit.name)}</strong>
-                ${kayit.code ? `<span class="barcodeLabelCode">Ürün Kodu: ${temizle(kayit.code)}</span>` : ""}
+                <span class="barcodeLabelCode">${kayit.code ? `Ürün Kodu: ${temizle(kayit.code)}` : "&nbsp;"}</span>
                 <div class="barcodeLabelVariant">
                     <span>${temizle(kayit.color)}</span>
                     <span>${kayit.labelType === "shipment" ? "Sipariş" : "Beden"}: ${temizle(kayit.size)}</span>
@@ -4147,12 +4147,9 @@ result.addEventListener("click", async function (event) {
                         const detailCode = urunKodu(detail);
                         const etiket = document.getElementById("barcodeLabel");
                         const urunAdiAlani = etiket?.querySelector(".barcodeLabelName");
-                        if (!detailCode || !etiket || !urunAdiAlani || etiket.querySelector(".barcodeLabelCode")) return;
-
-                        urunAdiAlani.insertAdjacentHTML(
-                            "afterend",
-                            `<span class="barcodeLabelCode">Ürün Kodu: ${temizle(detailCode)}</span>`
-                        );
+                        if (!detailCode || !etiket || !urunAdiAlani) return;
+                        const kodAlani = etiket.querySelector(".barcodeLabelCode");
+                        if (kodAlani) kodAlani.textContent = `Ürün Kodu: ${detailCode}`;
                     })
                     .catch(() => {});
             }
