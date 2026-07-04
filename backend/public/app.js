@@ -1632,6 +1632,116 @@ function barkodYazdirmaFormati(barkod) {
     return kontrolBasamagi === Number(deger[12]) ? "EAN13" : "CODE128";
 }
 
+function urunEtiketiYazdir(etiket, tamamlandi) {
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "1px";
+    frame.style.height = "1px";
+    frame.style.border = "0";
+    frame.style.opacity = "0";
+
+    const temizle = () => {
+        frame.remove();
+        tamamlandi();
+    };
+
+    frame.addEventListener("load", () => {
+        const printWindow = frame.contentWindow;
+        if (!printWindow) {
+            temizle();
+            mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+            return;
+        }
+
+        printWindow.addEventListener("afterprint", temizle, { once: true });
+        window.setTimeout(() => {
+            try {
+                printWindow.focus();
+                printWindow.print();
+            } catch {
+                temizle();
+                mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+            }
+        }, 150);
+    }, { once: true });
+
+    document.body.appendChild(frame);
+    frame.srcdoc = `
+        <!doctype html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>50x30 Ürün Barkodu</title>
+            <style>
+                @page { size: 50mm 30mm; margin: 0; }
+                * { box-sizing: border-box; }
+                html, body {
+                    width: 50mm;
+                    height: 30mm;
+                    margin: 0;
+                    padding: 0;
+                    overflow: hidden;
+                    background: #fff;
+                }
+                .barcodeLabel {
+                    display: grid;
+                    grid-template-rows: 3mm 3mm 3mm minmax(0, 1fr);
+                    align-items: center;
+                    width: 50mm;
+                    height: 30mm;
+                    margin: 0;
+                    padding: 1.2mm;
+                    overflow: hidden;
+                    background: #fff;
+                    color: #000;
+                    font-family: Arial, sans-serif;
+                }
+                .barcodeLabelName {
+                    display: block;
+                    overflow: hidden;
+                    font-size: 8pt;
+                    line-height: 3mm;
+                    text-align: center;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .barcodeLabelCode {
+                    display: block;
+                    overflow: hidden;
+                    min-width: 0;
+                    font-size: 6.5pt;
+                    font-weight: 700;
+                    line-height: 3mm;
+                    text-align: center;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .barcodeLabelVariant {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 3mm;
+                    min-width: 0;
+                    font-size: 7.5pt;
+                    font-weight: 800;
+                    line-height: 3mm;
+                }
+                svg {
+                    display: block;
+                    width: 100%;
+                    height: 100%;
+                    min-height: 0;
+                }
+            </style>
+        </head>
+        <body>${etiket.outerHTML}</body>
+        </html>
+    `;
+}
+
 function barkodEtiketiGoster(kayit) {
     document.getElementById("barcodePrintModal")?.remove();
 
@@ -1691,25 +1801,11 @@ function barkodEtiketiGoster(kayit) {
     yazdirButonu.addEventListener("click", () => {
         yazdirButonu.disabled = true;
         yazdirButonu.textContent = "Yazdırılıyor...";
-        const pageStyle = document.createElement("style");
-        pageStyle.id = "productLabelPageStyle";
-        pageStyle.textContent = "@page{size:50mm 30mm;margin:0}";
-        document.head.appendChild(pageStyle);
-
-        const baskiyiTemizle = () => {
-            pageStyle.remove();
+        const etiket = modal.querySelector("#barcodeLabel");
+        urunEtiketiYazdir(etiket, () => {
             yazdirButonu.disabled = false;
             yazdirButonu.textContent = "Yazdır";
-        };
-
-        window.addEventListener("afterprint", baskiyiTemizle, { once: true });
-
-        try {
-            window.print();
-        } catch {
-            baskiyiTemizle();
-            mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının yazdırma iznini kontrol edip tekrar deneyin.");
-        }
+        });
     });
 }
 
