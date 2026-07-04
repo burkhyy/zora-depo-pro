@@ -56,12 +56,13 @@ public class RawPrinter {
 
 function Convert-ToZplText([object]$Value, [int]$MaxLength = 80) {
     $text = [string]$Value
-    $text = $text.Replace('ç','c').Replace('Ç','C')
-    $text = $text.Replace('ğ','g').Replace('Ğ','G')
-    $text = $text.Replace('ı','i').Replace('İ','I')
-    $text = $text.Replace('ö','o').Replace('Ö','O')
-    $text = $text.Replace('ş','s').Replace('Ş','S')
-    $text = $text.Replace('ü','u').Replace('Ü','U')
+    $text = $text.Replace([string][char]0x00E7, 'c').Replace([string][char]0x00C7, 'C')
+    $text = $text.Replace([string][char]0x011F, 'g').Replace([string][char]0x011E, 'G')
+    $text = $text.Replace([string][char]0x0131, 'i').Replace([string][char]0x0130, 'I')
+    $text = $text.Replace([string][char]0x00F6, 'o').Replace([string][char]0x00D6, 'O')
+    $text = $text.Replace([string][char]0x015F, 's').Replace([string][char]0x015E, 'S')
+    $text = $text.Replace([string][char]0x00FC, 'u').Replace([string][char]0x00DC, 'U')
+    $text = $text -creplace '[^\u0020-\u007E]', ' '
     $text = $text -replace '[\^~\\]', ' ' -replace '\s+', ' '
     $text = $text.Trim()
     if ($text.Length -gt $MaxLength) { $text = $text.Substring(0, [Math]::Max(1, $MaxLength - 3)) + "..." }
@@ -132,8 +133,12 @@ function New-ShippingLabelZpl($Payload) {
         $zpl += "^FO38,488^A0N,20,20^FD+$remaining urun grubu daha^FS"
     }
 
+    $barcodeModules = (11 * ($barcode.Length + 2)) + 13
+    $barcodeModuleWidth = if (($barcodeModules * 3) -le 700) { 3 } else { 2 }
+    $barcodeWidth = $barcodeModules * $barcodeModuleWidth
+    $barcodeX = [Math]::Max(20, [Math]::Floor((800 - $barcodeWidth) / 2))
     $zpl += "^FO38,525^GB724,2,2^FS"
-    $zpl += "^FO105,555^BY3,2,150^BCN,150,Y,N,N^FD$barcode^FS"
+    $zpl += "^FO$barcodeX,555^BY$barcodeModuleWidth,2,150^BCN,150,Y,N,N^FD$barcode^FS"
     $zpl += "^XZ"
     return $zpl
 }
