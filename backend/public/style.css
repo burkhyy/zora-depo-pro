@@ -1948,6 +1948,54 @@ h1{
     padding-bottom:1mm;
     font-size:12pt;
 }
+
+.barcodeOverrideForm{
+    display:flex;
+    align-items:end;
+    gap:8px;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px solid #e4e7ec;
+}
+
+.barcodeOverrideForm label{
+    display:grid;
+    flex:1;
+    gap:5px;
+    min-width:0;
+}
+
+.barcodeOverrideForm label span{
+    color:#475467;
+    font-size:11px;
+    font-weight:800;
+}
+
+.barcodeOverrideForm input{
+    width:100%;
+    min-height:40px;
+    border:1px solid #d0d5dd;
+    border-radius:7px;
+    padding:0 10px;
+    font-size:14px;
+}
+
+.barcodeOverrideForm button{
+    min-height:40px;
+    border:0;
+    border-radius:7px;
+    padding:0 12px;
+    background:#175cd3;
+    color:#fff;
+    font-size:12px;
+    font-weight:900;
+    cursor:pointer;
+}
+
+.barcodeOverrideForm button:disabled{
+    cursor:wait;
+    opacity:.6;
+}
 .cargoCustomer{display:flex;flex-direction:column;font-size:12pt}
 .cargoCustomer>strong{font-size:16pt}
 .cargoAddress{

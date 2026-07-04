@@ -378,4 +378,21 @@ test("ürün kataloğu isim ve barkodla hızlı aranır", async () => {
     const byBarcode = await request("/products/search?barcode=4422548804418", {}, adminCookie);
     assert.equal(byBarcode.response.status, 200);
     assert.equal(byBarcode.data.result[0].productId, "20091");
+
+    const updatedBarcode = await request("/admin/product-barcodes/4422548804418", {
+        method: "PUT",
+        body: JSON.stringify({ barcode: "4422548804999" })
+    }, adminCookie);
+    assert.equal(updatedBarcode.response.status, 200);
+    assert.equal(updatedBarcode.data.result.barcode, "4422548804999");
+
+    const byUpdatedBarcode = await request("/products/search?barcode=4422548804999", {}, adminCookie);
+    assert.equal(byUpdatedBarcode.response.status, 200);
+    assert.equal(byUpdatedBarcode.data.result[0].originalBarcode, "4422548804418");
+    assert.equal(byUpdatedBarcode.data.result[0].barcode, "4422548804999");
+
+    const locations = await request("/locations", {}, adminCookie);
+    assert.ok(locations.data.result.some(item =>
+        item.barcode === "4422548804999" && item.location === "23-B"
+    ));
 });

@@ -1609,6 +1609,17 @@ function rafSonucKarti(kayit) {
                     </button>
                 ` : ""}
             </form>
+            ${aktifKullanici?.role === "admin" ? `
+                <form class="barcodeOverrideForm" data-barcode-override="${temizle(kayit.originalBarcode || kayit.barcode)}">
+                    <label>
+                        <span>Beden Barkodu${kayit.originalBarcode && kayit.originalBarcode !== kayit.barcode
+                            ? ` · Eski: ${temizle(kayit.originalBarcode)}`
+                            : ""}</span>
+                        <input name="barcode" value="${temizle(kayit.barcode)}" maxlength="128" required>
+                    </label>
+                    <button type="submit">Barkodu Değiştir</button>
+                </form>
+            ` : ""}
             <button class="printBarcodeButton" type="button" data-print-barcode="${temizle(kayit.barcode)}">
                 Barkod Yazdır
             </button>
@@ -2976,7 +2987,8 @@ const denetimEtiketleri = {
     "api.recovered": "API düzeldi",
     "history.clear": "Geçmiş temizleme",
     "label.print": "Kargo etiketi baskısı",
-    "products.sync": "Ürün kataloğu güncelleme"
+    "products.sync": "Ürün kataloğu güncelleme",
+    "product.barcode_update": "Beden barkodu değiştirme"
 };
 
 function dosyaBoyutuGoster(bytes) {
@@ -4500,6 +4512,43 @@ result.addEventListener("click", async function (event) {
 });
 
 result.addEventListener("submit", async function (event) {
+    const barcodeOverrideForm = event.target.closest("[data-barcode-override]");
+    if (barcodeOverrideForm) {
+        event.preventDefault();
+        const originalBarcode = barcodeOverrideForm.dataset.barcodeOverride;
+        const newBarcode = barcodeOverrideForm.elements.barcode.value.trim();
+        const button = barcodeOverrideForm.querySelector("button");
+        if (!newBarcode) return;
+
+        button.disabled = true;
+        button.textContent = "Güncelleniyor...";
+        try {
+            const response = await fetch(`/admin/product-barcodes/${encodeURIComponent(originalBarcode)}`, {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ barcode: newBarcode })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Barkod değiştirilemedi.");
+
+            rafKayitlariPromise = null;
+            await rafKayitlariniGetir(true);
+            apiUrunleri = null;
+            apiUrunleriPromise = null;
+            const arama = document.getElementById("locationSearch");
+            if (arama?.value.trim()) {
+                arama.value = newBarcode;
+                await rafAramaSonuclariGoster(rafKaydiAra(newBarcode));
+            }
+            mesajGoster("success", "Beden barkodu değiştirildi", `${originalBarcode} → ${newBarcode}`);
+        } catch (err) {
+            button.disabled = false;
+            button.textContent = "Barkodu Değiştir";
+            mesajGoster("error", "Barkod değiştirilemedi", err.message);
+        }
+        return;
+    }
+
     if (event.target.id === "trackingForm") {
         event.preventDefault();
         const form = event.target;

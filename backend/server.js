@@ -216,6 +216,15 @@ database.exec(`
     CREATE INDEX IF NOT EXISTS idx_product_catalog_product_id
         ON product_search_catalog(product_id);
 
+    CREATE TABLE IF NOT EXISTS product_barcode_overrides (
+        original_barcode TEXT PRIMARY KEY COLLATE NOCASE,
+        override_barcode TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        updated_by_user_id INTEGER NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS product_catalog_meta (
         id INTEGER PRIMARY KEY CHECK (id = 1),
         product_count INTEGER NOT NULL DEFAULT 0,
@@ -1610,6 +1619,11 @@ app.get("/test", async (req, res) => {
 
 function yerelHazirlamaDurumlariniEkle(data) {
     const latestStatuses = new Map();
+    const barcodeOverrides = new Map(
+        database.prepare(`
+            SELECT original_barcode, override_barcode FROM product_barcode_overrides
+        `).all().map(item => [String(item.original_barcode).toUpperCase(), item.override_barcode])
+    );
     database.prepare(`
         SELECT order_code, status
         FROM order_preparations
@@ -1626,6 +1640,16 @@ function yerelHazirlamaDurumlariniEkle(data) {
             ...data.result,
             list: list.map(order => ({
                 ...order,
+                products: (order.products || []).map(product => {
+                    const originalBarcode = String(product.barcode || product.barCode || "").trim();
+                    const overrideBarcode = barcodeOverrides.get(originalBarcode.toUpperCase());
+                    return overrideBarcode ? {
+                        ...product,
+                        originalBarcode,
+                        barcode: overrideBarcode,
+                        barCode: overrideBarcode
+                    } : product;
+                }),
                 localPreparationStatus: latestStatuses.get(siparisKimligi(order).toUpperCase()) || ""
             }))
         }
@@ -1697,19 +1721,27 @@ app.get("/products/search", (req, res) => {
     let rows = [];
     if (barcode) {
         rows = database.prepare(`
-            SELECT * FROM product_search_catalog
-            WHERE barcode = ? COLLATE NOCASE
+            SELECT catalog.*, overrides.override_barcode
+            FROM product_search_catalog catalog
+            LEFT JOIN product_barcode_overrides overrides
+                ON overrides.original_barcode = catalog.barcode COLLATE NOCASE
+            WHERE catalog.barcode = ? COLLATE NOCASE
+               OR overrides.override_barcode = ? COLLATE NOCASE
             LIMIT 10
-        `).all(barcode);
+        `).all(barcode, barcode);
     } else if (query.length >= 2) {
         rows = database.prepare(`
-            SELECT * FROM product_search_catalog
-            WHERE search_text LIKE ?
+            SELECT catalog.*, overrides.override_barcode
+            FROM product_search_catalog catalog
+            LEFT JOIN product_barcode_overrides overrides
+                ON overrides.original_barcode = catalog.barcode COLLATE NOCASE
+            WHERE catalog.search_text LIKE ?
+               OR overrides.override_barcode LIKE ?
             ORDER BY
-                CASE WHEN search_text LIKE ? THEN 0 ELSE 1 END,
-                name COLLATE NOCASE, size COLLATE NOCASE
+                CASE WHEN catalog.search_text LIKE ? THEN 0 ELSE 1 END,
+                catalog.name COLLATE NOCASE, catalog.size COLLATE NOCASE
             LIMIT 60
-        `).all(`%${query}%`, `${query}%`);
+        `).all(`%${query}%`, `%${query}%`, `${query}%`);
     }
 
     res.json({
@@ -1720,7 +1752,8 @@ app.get("/products/search", (req, res) => {
         },
         result: rows.map(row => ({
             productId: row.product_id,
-            barcode: row.barcode,
+            barcode: row.override_barcode || row.barcode,
+            originalBarcode: row.barcode,
             name: row.name,
             code: row.product_code || "",
             color: row.color || "-",
@@ -1731,6 +1764,65 @@ app.get("/products/search", (req, res) => {
             source: "catalog"
         }))
     });
+});
+
+app.put("/admin/product-barcodes/:originalBarcode", yoneticiGerekli, (req, res) => {
+    const originalBarcode = String(req.params.originalBarcode || "").trim().slice(0, 128);
+    const newBarcode = String(req.body?.barcode || "").trim().slice(0, 128);
+    if (!originalBarcode || !newBarcode || !/^[A-Za-z0-9._-]{3,128}$/.test(newBarcode)) {
+        return res.status(400).json({ error: "Geçerli bir yeni barkod girin." });
+    }
+
+    const conflictingCatalog = database.prepare(`
+        SELECT barcode FROM product_search_catalog
+        WHERE barcode = ? COLLATE NOCASE AND barcode <> ? COLLATE NOCASE
+    `).get(newBarcode, originalBarcode);
+    const conflictingOverride = database.prepare(`
+        SELECT original_barcode FROM product_barcode_overrides
+        WHERE override_barcode = ? COLLATE NOCASE
+          AND original_barcode <> ? COLLATE NOCASE
+    `).get(newBarcode, originalBarcode);
+    if (conflictingCatalog || conflictingOverride) {
+        return res.status(409).json({ error: "Bu barkod başka bir varyantta kullanılıyor." });
+    }
+
+    database.exec("BEGIN");
+    try {
+        database.prepare(`
+            INSERT INTO product_barcode_overrides (
+                original_barcode, override_barcode, updated_by_user_id
+            ) VALUES (?, ?, ?)
+            ON CONFLICT(original_barcode) DO UPDATE SET
+                override_barcode = excluded.override_barcode,
+                updated_by_user_id = excluded.updated_by_user_id,
+                updated_at = CURRENT_TIMESTAMP
+        `).run(originalBarcode, newBarcode, req.user.id);
+
+        const targetLocation = database.prepare(`
+            SELECT barcode FROM product_locations WHERE barcode = ? COLLATE NOCASE
+        `).get(newBarcode);
+        if (!targetLocation) {
+            database.prepare(`
+                UPDATE product_locations
+                SET barcode = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE barcode = ? COLLATE NOCASE
+            `).run(newBarcode, originalBarcode);
+        }
+        database.exec("COMMIT");
+    } catch (err) {
+        database.exec("ROLLBACK");
+        throw err;
+    }
+
+    denetimKaydiOlustur(
+        req,
+        "product.barcode_update",
+        "product",
+        originalBarcode,
+        `${originalBarcode} barkodu ${newBarcode} olarak değiştirildi`,
+        { originalBarcode, newBarcode }
+    );
+    res.json({ result: { originalBarcode, barcode: newBarcode } });
 });
 
 app.post("/admin/products/sync", yoneticiGerekli, async (req, res, next) => {
