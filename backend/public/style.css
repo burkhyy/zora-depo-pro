@@ -750,6 +750,34 @@ h1{
     background:#344054;
 }
 
+.locationHeaderActions{
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    gap:8px;
+}
+
+.syncCatalogButton{
+    min-height:46px;
+    border:1px solid #98a2b3;
+    border-radius:9px;
+    padding:0 16px;
+    background:#fff;
+    color:#344054;
+    font-size:14px;
+    font-weight:800;
+    cursor:pointer;
+}
+
+.syncCatalogButton:hover{
+    background:#f2f4f7;
+}
+
+.syncCatalogButton:disabled{
+    cursor:wait;
+    opacity:.65;
+}
+
 .scannerPanel{
     position:relative;
     overflow:hidden;

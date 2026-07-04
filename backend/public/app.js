@@ -2099,7 +2099,12 @@ function rafEkraniGoster() {
                     <p class="eyebrow">Raf Bul / İade Yerleştir</p>
                     <h2>Ürün barkodundan raf konumu bul</h2>
                 </div>
-                <button class="scanButton" type="button" id="startLocationScanner">📷 Barkodu Okut</button>
+                <div class="locationHeaderActions">
+                    ${aktifKullanici?.role === "admin"
+                        ? `<button class="syncCatalogButton" type="button" id="syncProductCatalog">Barkodları Güncelle</button>`
+                        : ""}
+                    <button class="scanButton" type="button" id="startLocationScanner">📷 Barkodu Okut</button>
+                </div>
             </div>
 
             <div class="scannerPanel" id="scannerPanel" hidden>
@@ -3986,6 +3991,36 @@ searchInput.addEventListener("keyup", function (event) {
 });
 
 result.addEventListener("click", async function (event) {
+    const syncProductCatalogButton = event.target.closest("#syncProductCatalog");
+    if (syncProductCatalogButton) {
+        syncProductCatalogButton.disabled = true;
+        syncProductCatalogButton.textContent = "Güncelleniyor...";
+        try {
+            const response = await fetch("/admin/products/sync", { method: "POST" });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Barkod kataloğu güncellenemedi.");
+
+            apiUrunleri = null;
+            apiUrunleriPromise = null;
+            apiUrunDetayCache.clear();
+            const arama = document.getElementById("locationSearch");
+            if (arama?.value.trim()) {
+                await rafAramaSonuclariGoster(rafKaydiAra(arama.value));
+            }
+            mesajGoster(
+                "success",
+                "Barkodlar güncellendi",
+                `${data.result.productCount} ürün · ${data.result.variantCount} varyant`
+            );
+            syncProductCatalogButton.textContent = "Barkodlar Güncel";
+        } catch (err) {
+            syncProductCatalogButton.disabled = false;
+            syncProductCatalogButton.textContent = "Barkodları Güncelle";
+            mesajGoster("error", "Barkodlar güncellenemedi", err.message);
+        }
+        return;
+    }
+
     const pageButton = event.target.closest("[data-order-page]");
     if (pageButton && !pageButton.disabled) {
         aktifSiparisSayfasi = Number(pageButton.dataset.orderPage) || 1;
