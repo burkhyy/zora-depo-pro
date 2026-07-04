@@ -218,7 +218,7 @@ database.exec(`
 
     CREATE TABLE IF NOT EXISTS product_barcode_overrides (
         original_barcode TEXT PRIMARY KEY COLLATE NOCASE,
-        override_barcode TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        override_barcode TEXT NOT NULL COLLATE NOCASE,
         updated_by_user_id INTEGER NOT NULL,
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -265,6 +265,34 @@ database.exec(`
 
     CREATE INDEX IF NOT EXISTS idx_print_jobs_status
         ON print_jobs(status, created_at);
+`);
+
+const barcodeOverrideSchema = database.prepare(`
+    SELECT sql FROM sqlite_master
+    WHERE type = 'table' AND name = 'product_barcode_overrides'
+`).get()?.sql || "";
+if (/override_barcode\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(barcodeOverrideSchema)) {
+    database.exec(`
+        ALTER TABLE product_barcode_overrides RENAME TO product_barcode_overrides_old;
+        CREATE TABLE product_barcode_overrides (
+            original_barcode TEXT PRIMARY KEY COLLATE NOCASE,
+            override_barcode TEXT NOT NULL COLLATE NOCASE,
+            updated_by_user_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id)
+        );
+        INSERT INTO product_barcode_overrides (
+            original_barcode, override_barcode, updated_by_user_id, created_at, updated_at
+        )
+        SELECT original_barcode, override_barcode, updated_by_user_id, created_at, updated_at
+        FROM product_barcode_overrides_old;
+        DROP TABLE product_barcode_overrides_old;
+    `);
+}
+database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_barcode_overrides_value
+        ON product_barcode_overrides(override_barcode);
 `);
 
 const issueColumns = new Set(
@@ -1773,15 +1801,29 @@ app.put("/admin/product-barcodes/:originalBarcode", yoneticiGerekli, (req, res) 
         return res.status(400).json({ error: "Geçerli bir yeni barkod girin." });
     }
 
+    const sourceProduct = database.prepare(`
+        SELECT product_id FROM product_search_catalog
+        WHERE barcode = ? COLLATE NOCASE
+    `).get(originalBarcode);
+    if (!sourceProduct) {
+        return res.status(404).json({ error: "Barkodun bağlı olduğu ürün varyantı bulunamadı." });
+    }
+
     const conflictingCatalog = database.prepare(`
         SELECT barcode FROM product_search_catalog
-        WHERE barcode = ? COLLATE NOCASE AND barcode <> ? COLLATE NOCASE
-    `).get(newBarcode, originalBarcode);
+        WHERE barcode = ? COLLATE NOCASE
+          AND barcode <> ? COLLATE NOCASE
+          AND product_id <> ?
+    `).get(newBarcode, originalBarcode, sourceProduct.product_id);
     const conflictingOverride = database.prepare(`
-        SELECT original_barcode FROM product_barcode_overrides
-        WHERE override_barcode = ? COLLATE NOCASE
-          AND original_barcode <> ? COLLATE NOCASE
-    `).get(newBarcode, originalBarcode);
+        SELECT overrides.original_barcode
+        FROM product_barcode_overrides overrides
+        JOIN product_search_catalog catalog
+          ON catalog.barcode = overrides.original_barcode COLLATE NOCASE
+        WHERE overrides.override_barcode = ? COLLATE NOCASE
+          AND overrides.original_barcode <> ? COLLATE NOCASE
+          AND catalog.product_id <> ?
+    `).get(newBarcode, originalBarcode, sourceProduct.product_id);
     if (conflictingCatalog || conflictingOverride) {
         return res.status(409).json({ error: "Bu barkod başka bir varyantta kullanılıyor." });
     }
