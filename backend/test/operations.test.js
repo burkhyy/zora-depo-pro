@@ -97,6 +97,18 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
     assert.equal(orders.data.stale, true);
     assert.equal(orders.data.result.list[0].order.code, "CACHED-ORDER");
 
+    const location = await request("/locations/4422548804418", {
+        method: "PUT",
+        body: JSON.stringify({
+            name: "Test Elbise",
+            code: "TEST-01",
+            color: "Siyah",
+            size: "M",
+            location: "23-B"
+        })
+    }, adminCookie);
+    assert.equal(location.response.status, 200);
+
     const completed = await request("/preparations/complete", {
         method: "POST",
         body: JSON.stringify({
@@ -110,7 +122,13 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
                 phone: "5551112233",
                 delivery: { address: "Test Mahallesi 1", district: "Kadıköy", city: "İstanbul" },
                 shipmentCode: "TEST-SHIPMENT-1",
-                products: [{ name: "Test Elbise", color: "Siyah", size: "M", quantity: 1 }]
+                products: [{
+                    barcode: "4422548804418",
+                    name: "Test Elbise",
+                    color: "Siyah",
+                    size: "M",
+                    quantity: 1
+                }]
             },
             scans: []
         })
@@ -124,6 +142,7 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
     assert.equal(queue.response.status, 200);
     assert.equal(queue.data.result[0].payload.products[0].name, "Test Elbise");
     assert.equal(queue.data.result[0].payload.delivery.city, "İstanbul");
+    assert.equal(queue.data.result[0].payload.products[0].location, "23-B");
 
     const tokenResult = await request("/admin/print-agent/token", {
         method: "POST",

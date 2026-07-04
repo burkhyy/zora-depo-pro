@@ -3780,7 +3780,8 @@ function siparisOzeti(siparis) {
         code: urunKodu(urun),
         quantity: urunAdedi(urun),
         color: urunRengi(urun),
-        size: urunBedeni(urun)
+        size: urunBedeni(urun),
+        location: urunRafKodu(urun) === "-" ? "" : urunRafKodu(urun)
     })).sort((a, b) =>
         barkodKarsilastir(a.barcode).localeCompare(barkodKarsilastir(b.barcode))
         || a.name.localeCompare(b.name, "tr")

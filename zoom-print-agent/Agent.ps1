@@ -107,6 +107,7 @@ function New-ShippingLabelZpl($Payload) {
     $zpl += "^FO38,228^A0N,27,27^FD$city^FS"
     $zpl += "^FO38,270^GB724,2,2^FS"
     $zpl += "^FO38,288^A0N,23,23^FDUrunler:^FS"
+    $zpl += "^FO630,288^A0N,23,23^FDRaf:^FS"
 
     $visibleCount = [Math]::Min(5, $productGroups.Count)
     for ($index = 0; $index -lt $visibleCount; $index++) {
@@ -114,6 +115,7 @@ function New-ShippingLabelZpl($Payload) {
         $product = $group.Group[0]
         $name = Convert-ToZplText $product.name 30
         $code = Convert-ToZplText $product.code 20
+        $location = Convert-ToZplText $product.location 10
         $variantDetails = @($group.Group | ForEach-Object {
             $color = Convert-ToZplText $_.color 10
             $size = Convert-ToZplText $_.size 7
@@ -124,9 +126,10 @@ function New-ShippingLabelZpl($Payload) {
         $detail = "$name"
         if ($code) { $detail += " [$code]" }
         if ($variantDetails.Count) { $detail += " - " + ($variantDetails -join ", ") }
-        $line = Convert-ToZplText $detail 72
+        $line = Convert-ToZplText $detail 54
         $y = 324 + ($index * 32)
-        $zpl += "^FO38,$y^A0N,22,22^FD$line^FS"
+        $zpl += "^FO38,$y^A0N,22,22^FB570,1,0,L,0^FD$line^FS"
+        $zpl += "^FO630,$y^A0N,24,24^FD$location^FS"
     }
     if ($productGroups.Count -gt 5) {
         $remaining = $productGroups.Count - 5

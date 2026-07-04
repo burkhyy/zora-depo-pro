@@ -657,9 +657,17 @@ function yazdirmaIsiDonustur(row) {
             SELECT product_code FROM product_search_catalog
             WHERE barcode = ? COLLATE NOCASE LIMIT 1
         `);
+        const locationByBarcode = database.prepare(`
+            SELECT location_code FROM product_locations
+            WHERE barcode = ? COLLATE NOCASE AND source_scope = ? LIMIT 1
+        `);
         payload.products = payload.products.map(product => ({
             ...product,
-            code: product.code || codeByBarcode.get(String(product.barcode || "").trim())?.product_code || ""
+            code: product.code || codeByBarcode.get(String(product.barcode || "").trim())?.product_code || "",
+            location: product.location
+                || product.__location
+                || locationByBarcode.get(String(product.barcode || "").trim(), apiDataScope)?.location_code
+                || ""
         }));
     }
     return {
