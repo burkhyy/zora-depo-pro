@@ -768,7 +768,10 @@ h1{
 
 .scanFrame{
     position:absolute;
-    inset:22%;
+    top:30%;
+    right:8%;
+    bottom:30%;
+    left:8%;
     border:3px solid rgba(255,255,255,.92);
     border-radius:12px;
     box-shadow:0 0 0 999px rgba(17,24,39,.34);

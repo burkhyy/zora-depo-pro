@@ -48,7 +48,8 @@ let aktifTaramaKaniti = [];
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
-const OKUMA_BEKLEME_MS = 900;
+const OKUMA_BEKLEME_MS = 450;
+const TARAYICI_KARE_ARALIGI_MS = 90;
 
 const durumlar = {
     1: "Yeni Sipariş",
@@ -713,6 +714,32 @@ function mesajGoster(tur, baslik, detay = "") {
     `;
 }
 
+async function kameraNetliginiArtir(video) {
+    const track = video.srcObject?.getVideoTracks?.()[0];
+    if (!track?.applyConstraints || !track.getCapabilities) return;
+
+    try {
+        const capabilities = track.getCapabilities();
+        const advanced = {};
+
+        if (Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes("continuous")) {
+            advanced.focusMode = "continuous";
+        }
+        if (Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes("continuous")) {
+            advanced.exposureMode = "continuous";
+        }
+        if (Array.isArray(capabilities.whiteBalanceMode) && capabilities.whiteBalanceMode.includes("continuous")) {
+            advanced.whiteBalanceMode = "continuous";
+        }
+
+        if (Object.keys(advanced).length) {
+            await track.applyConstraints({ advanced: [advanced] });
+        }
+    } catch (err) {
+        console.warn("Kamera netlik ayarı uygulanamadı.", err);
+    }
+}
+
 async function scannerBaslat(mod = "order") {
     if (scannerAktif) {
         return;
@@ -736,10 +763,23 @@ async function scannerBaslat(mod = "order") {
     mesajGoster("info", "Kamera açılıyor", "Telefon kamerasını barkoda doğru tutun.");
 
     try {
-        scanner = new ZXing.BrowserMultiFormatReader();
+        const hints = new Map();
+        const formats = mod === "shipment"
+            ? [ZXing.BarcodeFormat.CODE_128, ZXing.BarcodeFormat.CODE_39]
+            : [
+                ZXing.BarcodeFormat.EAN_13,
+                ZXing.BarcodeFormat.EAN_8,
+                ZXing.BarcodeFormat.UPC_A,
+                ZXing.BarcodeFormat.UPC_E,
+                ZXing.BarcodeFormat.CODE_128,
+                ZXing.BarcodeFormat.CODE_39,
+                ZXing.BarcodeFormat.ITF
+            ];
+        hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+        scanner = new ZXing.BrowserMultiFormatReader(hints, TARAYICI_KARE_ARALIGI_MS);
         scannerAktif = true;
 
-        await scanner.decodeFromVideoDevice(null, video, (okunan, hata) => {
+        const okumaSonucu = (okunan, hata) => {
             if (okunan) {
                 if (aktifTaramaModu === "location") {
                     rafBarkodIsle(okunan.getText());
@@ -753,7 +793,23 @@ async function scannerBaslat(mod = "order") {
             if (hata && hata.name && hata.name !== "NotFoundException") {
                 console.warn(hata);
             }
-        });
+        };
+        const videoConstraints = {
+            audio: false,
+            video: {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                frameRate: { ideal: 30, min: 20 }
+            }
+        };
+
+        if (typeof scanner.decodeFromConstraints === "function") {
+            await scanner.decodeFromConstraints(videoConstraints, video, okumaSonucu);
+        } else {
+            await scanner.decodeFromVideoDevice(null, video, okumaSonucu);
+        }
+        await kameraNetliginiArtir(video);
 
         mesajGoster("info", "Barkod bekleniyor", mod === "shipment"
             ? "Sipariş sevkiyat barkodunu kamera alanına hizalayın."
