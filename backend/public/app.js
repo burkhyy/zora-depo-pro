@@ -1766,6 +1766,7 @@ function barkodEtiketiGoster(kayit) {
                 <div class="barcodeLabelVariant">
                     <span>${temizle(kayit.color)}</span>
                     <span>${kayit.labelType === "shipment" ? "Sipariş" : "Beden"}: ${temizle(kayit.size)}</span>
+                    <span>Raf: ${temizle(kayit.location || "-")}</span>
                 </div>
                 <svg id="barcodeLabelSvg" aria-label="${temizle(kayit.barcode)}"></svg>
             </div>
