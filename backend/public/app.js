@@ -2517,9 +2517,9 @@ function yerelTarihAnahtari(deger) {
     return `${yil}-${ay}-${gun}`;
 }
 
-function hazirlamaGecmisiSatirlari(kayitlar) {
+function hazirlamaGecmisiSatirlari(kayitlar, geriAlmaGoster = false) {
     if (!kayitlar.length) {
-        return `<tr><td colspan="8" class="emptyActivity">Arama ölçütlerine uygun hazırlama kaydı bulunamadı.</td></tr>`;
+        return `<tr><td colspan="${geriAlmaGoster ? 9 : 8}" class="emptyActivity">Arama ölçütlerine uygun hazırlama kaydı bulunamadı.</td></tr>`;
     }
 
     return kayitlar.map(item => `
@@ -2532,6 +2532,9 @@ function hazirlamaGecmisiSatirlari(kayitlar) {
             <td>${temizle(item.completedBy || "-")}</td>
             <td>${temizle(tarihSaatGoster(item.completedAt))}</td>
             <td><span class="activityStatus ${item.status === "completed" ? "completed" : "started"}">${item.status === "completed" ? "Tamamlandı" : "Hazırlanıyor"}</span></td>
+            ${geriAlmaGoster ? `<td>${item.status === "completed"
+                ? `<button class="undoPreparationButton" type="button" data-undo-preparation="${temizle(item.orderCode)}">Geri Al</button>`
+                : "-"}</td>` : ""}
         </tr>
     `).join("");
 }
@@ -2568,7 +2571,10 @@ function hazirlamaGecmisiniFiltrele() {
     const sayac = document.getElementById("activityResultCount");
 
     if (govde) {
-        govde.innerHTML = hazirlamaGecmisiSatirlari(filtrelenen);
+        govde.innerHTML = hazirlamaGecmisiSatirlari(
+            filtrelenen,
+            Boolean(document.querySelector(".adminTool #activityTableBody"))
+        );
     }
 
     if (sayac) {
@@ -2773,6 +2779,7 @@ const denetimEtiketleri = {
     "user.password_change": "Parola değiştirme",
     "preparation.start": "Hazırlama başlangıcı",
     "preparation.complete": "Sipariş hazırlandı",
+    "preparation.undo": "Hazırlama geri alındı",
     "issue.create": "Sorun kaydı",
     "issue.update": "Sorun düzenleme",
     "issue.resolve": "Sorun çözme",
@@ -2968,10 +2975,11 @@ async function yonetimEkraniGoster() {
                                         <th>Tamamlayan</th>
                                         <th>Tamamlanma</th>
                                         <th>Durum</th>
+                                        <th>İşlem</th>
                                     </tr>
                                 </thead>
                                 <tbody id="activityTableBody">
-                                    ${hazirlamaGecmisiSatirlari(historyData.result)}
+                                    ${hazirlamaGecmisiSatirlari(historyData.result, true)}
                                 </tbody>
                             </table>
                         </div>
@@ -3881,6 +3889,30 @@ result.addEventListener("click", async function (event) {
             await yonetimEkraniGoster();
         } catch (err) {
             retryPrintJobButton.disabled = false;
+            alert(err.message);
+        }
+        return;
+    }
+
+    const undoPreparationButton = event.target.closest("[data-undo-preparation]");
+    if (undoPreparationButton) {
+        const orderCode = undoPreparationButton.dataset.undoPreparation;
+        if (!confirm(
+            `${orderCode} siparişi yeniden hazırlanmak üzere geri alınsın mı?\n\n`
+            + "Okutma kaydı, kargoya hazır durumu ve otomatik etiket kaydı sıfırlanacak."
+        )) return;
+
+        undoPreparationButton.disabled = true;
+        try {
+            const response = await fetch(`/admin/preparations/${encodeURIComponent(orderCode)}/undo`, {
+                method: "POST"
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Sipariş geri alınamadı.");
+            mesajGoster("success", "Sipariş geri alındı", `${orderCode} yeniden hazırlama listesine eklendi.`);
+            await yonetimEkraniGoster();
+        } catch (err) {
+            undoPreparationButton.disabled = false;
             alert(err.message);
         }
         return;

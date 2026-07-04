@@ -2557,6 +2557,27 @@ h1{
     color:#067647;
 }
 
+.undoPreparationButton{
+    border:1px solid #d92d20;
+    border-radius:7px;
+    padding:7px 10px;
+    background:#fff;
+    color:#b42318;
+    font-size:12px;
+    font-weight:900;
+    white-space:nowrap;
+    cursor:pointer;
+}
+
+.undoPreparationButton:hover{
+    background:#fef3f2;
+}
+
+.undoPreparationButton:disabled{
+    cursor:wait;
+    opacity:.55;
+}
+
 .emptyActivity{
     color:#667085;
     text-align:center !important;

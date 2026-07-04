@@ -146,6 +146,19 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
     });
     assert.equal(printed.response.status, 200);
     assert.equal(printed.data.status, "printed");
+
+    const undone = await request("/admin/preparations/CACHED-ORDER/undo", {
+        method: "POST"
+    }, adminCookie);
+    assert.equal(undone.response.status, 200);
+    assert.equal(undone.data.result.preparationsDeleted, 1);
+    assert.equal(undone.data.result.printJobsDeleted, 1);
+
+    const reopenedOrders = await request("/orders", {}, adminCookie);
+    assert.notEqual(reopenedOrders.data.result.list[0].localPreparationStatus, "completed");
+
+    const refreshedQueue = await request("/admin/print-jobs", {}, adminCookie);
+    assert.equal(refreshedQueue.data.result.some(item => item.orderCode === "CACHED-ORDER"), false);
 });
 
 test.after(async () => {

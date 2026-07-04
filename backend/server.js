@@ -1953,6 +1953,73 @@ app.get("/admin/preparations", yoneticiGerekli, (req, res) => {
     res.json({ result: hazirlamaGecmisiGetir() });
 });
 
+app.post("/admin/preparations/:orderCode/undo", yoneticiGerekli, (req, res) => {
+    const orderCode = String(req.params.orderCode || "").trim();
+    if (!orderCode) {
+        return res.status(400).json({ error: "Sipariş kodu gerekli." });
+    }
+
+    const preparations = database.prepare(`
+        SELECT id FROM order_preparations
+        WHERE order_code = ? COLLATE NOCASE AND status = 'completed'
+    `).all(orderCode);
+    if (!preparations.length) {
+        return res.status(404).json({ error: "Tamamlanmış hazırlama kaydı bulunamadı." });
+    }
+
+    const shipment = database.prepare(`
+        SELECT status FROM order_shipments WHERE order_code = ? COLLATE NOCASE
+    `).get(orderCode);
+    if (shipment?.status === "shipped") {
+        return res.status(409).json({
+            error: "Sipariş kargoya verilmiş. Önce Sevkiyat ekranından kargoyu geri alın."
+        });
+    }
+
+    const result = {
+        preparationsDeleted: 0,
+        scansDeleted: 0,
+        shipmentsDeleted: 0,
+        printJobsDeleted: 0,
+        labelPrintsDeleted: 0
+    };
+
+    database.exec("BEGIN");
+    try {
+        const removeScans = database.prepare(`DELETE FROM preparation_scans WHERE preparation_id = ?`);
+        preparations.forEach(item => {
+            result.scansDeleted += removeScans.run(item.id).changes;
+        });
+        result.preparationsDeleted = database.prepare(`
+            DELETE FROM order_preparations
+            WHERE order_code = ? COLLATE NOCASE AND status = 'completed'
+        `).run(orderCode).changes;
+        result.shipmentsDeleted = database.prepare(`
+            DELETE FROM order_shipments WHERE order_code = ? COLLATE NOCASE
+        `).run(orderCode).changes;
+        result.printJobsDeleted = database.prepare(`
+            DELETE FROM print_jobs WHERE order_code = ? COLLATE NOCASE
+        `).run(orderCode).changes;
+        result.labelPrintsDeleted = database.prepare(`
+            DELETE FROM order_label_prints WHERE order_code = ? COLLATE NOCASE
+        `).run(orderCode).changes;
+        database.exec("COMMIT");
+    } catch (err) {
+        database.exec("ROLLBACK");
+        throw err;
+    }
+
+    denetimKaydiOlustur(
+        req,
+        "preparation.undo",
+        "order",
+        orderCode,
+        `${orderCode} yeniden hazırlanmak üzere geri alındı`,
+        result
+    );
+    res.json({ result });
+});
+
 app.delete("/admin/history", yoneticiGerekli, (req, res) => {
     const mode = String(req.body.mode || "").trim();
     const confirmation = String(req.body.confirmation || "").trim();
