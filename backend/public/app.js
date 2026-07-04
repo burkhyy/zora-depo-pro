@@ -1975,6 +1975,11 @@ function kargoEtiketiBarkodu(siparis) {
     return kargoGonderiKodu(siparis) || sevkiyatBarkodu(siparis);
 }
 
+function kargoFirmaEtiketi(siparis) {
+    const firma = String(alanOku(siparis, ["order.shipmentFirmName", "shipmentFirmName"], "Kargo")).trim();
+    return aramaNormalize(firma).includes("surat") ? "Sürat Kargo" : firma;
+}
+
 function teslimatAdresi(siparis) {
     const address = alanOku(siparis, ["customer.delivery.address", "delivery.address", "shippingAddress.address"], "");
     const district = alanOku(siparis, ["customer.delivery.district", "delivery.district", "shippingAddress.district"], "");
@@ -2030,7 +2035,7 @@ function kargoCikisEtiketiGoster(siparis) {
 
     document.getElementById("barcodePrintModal")?.remove();
     const delivery = teslimatAdresi(siparis);
-    const carrier = alanOku(siparis, ["order.shipmentFirmName", "shipmentFirmName"], "Kargo");
+    const carrier = kargoFirmaEtiketi(siparis);
     const phone = alanOku(siparis, ["customer.phone", "phone"], "");
     const modal = document.createElement("div");
     modal.id = "barcodePrintModal";
@@ -2122,7 +2127,7 @@ function topluKargoEtiketleriGoster(orders) {
             <div class="bulkCargoLabels">
                 ${printable.map((order, index) => {
                     const delivery = teslimatAdresi(order);
-                    const carrier = alanOku(order, ["order.shipmentFirmName", "shipmentFirmName"], "Kargo");
+                    const carrier = kargoFirmaEtiketi(order);
                     const phone = alanOku(order, ["customer.phone", "phone"], "");
                     return `
                         <div class="barcodeLabel cargoShippingLabel">
