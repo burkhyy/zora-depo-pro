@@ -1956,6 +1956,23 @@ function rafSonucGoster(kayit, kaynak = "scan") {
     sonuc.innerHTML = rafSonucKarti(kayit);
 }
 
+function rafSonucListesindeGuncelle(kayit) {
+    const sonuc = document.getElementById("locationResult");
+    if (!sonuc) return;
+
+    const key = barkodKarsilastir(kayit.barcode);
+    let bulundu = false;
+    sonRafAramaKayitlari = sonRafAramaKayitlari.map(item => {
+        if (barkodKarsilastir(item.barcode) !== key) return item;
+        bulundu = true;
+        return { ...item, ...kayit };
+    });
+    if (!bulundu) {
+        sonRafAramaKayitlari.push(kayit);
+    }
+    sonuc.innerHTML = sonRafAramaKayitlari.map(rafSonucKarti).join("");
+}
+
 function rafBulunamadiGoster(barkod) {
     const sonuc = document.getElementById("locationResult");
 
@@ -4401,7 +4418,7 @@ result.addEventListener("click", async function (event) {
             const barkod = silButonu.dataset.removeLocation;
             const kayit = urunKaydiniBarkodlaBul(barkod);
             await rafAtamasiniSil(barkod);
-            rafSonucGoster({ ...kayit, location: "", hasLocation: false }, "manual");
+            rafSonucListesindeGuncelle({ ...kayit, location: "", hasLocation: false });
             mesajGoster("success", "Raf atamasi silindi", `Barkod: ${barkod}`);
         } catch (err) {
             silButonu.disabled = false;
@@ -4745,7 +4762,7 @@ result.addEventListener("submit", async function (event) {
 
     try {
         const kaydedilen = await rafAta(kayit, location);
-        rafSonucGoster(kaydedilen, "manual");
+        rafSonucListesindeGuncelle(kaydedilen);
         mesajGoster("success", "Raf atamasi kaydedildi", `${kaydedilen.barcode}: ${kaydedilen.location}`);
     } catch (err) {
         button.disabled = false;
