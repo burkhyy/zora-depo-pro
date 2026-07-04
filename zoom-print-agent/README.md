@@ -1,10 +1,10 @@
 # Zoom Depo Zebra Yazdırma Ajanı
 
-Bu ajan, telefonda tamamlanan siparişlerin 100x50 mm etiketlerini Zebra GK420D'ye otomatik basar.
+Bu ajan, telefonda tamamlanan siparişlerin 100x100 mm etiketlerini Zebra GK420D'ye otomatik basar.
 
 ## Kurulum
 
-1. Zebra GK420D'yi Windows'a kurun ve 100x50 mm etiket ayarını yapın.
+1. Zebra GK420D'yi Windows'a kurun ve 100x100 mm etiket ayarını yapın.
 2. PowerShell'i yönetici olarak açın.
 3. Bu klasörde şu komutu çalıştırın:
 

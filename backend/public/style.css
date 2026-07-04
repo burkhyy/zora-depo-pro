@@ -1901,13 +1901,13 @@ h1{
 
 .cargoShippingLabel{
     width:100mm;
-    height:50mm;
+    height:100mm;
     display:grid;
-    grid-template-columns:1fr 47mm;
-    grid-template-rows:auto auto 1fr auto;
-    gap:1mm 3mm;
+    grid-template-columns:1fr;
+    grid-template-rows:auto auto minmax(0, 1fr) auto auto;
+    gap:2mm;
     justify-content:stretch;
-    padding:3mm;
+    padding:4mm;
 }
 .cargoLabelTop{
     grid-column:1/-1;
@@ -1915,28 +1915,28 @@ h1{
     justify-content:space-between;
     border-bottom:1px solid #000;
     padding-bottom:1mm;
-    font-size:10pt;
+    font-size:12pt;
 }
-.cargoCustomer{display:flex;flex-direction:column;font-size:10pt}
-.cargoCustomer>strong{font-size:12pt}
+.cargoCustomer{display:flex;flex-direction:column;font-size:12pt}
+.cargoCustomer>strong{font-size:16pt}
 .cargoAddress{
     grid-column:1;
     overflow:hidden;
-    font-size:8.5pt;
-    line-height:1.2;
+    font-size:12pt;
+    line-height:1.35;
 }
-.cargoCity{grid-column:1;font-size:10pt}
+.cargoCity{grid-column:1;font-size:14pt}
 .cargoBarcodeArea{
-    grid-column:2;
-    grid-row:2/5;
+    grid-column:1;
+    grid-row:5;
     display:flex;
     flex-direction:column;
     justify-content:center;
     min-width:0;
     text-align:center;
-    font-size:8pt;
+    font-size:10pt;
 }
-.cargoBarcodeArea svg{width:100%;max-height:28mm}
+.cargoBarcodeArea svg{width:100%;max-height:32mm}
 .completeLabelActions{display:grid;gap:8px;margin:18px 0}
 .cargoLabelButton{
     border:1px solid #101828;
@@ -3002,7 +3002,7 @@ h1{
     html:has(#barcodePrintModal.cargoPrintModal),
     body:has(#barcodePrintModal.cargoPrintModal){
         width:100mm !important;
-        height:50mm !important;
+        height:100mm !important;
         overflow:visible !important;
     }
 
@@ -3050,7 +3050,7 @@ h1{
 
     #barcodePrintModal.cargoPrintModal{
         width:100mm;
-        height:50mm;
+        height:100mm;
         overflow:visible;
     }
 
@@ -3061,7 +3061,7 @@ h1{
     #barcodePrintModal.cargoPrintModal .barcodePrintDialog,
     #barcodePrintModal.cargoPrintModal .cargoShippingLabel{
         width:100mm;
-        height:50mm;
+        height:100mm;
     }
 
     #barcodePrintModal.bulkCargoPrintModal .barcodePrintDialog{

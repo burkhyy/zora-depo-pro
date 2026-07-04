@@ -1250,7 +1250,7 @@ function listeGoster(liste) {
 
                 <div class="orderCardActions">
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(kod)}">
-                        100×50 Kargo Etiketi
+                        100×100 Kargo Etiketi
                     </button>
                     <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}">
                         📦 Siparişi Aç
@@ -2043,7 +2043,7 @@ function kargoCikisEtiketiGoster(siparis) {
     modal.innerHTML = `
         <div class="barcodePrintDialog" role="dialog" aria-modal="true" aria-labelledby="cargoPrintTitle">
             <div class="barcodePrintHeader">
-                <div><p class="eyebrow">100 x 50 mm Zebra Etiketi</p><h2 id="cargoPrintTitle">Kargo Çıkış Etiketi</h2></div>
+                <div><p class="eyebrow">100 x 100 mm Zebra Etiketi</p><h2 id="cargoPrintTitle">Kargo Çıkış Etiketi</h2></div>
                 <button class="closePrintModal" type="button" aria-label="Kapat">&times;</button>
             </div>
             <div class="barcodeLabel cargoShippingLabel">
@@ -2094,7 +2094,7 @@ function kargoCikisEtiketiGoster(siparis) {
             return;
         }
         const pageStyle = document.createElement("style");
-        pageStyle.textContent = "@page{size:100mm 50mm;margin:0}";
+        pageStyle.textContent = "@page{size:100mm 100mm;margin:0}";
         document.head.appendChild(pageStyle);
         window.print();
         window.setTimeout(() => pageStyle.remove(), 500);
@@ -2120,7 +2120,7 @@ function topluKargoEtiketleriGoster(orders) {
     modal.innerHTML = `
         <div class="barcodePrintDialog" role="dialog" aria-modal="true" aria-labelledby="bulkCargoPrintTitle">
             <div class="barcodePrintHeader">
-                <div><p class="eyebrow">100 x 50 mm Zebra Etiketleri</p>
+                <div><p class="eyebrow">100 x 100 mm Zebra Etiketleri</p>
                 <h2 id="bulkCargoPrintTitle">${temizle(printable.length)} Kargo Etiketi</h2></div>
                 <button class="closePrintModal" type="button" aria-label="Kapat">&times;</button>
             </div>
@@ -2177,7 +2177,7 @@ function topluKargoEtiketleriGoster(orders) {
             return;
         }
         const pageStyle = document.createElement("style");
-        pageStyle.textContent = "@page{size:100mm 50mm;margin:0}";
+        pageStyle.textContent = "@page{size:100mm 100mm;margin:0}";
         document.head.appendChild(pageStyle);
         window.print();
         window.setTimeout(() => pageStyle.remove(), 500);
@@ -2251,7 +2251,7 @@ function sevkiyatKarti(siparis, kayit, shipped = false) {
                     Sevkiyat Barkodu
                 </button>
                 <button type="button" class="printShipmentButton" data-print-cargo-order="${temizle(code)}">
-                    100×50 Kargo Etiketi
+                    100×100 Kargo Etiketi
                 </button>
                 <button type="button" class="printShipmentButton" data-tracking-order="${temizle(code)}">
                     Takip Bilgisi
@@ -2981,7 +2981,7 @@ async function yonetimEkraniGoster() {
                     <div class="sectionTitle">
                         <div>
                             <p class="eyebrow">Otomatik Zebra Yazdırma</p>
-                            <h3>100×50 mm etiket kuyruğu</h3>
+                            <h3>100×100 mm etiket kuyruğu</h3>
                         </div>
                         <a class="reportDownloadButton" href="/downloads/zoom-print-agent.zip">Windows Ajanını İndir</a>
                     </div>
@@ -3601,7 +3601,7 @@ function siparisHazirEkraniGoster() {
             <div class="completeLabelActions">
                 ${(batchCount ? aktifTopluSiparisler : [aktifSiparis]).map(order => `
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(siparisKodu(order))}">
-                        ${batchCount ? `${temizle(siparisKodu(order))} · ` : ""}100×50 Kargo Etiketi
+                        ${batchCount ? `${temizle(siparisKodu(order))} · ` : ""}100×100 Kargo Etiketi
                     </button>
                 `).join("")}
             </div>

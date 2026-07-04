@@ -95,18 +95,19 @@ function New-ShippingLabelZpl($Payload) {
         if ($_.code) { [string]$_.code } else { [string]$_.name }
     })
 
-    $zpl = "^XA^PW800^LL400^LH0,0^LT0^LS0^PON^FWN^CI27^PR3^MD15"
-    $zpl += "^FO38,16^A0N,30,30^FD$customer^FS"
-    if ($phone) { $zpl += "^FO555,20^A0N,18,18^FD$phone^FS" }
-    $zpl += "^FO38,52^A0N,20,20^FDSiparis: $orderCode  $platform^FS"
-    $zpl += "^FO38,78^GB724,1,1^FS"
-    if ($addressLines.Count -gt 0) { $zpl += "^FO38,88^A0N,18,18^FD$($addressLines[0])^FS" }
-    if ($addressLines.Count -gt 1) { $zpl += "^FO38,110^A0N,18,18^FD$($addressLines[1])^FS" }
-    $zpl += "^FO38,132^A0N,20,20^FD$city^FS"
-    $zpl += "^FO38,158^GB724,1,1^FS"
-    $zpl += "^FO38,168^A0N,19,19^FDUrunler:^FS"
+    $zpl = "^XA^PW800^LL800^LH0,0^LT0^LS0^PON^FWN^CI27^PR3^MD15"
+    $zpl += "^FO38,24^A0N,38,38^FD$customer^FS"
+    if ($phone) { $zpl += "^FO540,30^A0N,21,21^FD$phone^FS" }
+    $zpl += "^FO38,72^A0N,24,24^FDSiparis: $orderCode  $platform^FS"
+    $zpl += "^FO38,108^GB724,2,2^FS"
+    $zpl += "^FO38,126^A0N,21,21^FDAdres:^FS"
+    if ($addressLines.Count -gt 0) { $zpl += "^FO38,157^A0N,24,24^FD$($addressLines[0])^FS" }
+    if ($addressLines.Count -gt 1) { $zpl += "^FO38,190^A0N,24,24^FD$($addressLines[1])^FS" }
+    $zpl += "^FO38,228^A0N,27,27^FD$city^FS"
+    $zpl += "^FO38,270^GB724,2,2^FS"
+    $zpl += "^FO38,288^A0N,23,23^FDUrunler:^FS"
 
-    $visibleCount = [Math]::Min(2, $productGroups.Count)
+    $visibleCount = [Math]::Min(5, $productGroups.Count)
     for ($index = 0; $index -lt $visibleCount; $index++) {
         $group = $productGroups[$index]
         $product = $group.Group[0]
@@ -123,15 +124,16 @@ function New-ShippingLabelZpl($Payload) {
         if ($code) { $detail += " [$code]" }
         if ($variantDetails.Count) { $detail += " - " + ($variantDetails -join ", ") }
         $line = Convert-ToZplText $detail 72
-        $y = 194 + ($index * 23)
-        $zpl += "^FO38,$y^A0N,18,18^FD$line^FS"
+        $y = 324 + ($index * 32)
+        $zpl += "^FO38,$y^A0N,22,22^FD$line^FS"
     }
-    if ($productGroups.Count -gt 2) {
-        $remaining = $productGroups.Count - 2
-        $zpl += "^FO38,240^A0N,17,17^FD+$remaining urun grubu daha^FS"
+    if ($productGroups.Count -gt 5) {
+        $remaining = $productGroups.Count - 5
+        $zpl += "^FO38,488^A0N,20,20^FD+$remaining urun grubu daha^FS"
     }
 
-    $zpl += "^FO120,266^BY3,2,78^BCN,78,Y,N,N^FD$barcode^FS"
+    $zpl += "^FO38,525^GB724,2,2^FS"
+    $zpl += "^FO105,555^BY3,2,150^BCN,150,Y,N,N^FD$barcode^FS"
     $zpl += "^XZ"
     return $zpl
 }
