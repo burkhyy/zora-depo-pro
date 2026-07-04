@@ -1636,12 +1636,11 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.position = "fixed";
-    frame.style.right = "0";
-    frame.style.bottom = "0";
-    frame.style.width = "1px";
-    frame.style.height = "1px";
+    frame.style.left = "-10000px";
+    frame.style.top = "0";
+    frame.style.width = "50mm";
+    frame.style.height = "30mm";
     frame.style.border = "0";
-    frame.style.opacity = "0";
 
     const temizle = () => {
         frame.remove();
@@ -1657,18 +1656,21 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
         }
 
         printWindow.addEventListener("afterprint", temizle, { once: true });
-        window.setTimeout(() => {
-            try {
-                printWindow.focus();
-                printWindow.print();
-            } catch {
-                temizle();
-                mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
-            }
-        }, 150);
+        printWindow.requestAnimationFrame(() => {
+            printWindow.requestAnimationFrame(() => {
+                window.setTimeout(() => {
+                    try {
+                        printWindow.focus();
+                        printWindow.print();
+                    } catch {
+                        temizle();
+                        mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+                    }
+                }, 250);
+            });
+        });
     }, { once: true });
 
-    document.body.appendChild(frame);
     frame.srcdoc = `
         <!doctype html>
         <html>
@@ -1740,6 +1742,7 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
         <body>${etiket.outerHTML}</body>
         </html>
     `;
+    document.body.appendChild(frame);
 }
 
 function barkodEtiketiGoster(kayit) {
