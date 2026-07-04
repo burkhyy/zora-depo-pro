@@ -1228,8 +1228,8 @@ function listeGoster(liste) {
                     <label class="orderSelect">
                         <input type="checkbox" data-select-order="${temizle(kod)}"
                             ${secilenSiparisKodlari.has(kod) ? "checked" : ""}
-                            ${kargoGonderiKodu(item) ? "" : "disabled"}>
-                        <span>${kargoGonderiKodu(item) ? "Etiket için seç" : "Kargo kodu bekleniyor"}</span>
+                            ${kargoEtiketiBarkodu(item) ? "" : "disabled"}>
+                        <span>Etiket için seç</span>
                     </label>
                     <div class="orderCardIdentity">
                         <h2>${temizle(musteriAdi(item))}</h2>
@@ -1971,6 +1971,10 @@ function kargoGonderiKodu(siparis) {
     ], "")).trim();
 }
 
+function kargoEtiketiBarkodu(siparis) {
+    return kargoGonderiKodu(siparis) || sevkiyatBarkodu(siparis);
+}
+
 function teslimatAdresi(siparis) {
     const address = alanOku(siparis, ["customer.delivery.address", "delivery.address", "shippingAddress.address"], "");
     const district = alanOku(siparis, ["customer.delivery.district", "delivery.district", "shippingAddress.district"], "");
@@ -2012,11 +2016,12 @@ async function etiketBaskisiniKaydet(orders) {
 }
 
 function kargoCikisEtiketiGoster(siparis) {
-    const shipmentCode = kargoGonderiKodu(siparis);
+    const shipmentCode = kargoEtiketiBarkodu(siparis);
     if (!shipmentCode) {
-        mesajGoster("warning", "Kargo kodu henüz oluşmadı", `${siparisKodu(siparis)} için Qukasoft shipmentCode göndermedi.`);
+        alert("Sipariş barkodu oluşturulamadı.");
         return;
     }
+    const dahiliBarkod = !kargoGonderiKodu(siparis);
     const previousPrint = etiketBaskiKaydi(siparis);
     if (previousPrint && !confirm(
         `Bu siparişin etiketi daha önce ${previousPrint.printCount} kez yazdırıldı.\n`
@@ -2049,7 +2054,7 @@ function kargoCikisEtiketiGoster(siparis) {
                 <strong class="cargoCity">${temizle([delivery.district, delivery.city].filter(Boolean).join(" / ") || "-")}</strong>
                 <div class="cargoBarcodeArea">
                     <svg id="cargoBarcodeSvg" aria-label="${temizle(shipmentCode)}"></svg>
-                    <span>Sipariş: ${temizle(siparisKodu(siparis))}</span>
+                    <span>${dahiliBarkod ? "Dahili barkod" : "Kargo barkodu"} · Sipariş: ${temizle(siparisKodu(siparis))}</span>
                 </div>
             </div>
             <div class="barcodePrintActions">
@@ -2092,7 +2097,7 @@ function kargoCikisEtiketiGoster(siparis) {
 }
 
 function topluKargoEtiketleriGoster(orders) {
-    const printable = orders.filter(order => kargoGonderiKodu(order));
+    const printable = orders.filter(order => kargoEtiketiBarkodu(order));
     if (!printable.length) {
         mesajGoster("warning", "Yazdırılabilir etiket yok", "Seçilen siparişlerin kargo kodu henüz oluşmamış.");
         return;
@@ -2126,8 +2131,8 @@ function topluKargoEtiketleriGoster(orders) {
                             <p class="cargoAddress">${temizle(delivery.address || "Adres bilgisi yok")}</p>
                             <strong class="cargoCity">${temizle([delivery.district, delivery.city].filter(Boolean).join(" / ") || "-")}</strong>
                             <div class="cargoBarcodeArea">
-                                <svg id="bulkCargoBarcode${index}" aria-label="${temizle(kargoGonderiKodu(order))}"></svg>
-                                <span>Sipariş: ${temizle(siparisKodu(order))}</span>
+                                <svg id="bulkCargoBarcode${index}" aria-label="${temizle(kargoEtiketiBarkodu(order))}"></svg>
+                                <span>${kargoGonderiKodu(order) ? "Kargo barkodu" : "Dahili barkod"} · Sipariş: ${temizle(siparisKodu(order))}</span>
                             </div>
                         </div>
                     `;
@@ -2147,7 +2152,7 @@ function topluKargoEtiketleriGoster(orders) {
         return;
     }
     printable.forEach((order, index) => {
-        JsBarcode(`#bulkCargoBarcode${index}`, kargoGonderiKodu(order), {
+        JsBarcode(`#bulkCargoBarcode${index}`, kargoEtiketiBarkodu(order), {
             format: "CODE128",
             width: 2.2,
             height: 55,
