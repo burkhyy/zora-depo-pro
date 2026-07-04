@@ -373,6 +373,12 @@ test("ürün kataloğu isim ve barkodla hızlı aranır", async () => {
         VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run("4422548804425", "20091", "Boyun Bağlamalı Güpürlü Elbise - KAHVE", "MODEL-KORSE-01", "Kahve", "M",
         "boyun bağlamalı güpürlü elbise kahve 4422548804425 m");
+    db.prepare(`
+        INSERT OR REPLACE INTO product_search_catalog
+            (barcode, product_id, name, product_code, color, size, search_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run("4422548804432", "DIFFERENT-201", "Aynı Model Ayrı Ürün Kaydı", "MODEL-KORSE-01", "Siyah", "S",
+        "aynı model ayrı ürün kaydı siyah 4422548804432 s");
     db.close();
 
     const byName = await request("/products/search?q=boyun%20bağlamalı", {}, adminCookie);
@@ -415,4 +421,14 @@ test("ürün kataloğu isim ve barkodla hızlı aranır", async () => {
         sharedResults.data.result.map(item => item.size).sort(),
         ["L", "M"]
     );
+
+    const crossProductSharedBarcode = await request("/admin/product-barcodes/4422548804432", {
+        method: "PUT",
+        body: JSON.stringify({ barcode: "4422548804999" })
+    }, adminCookie);
+    assert.equal(crossProductSharedBarcode.response.status, 200);
+
+    const crossProductResults = await request("/products/search?barcode=4422548804999", {}, adminCookie);
+    assert.equal(crossProductResults.response.status, 200);
+    assert.equal(crossProductResults.data.result.length, 3);
 });

@@ -1809,25 +1809,6 @@ app.put("/admin/product-barcodes/:originalBarcode", yoneticiGerekli, (req, res) 
         return res.status(404).json({ error: "Barkodun bağlı olduğu ürün varyantı bulunamadı." });
     }
 
-    const conflictingCatalog = database.prepare(`
-        SELECT barcode FROM product_search_catalog
-        WHERE barcode = ? COLLATE NOCASE
-          AND barcode <> ? COLLATE NOCASE
-          AND product_id <> ?
-    `).get(newBarcode, originalBarcode, sourceProduct.product_id);
-    const conflictingOverride = database.prepare(`
-        SELECT overrides.original_barcode
-        FROM product_barcode_overrides overrides
-        JOIN product_search_catalog catalog
-          ON catalog.barcode = overrides.original_barcode COLLATE NOCASE
-        WHERE overrides.override_barcode = ? COLLATE NOCASE
-          AND overrides.original_barcode <> ? COLLATE NOCASE
-          AND catalog.product_id <> ?
-    `).get(newBarcode, originalBarcode, sourceProduct.product_id);
-    if (conflictingCatalog || conflictingOverride) {
-        return res.status(409).json({ error: "Bu barkod başka bir varyantta kullanılıyor." });
-    }
-
     database.exec("BEGIN");
     try {
         database.prepare(`
