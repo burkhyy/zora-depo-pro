@@ -180,6 +180,47 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
     assert.equal(refreshedQueue.data.result.some(item => item.orderCode === "CACHED-ORDER"), false);
 });
 
+test("sipariş yalnızca yerel kargo çıkışından sonra aktif listeden kalkar", async () => {
+    const adminCookie = await login("testadmin", "TestPassword123!");
+    const completed = await request("/preparations/complete", {
+        method: "POST",
+        body: JSON.stringify({
+            orderCode: "CACHED-ORDER",
+            customerName: "Test Müşteri",
+            platform: "Zoombutik",
+            orderSnapshot: { orderCode: "CACHED-ORDER", products: [] },
+            scans: []
+        })
+    }, adminCookie);
+    assert.equal(completed.response.status, 200);
+
+    const ready = await request("/shipments/CACHED-ORDER", {
+        method: "PUT",
+        body: JSON.stringify({
+            status: "ready",
+            customerName: "Test Müşteri",
+            platform: "Zoombutik"
+        })
+    }, adminCookie);
+    assert.equal(ready.response.status, 200);
+
+    const beforeShipmentScan = await request("/orders", {}, adminCookie);
+    assert.equal(beforeShipmentScan.data.result.list.some(item => item.order.code === "CACHED-ORDER"), true);
+
+    const shipped = await request("/shipments/CACHED-ORDER", {
+        method: "PUT",
+        body: JSON.stringify({
+            status: "shipped",
+            customerName: "Test Müşteri",
+            platform: "Zoombutik"
+        })
+    }, adminCookie);
+    assert.equal(shipped.response.status, 200);
+
+    const afterShipmentScan = await request("/orders", {}, adminCookie);
+    assert.equal(afterShipmentScan.data.result.list.some(item => item.order.code === "CACHED-ORDER"), false);
+});
+
 test.after(async () => {
     if (server && server.exitCode === null) {
         const exited = new Promise(resolve => server.once("exit", resolve));

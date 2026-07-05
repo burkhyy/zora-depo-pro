@@ -2484,10 +2484,9 @@ function sevkiyatListeleriniGoster() {
     }
 
     const kayitMap = new Map(sevkiyatKayitlari.map(item => [item.orderCode.toUpperCase(), item]));
-    const kapanmisDurumlar = ["Kargolandı", "Teslim Edildi", "İade", "İptal"];
     const bekleyenTum = siparisler.filter(item => {
         const kayit = kayitMap.get(siparisKodu(item).toUpperCase());
-        return kayit?.status !== "shipped" && !kapanmisDurumlar.includes(siparisDurumu(item));
+        return kayit?.status !== "shipped";
     });
     const verilenTum = sevkiyatKayitlari
         .filter(item => item.status === "shipped")

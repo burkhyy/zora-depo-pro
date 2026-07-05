@@ -1133,10 +1133,12 @@ const upstreamStatus = {
     lastErrorAt: null,
     message: "Henüz kontrol edilmedi."
 };
-const activeOrderStatuses = String(process.env.ACTIVE_ORDER_STATUSES || "1,2")
+const configuredOrderStatuses = String(process.env.ACTIVE_ORDER_STATUSES || "1,2")
     .split(",")
     .map(value => Number(value.trim()))
     .filter(Number.isInteger);
+const activeOrderStatuses = [...new Set([...configuredOrderStatuses, 3, 6])];
+const terminalOrderPageLimit = Math.max(100, Number(process.env.TERMINAL_ORDER_SCAN_LIMIT || 500));
 const orderPageConcurrency = Math.max(2, Math.min(10, Number(process.env.ORDER_PAGE_CONCURRENCY || 6)));
 const orderCheckMs = Math.max(5000, Number(process.env.ORDER_CHECK_SECONDS || 10) * 1000);
 const persistedOrderCache = database.prepare(`SELECT * FROM order_api_cache WHERE id = 1`).get();
@@ -1232,7 +1234,9 @@ async function aktifSiparisleriGetir() {
             return {
                 status,
                 list,
-                total: Number(response.data?.result?.total || list.length),
+                total: [3, 6].includes(status)
+                    ? Math.min(Number(response.data?.result?.total || list.length), terminalOrderPageLimit)
+                    : Number(response.data?.result?.total || list.length),
                 pageSize: Number(response.data?.result?.pageSize || list.length || 30)
             };
         }));
@@ -1248,7 +1252,7 @@ async function aktifSiparisleriGetir() {
 
         const allPages = [];
         for (const first of firstPages) {
-            allPages.push(first.list);
+            allPages.push({ status: first.status, list: first.list });
             const starts = [];
             for (let start = first.pageSize; start < first.total; start += first.pageSize) {
                 starts.push(start);
@@ -1258,16 +1262,32 @@ async function aktifSiparisleriGetir() {
                 const batchPages = await Promise.all(batch.map(async pageStart => {
                     const url = `/order/listsV2?pageStart=${pageStart}&pageSize=${first.pageSize}&orderBy=id&sort=desc&status=${first.status}`;
                     const response = await API.get(url);
-                    return siparisListesi(response.data);
+                    return { status: first.status, list: siparisListesi(response.data) };
                 }));
                 allPages.push(...batchPages);
             }
         }
 
-        const unique = new Map();
-        allPages.flat().forEach(item => {
-            const key = siparisKimligi(item);
-            if (key && !unique.has(key)) unique.set(key, item);
+        const unique = new Map(
+            (activeOrderCache?.result?.list || [])
+                .map(item => [siparisKimligi(item), item])
+                .filter(([key]) => key)
+        );
+        const cancelledCodes = new Set(
+            allPages
+                .filter(page => page.status === 6)
+                .flatMap(page => page.list)
+                .map(siparisKimligi)
+                .filter(Boolean)
+        );
+        cancelledCodes.forEach(code => unique.delete(code));
+        allPages.filter(page => page.status !== 6).forEach(page => {
+            page.list.forEach(item => {
+                const key = siparisKimligi(item);
+                if (!key) return;
+                if (page.status === 3 && !unique.has(key)) return;
+                unique.set(key, item);
+            });
         });
         const list = [...unique.values()].sort((a, b) =>
             Number(b?.order?.id || b?.id || 0) - Number(a?.order?.id || a?.id || 0)
@@ -1305,6 +1325,26 @@ async function aktifSiparisleriGetir() {
     } finally {
         activeOrderPromise = null;
     }
+}
+
+function yerelKargoCikisiYapilanlariCikar(data) {
+    const shippedCodes = new Set(
+        database.prepare(`
+            SELECT order_code FROM order_shipments WHERE status = 'shipped'
+        `).all().map(item => String(item.order_code || "").toUpperCase())
+    );
+    const list = (data?.result?.list || []).filter(item =>
+        !shippedCodes.has(siparisKimligi(item).toUpperCase())
+    );
+    return {
+        ...data,
+        result: {
+            ...data.result,
+            total: list.length,
+            pageSize: list.length,
+            list
+        }
+    };
 }
 
 function urunGorselUrliniBul(product) {
@@ -1694,7 +1734,8 @@ function yerelHazirlamaDurumlariniEkle(data) {
 
 app.get("/orders", async (req, res) => {
     try {
-        res.json(yerelHazirlamaDurumlariniEkle(await aktifSiparisleriGetir()));
+        const data = yerelKargoCikisiYapilanlariCikar(await aktifSiparisleriGetir());
+        res.json(yerelHazirlamaDurumlariniEkle(data));
     } catch (err) {
         apiDurumunuGuncelle(false, err.response?.data?.error || err.message);
         apiHatasiGonder(err, res);
@@ -1716,7 +1757,8 @@ app.get("/api-status", (req, res) => {
 
 app.get("/order/:code", async (req, res) => {
     try {
-        const data = yerelHazirlamaDurumlariniEkle(await aktifSiparisleriGetir());
+        const activeData = yerelKargoCikisiYapilanlariCikar(await aktifSiparisleriGetir());
+        const data = yerelHazirlamaDurumlariniEkle(activeData);
         const siparis = data.result.list.find(
             item => siparisKimligi(item).toUpperCase() === String(req.params.code).toUpperCase()
         );
