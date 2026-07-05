@@ -2198,8 +2198,28 @@ function kargoGonderiKodu(siparis) {
     ], "")).trim();
 }
 
+function ean13KontrolHanesi(base12) {
+    const toplam = [...base12].reduce((sum, digit, index) =>
+        sum + Number(digit) * (index % 2 === 0 ? 1 : 3), 0
+    );
+    return String((10 - (toplam % 10)) % 10);
+}
+
+function qukaFisKargoBarkodu(siparis) {
+    const orderCode = String(siparisKodu(siparis)).trim();
+    if (platformAnahtari(platformAdi(siparis)) !== "zoombutik" || !/^\d{9}$/.test(orderCode)) {
+        return "";
+    }
+    const base12 = `100${orderCode}`;
+    return `${base12}${ean13KontrolHanesi(base12)}`;
+}
+
 function kargoEtiketiBarkodu(siparis) {
-    return kargoGonderiKodu(siparis);
+    return kargoGonderiKodu(siparis) || qukaFisKargoBarkodu(siparis);
+}
+
+function qukaFisBarkoduKullaniliyor(siparis) {
+    return !kargoGonderiKodu(siparis) && Boolean(qukaFisKargoBarkodu(siparis));
 }
 
 function kargoFirmaEtiketi(siparis) {
@@ -2301,7 +2321,7 @@ function kargoCikisEtiketiGoster(siparis) {
                 ${kargoEtiketiSiparisOzeti(siparis)}
                 <div class="cargoBarcodeArea">
                     <svg id="cargoBarcodeSvg" aria-label="${temizle(shipmentCode)}"></svg>
-                    <span>Kargo barkodu · Sipariş: ${temizle(siparisKodu(siparis))}</span>
+                    <span>${qukaFisBarkoduKullaniliyor(siparis) ? "Quka FİŞ kargo barkodu" : "Kargo barkodu"} · Sipariş: ${temizle(siparisKodu(siparis))}</span>
                 </div>
             </div>
             <div class="barcodePrintActions">
@@ -2380,7 +2400,7 @@ function topluKargoEtiketleriGoster(orders) {
                             ${kargoEtiketiSiparisOzeti(order)}
                             <div class="cargoBarcodeArea">
                                 <svg id="bulkCargoBarcode${index}" aria-label="${temizle(kargoEtiketiBarkodu(order))}"></svg>
-                                <span>Kargo barkodu · Sipariş: ${temizle(siparisKodu(order))}</span>
+                                <span>${qukaFisBarkoduKullaniliyor(order) ? "Quka FİŞ kargo barkodu" : "Kargo barkodu"} · Sipariş: ${temizle(siparisKodu(order))}</span>
                             </div>
                         </div>
                     `;
