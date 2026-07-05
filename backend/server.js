@@ -1187,6 +1187,7 @@ const suratAccounts = [
     }
 ].filter(account => account.username && account.password);
 const suratPollMs = Math.max(60, Number(process.env.SURAT_POLL_SECONDS || 180)) * 1000;
+const suratTimeoutMs = Math.max(10000, Number(process.env.SURAT_TIMEOUT_SECONDS || 30) * 1000);
 const terminalOrderPageLimit = Math.max(100, Number(process.env.TERMINAL_ORDER_SCAN_LIMIT || 500));
 const orderPageConcurrency = Math.max(2, Math.min(10, Number(process.env.ORDER_PAGE_CONCURRENCY || 6)));
 const orderCheckMs = Math.max(5000, Number(process.env.ORDER_CHECK_SECONDS || 10) * 1000);
@@ -1465,7 +1466,8 @@ async function suratTeslimatBilgisiGetir(account, salesCode) {
   </soap:Body>
 </soap:Envelope>`;
     const response = await axios.post(suratApiUrl, envelope, {
-        timeout: 15000,
+        timeout: suratTimeoutMs,
+        family: 4,
         headers: {
             "Content-Type": "text/xml; charset=utf-8",
             SOAPAction: '"http://tempuri.org/WebSiparisKodundanKargoTeslimatBilgisi"'
@@ -1598,11 +1600,12 @@ async function suratKabulDurumlariniGuncelle() {
             } catch (err) {
                 database.prepare(`
                     UPDATE order_shipments SET
+                        carrier = 'Sürat Kargo',
                         carrier_last_checked_at = CURRENT_TIMESTAMP,
                         carrier_status = ?,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE order_code = ? COLLATE NOCASE
-                `).run(`Sürat durumu okunamadı: ${String(err.message || "").slice(0, 400)}`, row.order_code);
+                `).run("Sürat servisine ulaşılamadı; otomatik olarak tekrar denenecek.", row.order_code);
             }
         }
     } finally {
