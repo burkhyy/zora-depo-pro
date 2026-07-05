@@ -45,6 +45,9 @@ let denetimAramaZamanlayici = null;
 let rafAramaZamanlayici = null;
 let rafAramaIstekNo = 0;
 let aktifTaramaKaniti = [];
+let etiketKuyrukVerisi = { agent: {}, result: [] };
+let aktifEtiketKuyrukPersoneli = "";
+let sonPaketKodu = "";
 const apiUrunDetayCache = new Map();
 
 const HIZMET_BARKODLARI = ["HZMBDL"];
@@ -2244,9 +2247,13 @@ function kargoEtiketiSiparisOzeti(siparis) {
         `<span><b>${temizle(urunAdedi(urun))}x</b> ${temizle(urunAdi(urun))} · ${temizle(urunRengi(urun))} / ${temizle(urunBedeni(urun))}</span>`
     ).join("");
     const remaining = products.length - 4;
+    const queueJob = etiketKuyrukVerisi.result.find(job =>
+        String(job.orderCode).toUpperCase() === siparisKodu(siparis).toUpperCase()
+    );
     return `
         <div class="cargoOrderInfo">
             <strong>${temizle(odemeYontemi(siparis))} · ${temizle(toplamTutar(siparis))}</strong>
+            ${queueJob ? `<strong>Hazırlayan: ${temizle(queueJob.preparedByName)} · Paket: ${temizle(queueJob.packageCode)}</strong>` : ""}
             ${visible}
             ${remaining > 0 ? `<span>+ ${temizle(remaining)} ürün daha</span>` : ""}
         </div>
@@ -2467,6 +2474,103 @@ async function sevkiyatKayitlariniGetir() {
     return sevkiyatKayitlari;
 }
 
+async function etiketKuyruklariniGetir() {
+    const response = await fetch("/print-queues", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Etiket kuyrukları alınamadı.");
+    etiketKuyrukVerisi = data;
+    return data;
+}
+
+function personelEtiketKuyruklariniGoster() {
+    const container = document.getElementById("staffPrintQueues");
+    if (!container) return;
+    const jobs = etiketKuyrukVerisi.result || [];
+    const groups = new Map();
+    jobs.forEach(job => {
+        const key = String(job.preparedByUserId || "unassigned");
+        if (!groups.has(key)) groups.set(key, {
+            userId: job.preparedByUserId,
+            name: job.preparedByName || "Atanmamış",
+            jobs: []
+        });
+        groups.get(key).jobs.push(job);
+    });
+    if (!groups.size && aktifKullanici) {
+        groups.set(String(aktifKullanici.id), {
+            userId: aktifKullanici.id,
+            name: aktifKullanici.displayName,
+            jobs: []
+        });
+    }
+    const groupList = [...groups.values()];
+    if (!aktifEtiketKuyrukPersoneli || !groups.has(String(aktifEtiketKuyrukPersoneli))) {
+        aktifEtiketKuyrukPersoneli = String(
+            aktifKullanici?.role === "admin"
+                ? (groupList.find(group => group.jobs.some(job => job.status !== "printed"))?.userId || groupList[0]?.userId || "")
+                : aktifKullanici?.id || ""
+        );
+    }
+    const selected = groups.get(String(aktifEtiketKuyrukPersoneli)) || groupList[0];
+    const waiting = (selected?.jobs || []).filter(job => job.status !== "printed");
+    const held = waiting.filter(job => !job.releasedAt);
+    const history = (selected?.jobs || []).filter(job => job.status === "printed").slice(-20).reverse();
+    const statusText = job => job.status === "failed"
+        ? "Yazdırma hatası"
+        : job.releasedAt ? (job.status === "processing" ? "Yazdırılıyor" : "Zebra'ya gönderildi") : "Bekliyor";
+
+    container.innerHTML = `
+        <section class="staffPrintQueue">
+            <div class="staffQueueHeader">
+                <div>
+                    <p class="eyebrow">Personel Etiket Kuyruğu</p>
+                    <h3>${temizle(selected?.name || aktifKullanici?.displayName || "Etiketler")} Etiketleri</h3>
+                    <span>${etiketKuyrukVerisi.agent?.online
+                        ? `${temizle(etiketKuyrukVerisi.agent.name || "Zebra bilgisayarı")} bağlı`
+                        : "Zebra yazdırma ajanı çevrimdışı"}</span>
+                </div>
+                ${aktifKullanici?.role === "admin" && groupList.length ? `
+                    <label>
+                        <span>Personel</span>
+                        <select id="printQueueUserFilter">
+                            ${groupList.map(group => `<option value="${temizle(group.userId)}" ${String(group.userId) === String(selected?.userId) ? "selected" : ""}>
+                                ${temizle(group.name)} · ${temizle(group.jobs.filter(job => job.status !== "printed").length)}
+                            </option>`).join("")}
+                        </select>
+                    </label>
+                ` : ""}
+            </div>
+            <div class="staffQueueActions">
+                <strong>${temizle(held.length)} etiket gönderilmeyi bekliyor</strong>
+                <button type="button" data-release-print-queue="${temizle(selected?.userId || "")}" ${held.length ? "" : "disabled"}>
+                    ${temizle(held.length)} Etiketi Zebra'ya Gönder
+                </button>
+            </div>
+            <div class="staffQueueList">
+                ${waiting.length ? waiting.map(job => `
+                    <article class="staffQueueItem ${temizle(job.status)}">
+                        <b>${temizle(job.packageCode || "Paket")}</b>
+                        <div>
+                            <strong>${temizle(job.payload.customerName || "Müşteri")}</strong>
+                            <span>${temizle(job.orderCode)} · ${temizle(statusText(job))}</span>
+                            ${job.errorMessage ? `<small>${temizle(job.errorMessage)}</small>` : ""}
+                        </div>
+                    </article>
+                `).join("") : `<div class="emptyActivity">Bu personelin bekleyen etiketi yok.</div>`}
+            </div>
+            <details class="staffQueueHistory">
+                <summary>Yazdırma Geçmişi · ${temizle(history.length)}</summary>
+                ${history.length ? history.map(job => `
+                    <div>
+                        <span><b>${temizle(job.packageCode)}</b> · ${temizle(job.orderCode)} · ${temizle(tarihSaatGoster(job.printedAt))}</span>
+                        <button type="button" data-reprint-personal-job="${temizle(job.id)}">Tekrar Yazdır</button>
+                    </div>
+                `).join("") : `<p>Henüz yazdırılmış etiket yok.</p>`}
+            </details>
+        </section>
+    `;
+}
+
 async function sevkiyatDurumuKaydet(siparis, status, extra = {}) {
     const code = siparisKodu(siparis);
     const response = await fetch(`/shipments/${encodeURIComponent(code)}`, {
@@ -2640,6 +2744,7 @@ async function sevkiyatEkraniGoster() {
                 <strong>Depoda ikinci bir sevkiyat okutması yapılmaz.</strong>
                 <span>Kargo firması 100×100 etiketi okuttuğunda Quka durumu güncellenir ve sipariş bu listeden otomatik çıkar.</span>
             </div>
+            <div id="staffPrintQueues"><div class="loading">Personel etiket kuyruğu yükleniyor...</div></div>
             <div id="shipmentPlatformTabs">
                 ${platformSekmeleriHtml("shipments", aktifSevkiyatPlatformu, [], platformAdi)}
             </div>
@@ -2662,7 +2767,8 @@ async function sevkiyatEkraniGoster() {
     `;
 
     try {
-        await sevkiyatKayitlariniGetir();
+        await Promise.all([sevkiyatKayitlariniGetir(), etiketKuyruklariniGetir()]);
+        personelEtiketKuyruklariniGoster();
         sevkiyatListeleriniGoster();
     } catch (err) {
         mesajGoster("error", "Sevkiyat kayıtları alınamadı", err.message);
@@ -3237,7 +3343,7 @@ async function yonetimEkraniGoster() {
                                     ${job.errorMessage ? `<small>${temizle(job.errorMessage)}</small>` : ""}
                                 </div>
                                 ${job.status === "failed" || job.status === "printed"
-                                    ? `<button type="button" data-retry-print-job="${temizle(job.id)}">${job.status === "printed" ? "Tekrar Yazdır" : "Yeniden Dene"}</button>`
+                                    ? `<button type="button" data-retry-print-job="${temizle(job.id)}" data-print-job-status="${temizle(job.status)}">${job.status === "printed" ? "Tekrar Yazdır" : "Yeniden Dene"}</button>`
                                     : ""}
                             </div>
                         `).join("") : `<div class="emptyActivity">Henüz otomatik etiket işi yok.</div>`}
@@ -3810,6 +3916,7 @@ function siparisDetayGoster(siparis) {
     sonOkunanBarkod = "";
     sonOkumaZamani = 0;
     aktifTaramaKaniti = [];
+    sonPaketKodu = "";
     searchInput.disabled = true;
     document.body.classList.remove("adminMode", "locationMode", "shipmentMode", "issueMode", "historyMode");
     document.body.classList.add("detailMode");
@@ -3915,6 +4022,7 @@ function siparisHazirEkraniGoster() {
             <p>${batchCount
                 ? aktifTopluSiparisler.map(order => temizle(siparisKodu(order))).join(" · ")
                 : `Sipariş No: <strong>${temizle(siparisKodu(aktifSiparis))}</strong>`}</p>
+            ${!batchCount && sonPaketKodu ? `<p class="packageSequenceNotice">Paket sıra numarası: <strong>${temizle(sonPaketKodu)}</strong></p>` : ""}
             <div class="completeLabelActions">
                 ${(batchCount ? aktifTopluSiparisler : [aktifSiparis]).map(order => `
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(siparisKodu(order))}">
@@ -3984,11 +4092,13 @@ async function siparisiTamamla() {
             throw new Error(currentOrder.error || "Sipariş iptal edilmiş veya artık aktif değil.");
         }
         const proofImage = await dosyayiKucukVeriAdresineCevir(document.getElementById("packageProof"));
-        await hazirlamaKaydiGonder("complete", aktifSiparis, {
+        const completion = await hazirlamaKaydiGonder("complete", aktifSiparis, {
             proofImage,
             scans: aktifTaramaKaniti,
             orderSnapshot: siparisOzeti(currentOrder)
         });
+        sonPaketKodu = completion?.result?.printJob?.packageCode || "";
+        await etiketKuyruklariniGetir().catch(() => {});
         siparisiYereldeHazirIsaretle(aktifSiparis);
         await sevkiyatDurumuKaydet(aktifSiparis, "ready");
         siparisHazirEkraniGoster();
@@ -4019,6 +4129,7 @@ async function topluAktifSiparisiTamamla() {
 
         aktifTopluSiparisIndex += 1;
         if (aktifTopluSiparisIndex >= aktifTopluSiparisler.length) {
+            await etiketKuyruklariniGetir().catch(() => {});
             siparisHazirEkraniGoster();
             return;
         }
@@ -4124,6 +4235,49 @@ searchInput.addEventListener("keyup", function (event) {
 });
 
 result.addEventListener("click", async function (event) {
+    const releaseQueueButton = event.target.closest("[data-release-print-queue]");
+    if (releaseQueueButton) {
+        releaseQueueButton.disabled = true;
+        try {
+            const response = await fetch("/print-queues/release", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ userId: Number(releaseQueueButton.dataset.releasePrintQueue) })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Etiketler Zebra'ya gönderilemedi.");
+            await etiketKuyruklariniGetir();
+            personelEtiketKuyruklariniGoster();
+            mesajGoster("success", "Etiketler Zebra'ya gönderildi", `${data.result.count} etiket sırayla yazdırılacak.`);
+        } catch (err) {
+            releaseQueueButton.disabled = false;
+            mesajGoster("error", "Etiket kuyruğu gönderilemedi", err.message);
+        }
+        return;
+    }
+
+    const reprintButton = event.target.closest("[data-reprint-personal-job]");
+    if (reprintButton) {
+        if (!confirm("Bu etiket daha önce yazdırıldı. Aynı etiketi tekrar yazdırmak istediğinize emin misiniz?")) return;
+        reprintButton.disabled = true;
+        try {
+            const response = await fetch(`/print-queues/${encodeURIComponent(reprintButton.dataset.reprintPersonalJob)}/reprint`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ confirmReprint: true })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Etiket tekrar yazdırılamadı.");
+            await etiketKuyruklariniGetir();
+            personelEtiketKuyruklariniGoster();
+            mesajGoster("warning", "Tekrar baskı kuyruğa alındı", "Etiket Zebra'dan yeniden çıkacak.");
+        } catch (err) {
+            reprintButton.disabled = false;
+            mesajGoster("error", "Tekrar baskı başlatılamadı", err.message);
+        }
+        return;
+    }
+
     const syncProductCatalogButton = event.target.closest("#syncProductCatalog");
     if (syncProductCatalogButton) {
         syncProductCatalogButton.disabled = true;
@@ -4221,10 +4375,14 @@ result.addEventListener("click", async function (event) {
 
     const retryPrintJobButton = event.target.closest("[data-retry-print-job]");
     if (retryPrintJobButton) {
+        const tekrarBaski = retryPrintJobButton.dataset.printJobStatus === "printed";
+        if (tekrarBaski && !confirm("Bu etiket daha önce yazdırıldı. Tekrar yazdırmak istediğinize emin misiniz?")) return;
         retryPrintJobButton.disabled = true;
         try {
             const response = await fetch(`/admin/print-jobs/${encodeURIComponent(retryPrintJobButton.dataset.retryPrintJob)}/retry`, {
-                method: "POST"
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ confirmReprint: tekrarBaski })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || "Etiket kuyruğa alınamadı.");
@@ -5026,6 +5184,12 @@ result.addEventListener("input", function (event) {
 });
 
 result.addEventListener("change", function (event) {
+    if (event.target.id === "printQueueUserFilter") {
+        aktifEtiketKuyrukPersoneli = event.target.value;
+        personelEtiketKuyruklariniGoster();
+        return;
+    }
+
     if (event.target.matches("[data-select-order]")) {
         if (event.target.checked) {
             secilenSiparisKodlari.add(event.target.dataset.selectOrder);

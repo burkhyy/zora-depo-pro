@@ -143,6 +143,8 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
     assert.equal(queue.data.result[0].payload.products[0].name, "Test Elbise");
     assert.equal(queue.data.result[0].payload.delivery.city, "İstanbul");
     assert.equal(queue.data.result[0].payload.products[0].location, "23-B");
+    assert.equal(queue.data.result[0].preparedByName, "Zoom Yönetici");
+    assert.equal(queue.data.result[0].packageCode, "P-0001");
 
     const tokenResult = await request("/admin/print-agent/token", {
         method: "POST",
@@ -154,6 +156,20 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
         Authorization: `Bearer ${tokenResult.data.token}`,
         "X-Agent-Name": "TEST-ZEBRA"
     };
+    const heldJob = await request("/print-agent/jobs/next", { headers: agentHeaders });
+    assert.equal(heldJob.response.status, 204);
+
+    const personalQueue = await request("/print-queues", {}, adminCookie);
+    assert.equal(personalQueue.response.status, 200);
+    assert.equal(personalQueue.data.result[0].releasedAt, null);
+
+    const released = await request("/print-queues/release", {
+        method: "POST",
+        body: JSON.stringify({ userId: queue.data.result[0].preparedByUserId })
+    }, adminCookie);
+    assert.equal(released.response.status, 200);
+    assert.equal(released.data.result.count, 1);
+
     const nextJob = await request("/print-agent/jobs/next", { headers: agentHeaders });
     assert.equal(nextJob.response.status, 200);
     assert.equal(nextJob.data.result.orderCode, "CACHED-ORDER");
@@ -165,6 +181,27 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
     });
     assert.equal(printed.response.status, 200);
     assert.equal(printed.data.status, "printed");
+
+    const reprintWithoutConfirmation = await request(`/print-queues/${nextJob.data.result.id}/reprint`, {
+        method: "POST",
+        body: JSON.stringify({ confirmReprint: false })
+    }, adminCookie);
+    assert.equal(reprintWithoutConfirmation.response.status, 400);
+
+    const confirmedReprint = await request(`/print-queues/${nextJob.data.result.id}/reprint`, {
+        method: "POST",
+        body: JSON.stringify({ confirmReprint: true })
+    }, adminCookie);
+    assert.equal(confirmedReprint.response.status, 200);
+    const repeatedJob = await request("/print-agent/jobs/next", { headers: agentHeaders });
+    assert.equal(repeatedJob.response.status, 200);
+    assert.equal(repeatedJob.data.result.orderCode, "CACHED-ORDER");
+    const repeatedPrinted = await request(`/print-agent/jobs/${repeatedJob.data.result.id}/result`, {
+        method: "POST",
+        headers: agentHeaders,
+        body: JSON.stringify({ success: true })
+    });
+    assert.equal(repeatedPrinted.response.status, 200);
 
     const undone = await request("/admin/preparations/CACHED-ORDER/undo", {
         method: "POST"
@@ -266,7 +303,13 @@ test("sipariş kilidi başka personeli engeller ve yönetici kaldırabilir", asy
         orderCode: "LOCK-100",
         customerName: "Test Müşteri",
         platform: "Zoombutik",
-        orderSnapshot: { products: [{ barcode: "123", quantity: 1 }] }
+        orderSnapshot: {
+            customerName: "Test Müşteri",
+            platform: "Zoombutik",
+            shipmentCode: "WORKER-SHIPMENT-1",
+            delivery: {},
+            products: [{ barcode: "123", quantity: 1 }]
+        }
     };
 
     const started = await request("/preparations/start", {
@@ -308,7 +351,13 @@ test("heartbeat kilidi uzatır, okutma kanıtı tamamlamada saklanır", async ()
             orderCode: "LOCK-100",
             customerName: "Test Müşteri",
             platform: "Zoombutik",
-            orderSnapshot: { products: [{ barcode: "123", quantity: 1 }] },
+            orderSnapshot: {
+                customerName: "Test Müşteri",
+                platform: "Zoombutik",
+                shipmentCode: "WORKER-SHIPMENT-1",
+                delivery: {},
+                products: [{ barcode: "123", quantity: 1 }]
+            },
             scans: [{ barcode: "123", productName: "Test Ürün", quantityIndex: 1, source: "manual" }]
         })
     }, workerCookie);
@@ -319,6 +368,17 @@ test("heartbeat kilidi uzatır, okutma kanıtı tamamlamada saklanır", async ()
     assert.equal(evidence.data.result.scans.length, 1);
     assert.equal(evidence.data.result.scans[0].barcode, "123");
     assert.equal(evidence.data.result.scans[0].source, "manual");
+
+    const workerQueue = await request("/print-queues", {}, workerCookie);
+    assert.equal(workerQueue.response.status, 200);
+    assert.equal(workerQueue.data.result.length, 1);
+    assert.equal(workerQueue.data.result[0].orderCode, "LOCK-100");
+    assert.equal(workerQueue.data.result[0].preparedByName, "Test Personel");
+
+    const adminCookie = await login("testadmin", "TestPassword123!");
+    const managerQueue = await request("/print-queues", {}, adminCookie);
+    assert.equal(managerQueue.response.status, 200);
+    assert.equal(managerQueue.data.result.some(job => job.orderCode === "LOCK-100"), true);
 });
 
 test("süresi dolan hazırlama kilidi otomatik kaldırılır", async () => {

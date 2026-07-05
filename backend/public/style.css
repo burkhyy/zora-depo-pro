@@ -2117,6 +2117,89 @@ h1{
 }
 .cargoBarcodeArea svg{width:100%;max-height:25mm}
 .completeLabelActions{display:grid;gap:8px;margin:18px 0}
+.packageSequenceNotice{
+    display:inline-flex;
+    justify-content:center;
+    gap:6px;
+    margin:10px auto 0;
+    padding:10px 14px;
+    border:1px solid #84adff;
+    border-radius:7px;
+    background:#eff4ff;
+    color:#1849a9;
+}
+.staffPrintQueue{
+    margin:16px 0;
+    border:1px solid #b2ccff;
+    border-radius:8px;
+    overflow:hidden;
+    background:#fff;
+}
+.staffQueueHeader{
+    display:flex;
+    align-items:end;
+    justify-content:space-between;
+    gap:14px;
+    padding:16px;
+    background:#eff4ff;
+}
+.staffQueueHeader h3{margin:2px 0 4px}
+.staffQueueHeader>div>span{color:#475467;font-size:12px}
+.staffQueueHeader label{display:grid;gap:5px;min-width:220px;font-size:12px;font-weight:800}
+.staffQueueHeader select{min-height:40px;border:1px solid #98a2b3;border-radius:7px;padding:0 10px;background:#fff}
+.staffQueueActions{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    padding:12px 16px;
+    border-top:1px solid #d1e0ff;
+    border-bottom:1px solid #e4e7ec;
+}
+.staffQueueActions button{
+    min-height:42px;
+    border:0;
+    border-radius:7px;
+    padding:0 16px;
+    background:#175cd3;
+    color:#fff;
+    font-weight:900;
+    cursor:pointer;
+}
+.staffQueueActions button:disabled{cursor:not-allowed;opacity:.45}
+.staffQueueList{display:grid;gap:8px;padding:12px 16px}
+.staffQueueItem{
+    display:grid;
+    grid-template-columns:76px minmax(0,1fr);
+    align-items:center;
+    gap:12px;
+    min-height:58px;
+    padding:9px 10px;
+    border:1px solid #e4e7ec;
+    border-radius:7px;
+}
+.staffQueueItem>b{
+    display:grid;
+    place-items:center;
+    min-height:38px;
+    border-radius:6px;
+    background:#101828;
+    color:#fff;
+}
+.staffQueueItem>div{display:grid;gap:3px;min-width:0}
+.staffQueueItem span,.staffQueueItem small{color:#475467}
+.staffQueueItem.failed{border-color:#fda29b;background:#fff5f4}
+.staffQueueHistory{border-top:1px solid #e4e7ec;padding:12px 16px}
+.staffQueueHistory summary{cursor:pointer;font-weight:900}
+.staffQueueHistory>div{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:9px 0;
+    border-bottom:1px solid #f2f4f7;
+}
+.staffQueueHistory button{border:1px solid #f04438;border-radius:6px;padding:7px 10px;background:#fff;color:#b42318;font-weight:800}
 .cargoLabelButton{
     border:1px solid #101828;
     border-radius:7px;
@@ -3015,6 +3098,16 @@ h1{
 }
 
 @media (max-width:640px){
+    .staffQueueHeader,
+    .staffQueueActions,
+    .staffQueueHistory>div{
+        align-items:stretch;
+        flex-direction:column;
+    }
+
+    .staffQueueHeader label{min-width:0}
+    .staffQueueItem{grid-template-columns:68px minmax(0,1fr)}
+
     .container{
         margin:18px auto;
         padding:12px;

@@ -267,6 +267,60 @@ database.exec(`
         ON print_jobs(status, created_at);
 `);
 
+const printJobColumns = new Set(
+    database.prepare(`PRAGMA table_info(print_jobs)`).all().map(column => column.name)
+);
+[
+    ["prepared_by_user_id", "INTEGER"],
+    ["prepared_by_name", "TEXT NOT NULL DEFAULT ''"],
+    ["package_sequence", "INTEGER"],
+    ["released_at", "TEXT"],
+    ["released_by_user_id", "INTEGER"]
+].forEach(([column, definition]) => {
+    if (!printJobColumns.has(column)) {
+        database.exec(`ALTER TABLE print_jobs ADD COLUMN ${column} ${definition}`);
+    }
+});
+database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_print_jobs_preparer
+        ON print_jobs(prepared_by_user_id, status, released_at, created_at);
+
+    UPDATE print_jobs
+    SET prepared_by_user_id = (
+            SELECT preparations.completed_by_user_id
+            FROM order_preparations preparations
+            WHERE preparations.order_code = print_jobs.order_code COLLATE NOCASE
+              AND preparations.status = 'completed'
+            ORDER BY preparations.completed_at DESC, preparations.id DESC
+            LIMIT 1
+        ),
+        prepared_by_name = COALESCE((
+            SELECT users.display_name
+            FROM order_preparations preparations
+            JOIN app_users users ON users.id = preparations.completed_by_user_id
+            WHERE preparations.order_code = print_jobs.order_code COLLATE NOCASE
+              AND preparations.status = 'completed'
+            ORDER BY preparations.completed_at DESC, preparations.id DESC
+            LIMIT 1
+        ), prepared_by_name)
+    WHERE prepared_by_user_id IS NULL;
+
+    WITH ranked AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                   PARTITION BY prepared_by_user_id
+                   ORDER BY created_at, id
+               ) AS sequence
+        FROM print_jobs
+        WHERE package_sequence IS NULL
+    )
+    UPDATE print_jobs
+    SET package_sequence = (
+        SELECT sequence FROM ranked WHERE ranked.id = print_jobs.id
+    )
+    WHERE package_sequence IS NULL;
+`);
+
 const barcodeOverrideSchema = database.prepare(`
     SELECT sql FROM sqlite_master
     WHERE type = 'table' AND name = 'product_barcode_overrides'
@@ -727,12 +781,21 @@ function yazdirmaIsiDonustur(row) {
                 || ""
         }));
     }
+    payload.preparedByName = payload.preparedByName || row.preparer_name || row.prepared_by_name || "";
+    payload.packageSequence = payload.packageSequence || row.package_sequence || null;
+    payload.packageCode = payload.packageCode
+        || (row.package_sequence ? `P-${String(row.package_sequence).padStart(4, "0")}` : "");
     return {
         id: row.id,
         orderCode: row.order_code,
         labelType: row.label_type,
         payload,
         status: row.status,
+        preparedByUserId: row.prepared_by_user_id,
+        preparedByName: row.preparer_name || row.prepared_by_name || payload.preparedByName || "",
+        packageSequence: row.package_sequence,
+        packageCode: row.package_sequence ? `P-${String(row.package_sequence).padStart(4, "0")}` : "",
+        releasedAt: row.released_at,
         attempts: row.attempts,
         errorMessage: row.error_message,
         createdAt: row.created_at,
@@ -742,25 +805,143 @@ function yazdirmaIsiDonustur(row) {
     };
 }
 
-function otomatikEtiketiKuyrugaEkle(orderCode, snapshot) {
+function otomatikEtiketiKuyrugaEkle(orderCode, snapshot, preparer) {
     const shipmentCode = String(snapshot?.shipmentCode || "").trim();
     if (!shipmentCode || shipmentCode.toUpperCase().startsWith("ZOOM-ORDER-")) return false;
+    const existing = database.prepare(`
+        SELECT package_sequence, status FROM print_jobs
+        WHERE order_code = ? COLLATE NOCASE AND label_type = 'shipping'
+    `).get(orderCode);
+    const packageSequence = existing?.package_sequence || Number(database.prepare(`
+        SELECT COALESCE(MAX(package_sequence), 0) + 1 AS next_sequence
+        FROM print_jobs WHERE prepared_by_user_id = ?
+    `).get(preparer.id)?.next_sequence || 1);
+    const packageCode = `P-${String(packageSequence).padStart(4, "0")}`;
     const payload = {
         ...snapshot,
         orderCode,
-        barcode: shipmentCode
+        barcode: shipmentCode,
+        preparedByName: preparer.displayName,
+        packageSequence,
+        packageCode
     };
     database.prepare(`
-        INSERT INTO print_jobs (order_code, label_type, payload_json)
-        VALUES (?, 'shipping', ?)
+        INSERT INTO print_jobs (
+            order_code, label_type, payload_json, prepared_by_user_id,
+            prepared_by_name, package_sequence, released_at
+        )
+        VALUES (?, 'shipping', ?, ?, ?, ?, NULL)
         ON CONFLICT(order_code, label_type) DO UPDATE SET
             payload_json = excluded.payload_json,
             status = CASE WHEN print_jobs.status = 'printed' THEN 'printed' ELSE 'pending' END,
+            prepared_by_user_id = excluded.prepared_by_user_id,
+            prepared_by_name = excluded.prepared_by_name,
+            package_sequence = COALESCE(print_jobs.package_sequence, excluded.package_sequence),
+            released_at = CASE WHEN print_jobs.status = 'printed' THEN print_jobs.released_at ELSE NULL END,
             error_message = '',
             updated_at = CURRENT_TIMESTAMP
-    `).run(orderCode, JSON.stringify(payload).slice(0, 250000));
-    return true;
+    `).run(
+        orderCode,
+        JSON.stringify(payload).slice(0, 250000),
+        preparer.id,
+        preparer.displayName,
+        packageSequence
+    );
+    return { packageSequence, packageCode, alreadyPrinted: existing?.status === "printed" };
 }
+
+function yazdirmaKuyruguYetkiKosulu(req) {
+    return req.user.role === "admin"
+        ? { sql: "", params: [] }
+        : { sql: "WHERE jobs.prepared_by_user_id = ?", params: [req.user.id] };
+}
+
+app.get("/print-queues", (req, res) => {
+    const condition = yazdirmaKuyruguYetkiKosulu(req);
+    const rows = database.prepare(`
+        SELECT jobs.*, users.display_name AS preparer_name
+        FROM print_jobs jobs
+        LEFT JOIN app_users users ON users.id = jobs.prepared_by_user_id
+        ${condition.sql}
+        ORDER BY jobs.prepared_by_name, jobs.package_sequence, jobs.created_at
+        LIMIT 1000
+    `).all(...condition.params);
+    const config = database.prepare(`
+        SELECT last_seen_at, agent_name FROM print_agent_config WHERE id = 1
+    `).get() || null;
+    res.json({
+        agent: {
+            online: Boolean(config?.last_seen_at),
+            lastSeenAt: config?.last_seen_at || null,
+            name: config?.agent_name || ""
+        },
+        result: rows.map(yazdirmaIsiDonustur)
+    });
+});
+
+app.post("/print-queues/release", (req, res) => {
+    const requestedUserId = Number(req.body?.userId);
+    const releaseUnassigned = req.user.role === "admin" && requestedUserId === 0;
+    const userId = req.user.role === "admin" && Number.isInteger(requestedUserId) && requestedUserId > 0
+        ? requestedUserId
+        : req.user.id;
+    const ownerCondition = releaseUnassigned ? "prepared_by_user_id IS NULL" : "prepared_by_user_id = ?";
+    const statement = database.prepare(`
+        UPDATE print_jobs
+        SET released_at = CURRENT_TIMESTAMP,
+            released_by_user_id = ?,
+            status = 'pending',
+            attempts = 0,
+            error_message = '',
+            picked_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE ${ownerCondition}
+          AND status IN ('pending', 'failed')
+          AND released_at IS NULL
+    `);
+    const result = releaseUnassigned
+        ? statement.run(req.user.id)
+        : statement.run(req.user.id, userId);
+    denetimKaydiOlustur(
+        req,
+        "print_queue.release",
+        "user",
+        String(userId),
+        `${result.changes} etiket Zebra kuyruğuna gönderildi`
+    );
+    res.json({ result: { count: result.changes, userId: releaseUnassigned ? null : userId } });
+});
+
+app.post("/print-queues/:id/reprint", (req, res) => {
+    if (req.body?.confirmReprint !== true) {
+        return res.status(400).json({ error: "Tekrar baskı için onay gerekli." });
+    }
+    const job = database.prepare(`
+        SELECT * FROM print_jobs WHERE id = ?
+    `).get(Number(req.params.id));
+    if (!job) return res.status(404).json({ error: "Etiket kaydı bulunamadı." });
+    if (req.user.role !== "admin" && job.prepared_by_user_id !== req.user.id) {
+        return res.status(403).json({ error: "Bu etiket başka bir personele ait." });
+    }
+    if (job.status !== "printed") {
+        return res.status(409).json({ error: "Yalnızca yazdırılmış etiket tekrar basılabilir." });
+    }
+    database.prepare(`
+        UPDATE print_jobs
+        SET status = 'pending', attempts = 0, error_message = '',
+            picked_at = NULL, released_at = CURRENT_TIMESTAMP,
+            released_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `).run(req.user.id, job.id);
+    denetimKaydiOlustur(
+        req,
+        "print_queue.reprint",
+        "order",
+        job.order_code,
+        `${job.order_code} etiketi onayla tekrar yazdırıldı`
+    );
+    res.json({ status: "pending" });
+});
 
 app.post("/admin/print-agent/token", yoneticiGerekli, (req, res) => {
     const token = crypto.randomBytes(32).toString("base64url");
@@ -797,12 +978,18 @@ app.get("/admin/print-jobs", yoneticiGerekli, (req, res) => {
 });
 
 app.post("/admin/print-jobs/:id/retry", yoneticiGerekli, (req, res) => {
+    const job = database.prepare(`SELECT status FROM print_jobs WHERE id = ?`).get(Number(req.params.id));
+    if (!job) return res.status(404).json({ error: "Yazdırma işi bulunamadı." });
+    if (job.status === "printed" && req.body?.confirmReprint !== true) {
+        return res.status(400).json({ error: "Tekrar baskı için onay gerekli." });
+    }
     const result = database.prepare(`
         UPDATE print_jobs
         SET status = 'pending', attempts = 0, error_message = '',
-            picked_at = NULL, printed_at = NULL, updated_at = CURRENT_TIMESTAMP
+            picked_at = NULL, released_at = CURRENT_TIMESTAMP,
+            released_by_user_id = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
-    `).run(Number(req.params.id));
+    `).run(req.user.id, Number(req.params.id));
     if (!result.changes) return res.status(404).json({ error: "Yazdırma işi bulunamadı." });
     denetimKaydiOlustur(req, "print_job.retry", "print_job", req.params.id, "Etiket yeniden yazdırma kuyruğuna alındı");
     res.json({ status: "pending" });
@@ -819,8 +1006,10 @@ app.get("/print-agent/jobs/next", yazdirmaAjanTokeniDogrula, (req, res) => {
     try {
         const job = database.prepare(`
             SELECT * FROM print_jobs
-            WHERE status IN ('pending', 'failed') AND attempts < 5
-            ORDER BY created_at ASC LIMIT 1
+            WHERE status IN ('pending', 'failed')
+              AND released_at IS NOT NULL
+              AND attempts < 5
+            ORDER BY released_at ASC, created_at ASC LIMIT 1
         `).get();
         if (!job) {
             database.exec("COMMIT");
@@ -2997,6 +3186,7 @@ app.post("/preparations/complete", async (req, res, next) => {
     const currentFingerprint = siparisParmakIzi(currentSnapshot);
     const scans = Array.isArray(req.body.scans) ? req.body.scans.slice(0, 500) : [];
     const proofImage = String(req.body.proofImage || "");
+    let queuedPrintJob = null;
 
     if (!orderCode) {
         return res.status(400).json({ error: "Sipariş kodu gerekli." });
@@ -3064,10 +3254,13 @@ app.post("/preparations/complete", async (req, res, next) => {
         } catch {
             printSnapshot = {};
         }
-        otomatikEtiketiKuyrugaEkle(orderCode, {
+        queuedPrintJob = otomatikEtiketiKuyrugaEkle(orderCode, {
             ...printSnapshot,
             customerName: printSnapshot.customerName || customerName,
             platform: printSnapshot.platform || platform
+        }, {
+            id: req.user.id,
+            displayName: req.user.display_name
         });
         database.exec("COMMIT");
     } catch (err) {
@@ -3089,7 +3282,14 @@ app.post("/preparations/complete", async (req, res, next) => {
         manualVerificationCount: scans.filter(scan => scan.source === "manual").length
     });
 
-    res.json({ result: { id: preparation.id, status: "completed", proofImageUrl } });
+    res.json({
+        result: {
+            id: preparation.id,
+            status: "completed",
+            proofImageUrl,
+            printJob: queuedPrintJob || null
+        }
+    });
     } catch (err) {
         if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
         next(err);
