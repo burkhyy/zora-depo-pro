@@ -219,6 +219,17 @@ test("yerel sevkiyat işlemi Quka kargo durumundan önce siparişi gizlemez", as
 
     const afterShipmentScan = await request("/orders", {}, adminCookie);
     assert.equal(afterShipmentScan.data.result.list.some(item => item.order.code === "CACHED-ORDER"), true);
+
+    const db = new DatabaseSync(path.join(dataDir, "locations.db"));
+    db.prepare(`
+        UPDATE order_shipments
+        SET carrier_accepted_at = CURRENT_TIMESTAMP
+        WHERE order_code = 'CACHED-ORDER'
+    `).run();
+    db.close();
+
+    const afterCarrierAcceptance = await request("/orders", {}, adminCookie);
+    assert.equal(afterCarrierAcceptance.data.result.list.some(item => item.order.code === "CACHED-ORDER"), false);
 });
 
 test.after(async () => {

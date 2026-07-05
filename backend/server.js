@@ -476,6 +476,18 @@ if (!shipmentColumns.has("tracking_url")) {
     database.exec(`ALTER TABLE order_shipments ADD COLUMN tracking_url TEXT NOT NULL DEFAULT ''`);
 }
 
+[
+    ["carrier_status", "TEXT NOT NULL DEFAULT ''"],
+    ["carrier_last_movement", "TEXT NOT NULL DEFAULT ''"],
+    ["carrier_last_checked_at", "TEXT"],
+    ["carrier_accepted_at", "TEXT"],
+    ["carrier_account_type", "TEXT NOT NULL DEFAULT ''"]
+].forEach(([column, definition]) => {
+    if (!shipmentColumns.has(column)) {
+        database.exec(`ALTER TABLE order_shipments ADD COLUMN ${column} ${definition}`);
+    }
+});
+
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(express.json({ limit: "2mb" }));
@@ -1109,11 +1121,29 @@ setInterval(() => kritikOperasyonlariKontrolEt(), 15 * 60 * 1000).unref();
 
 const API = axios.create({
     baseURL: process.env.API_URL,
+    timeout: Math.max(5000, Number(process.env.API_TIMEOUT_SECONDS || 20) * 1000),
     headers: {
         apikey: process.env.API_KEY,
         apisecret: process.env.API_SECRET
     }
 });
+API.interceptors.response.use(
+    response => response,
+    async error => {
+        const config = error.config;
+        const status = Number(error.response?.status || 0);
+        const retryable = !status || status === 429 || status >= 500;
+        const retryLimit = process.env.NODE_ENV === "test"
+            ? 0
+            : Math.max(0, Math.min(3, Number(process.env.API_RETRY_COUNT || 2)));
+        if (!config) throw error;
+        config.__zoomRetryCount = Number(config.__zoomRetryCount || 0);
+        if (!retryable || config.__zoomRetryCount >= retryLimit) throw error;
+        config.__zoomRetryCount += 1;
+        await new Promise(resolve => setTimeout(resolve, 500 * config.__zoomRetryCount));
+        return API.request(config);
+    }
+);
 const productImageCache = new Map(
     database.prepare(`SELECT product_id, image_url FROM product_image_cache WHERE source_scope = ?`).all(apiDataScope)
         .map(item => [Number(item.product_id), item.image_url])
@@ -1141,6 +1171,22 @@ const configuredOrderStatuses = String(process.env.ACTIVE_ORDER_STATUSES || "1,2
     .map(value => Number(value.trim()))
     .filter(Number.isInteger);
 const activeOrderStatuses = [...new Set([...configuredOrderStatuses, 3, 6])];
+const suratApiUrl = String(
+    process.env.SURAT_API_URL || "https://webservices.suratkargo.com.tr/services.asmx"
+).trim();
+const suratAccounts = [
+    {
+        type: "prepaid",
+        username: String(process.env.SURAT_PREPAID_USERNAME || "").trim(),
+        password: String(process.env.SURAT_PREPAID_PASSWORD || "")
+    },
+    {
+        type: "cod",
+        username: String(process.env.SURAT_COD_USERNAME || "").trim(),
+        password: String(process.env.SURAT_COD_PASSWORD || "")
+    }
+].filter(account => account.username && account.password);
+const suratPollMs = Math.max(60, Number(process.env.SURAT_POLL_SECONDS || 180)) * 1000;
 const terminalOrderPageLimit = Math.max(100, Number(process.env.TERMINAL_ORDER_SCAN_LIMIT || 500));
 const orderPageConcurrency = Math.max(2, Math.min(10, Number(process.env.ORDER_PAGE_CONCURRENCY || 6)));
 const orderCheckMs = Math.max(5000, Number(process.env.ORDER_CHECK_SECONDS || 10) * 1000);
@@ -1276,18 +1322,25 @@ async function aktifSiparisleriGetir() {
                 .map(item => [siparisKimligi(item), item])
                 .filter(([key]) => key)
         );
-        const closedCodes = new Set(
+        const cancelledCodes = new Set(
             allPages
-                .filter(page => [3, 6].includes(page.status))
+                .filter(page => page.status === 6)
                 .flatMap(page => page.list)
                 .map(siparisKimligi)
                 .filter(Boolean)
         );
-        closedCodes.forEach(code => unique.delete(code));
+        cancelledCodes.forEach(code => unique.delete(code));
         allPages.filter(page => ![3, 6].includes(page.status)).forEach(page => {
             page.list.forEach(item => {
                 const key = siparisKimligi(item);
                 if (!key) return;
+                unique.set(key, item);
+            });
+        });
+        allPages.filter(page => page.status === 3).forEach(page => {
+            page.list.forEach(item => {
+                const key = siparisKimligi(item);
+                if (!key || !unique.has(key)) return;
                 unique.set(key, item);
             });
         });
@@ -1329,14 +1382,14 @@ async function aktifSiparisleriGetir() {
     }
 }
 
-function yerelKargoCikisiYapilanlariCikar(data) {
-    const shippedCodes = new Set(
+function suratTarafindanKabulEdilenleriCikar(data) {
+    const acceptedCodes = new Set(
         database.prepare(`
-            SELECT order_code FROM order_shipments WHERE status = 'shipped'
+            SELECT order_code FROM order_shipments WHERE carrier_accepted_at IS NOT NULL
         `).all().map(item => String(item.order_code || "").toUpperCase())
     );
     const list = (data?.result?.list || []).filter(item =>
-        !shippedCodes.has(siparisKimligi(item).toUpperCase())
+        !acceptedCodes.has(siparisKimligi(item).toUpperCase())
     );
     return {
         ...data,
@@ -1347,6 +1400,214 @@ function yerelKargoCikisiYapilanlariCikar(data) {
             list
         }
     };
+}
+
+function xmlGuvenli(value) {
+    return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&apos;");
+}
+
+function xmlDegeriniOku(xml, name) {
+    const match = String(xml || "").match(new RegExp(`<(?:\\w+:)?${name}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/(?:\\w+:)?${name}>`, "i"));
+    return String(match?.[1] || "")
+        .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+        .replace(/<[^>]+>/g, " ")
+        .replaceAll("&lt;", "<")
+        .replaceAll("&gt;", ">")
+        .replaceAll("&quot;", '"')
+        .replaceAll("&apos;", "'")
+        .replaceAll("&amp;", "&")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function suratMetniniNormalizeEt(value) {
+    return String(value || "")
+        .toLocaleLowerCase("tr-TR")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/ı/g, "i");
+}
+
+function suratFizikselKabulMu(result) {
+    if (String(result.errorCode) !== "1") return false;
+    const text = suratMetniniNormalizeEt([
+        result.status,
+        result.lastMovement,
+        result.deliveryStatus,
+        result.deliveryDescription,
+        result.lastLocation
+    ].join(" "));
+    if (["teslim edilmedi", "kargo kabul edilmedi", "iptal", "iade"].some(term => text.includes(term))) {
+        return false;
+    }
+    const physicalMovements = [
+        "kargo kabul", "sube kabul", "sube cikis", "transfer", "aktarma",
+        "dagitim", "teslim edildi", "teslim alan", "yolda", "varis",
+        "araca yuklendi", "devir"
+    ];
+    return physicalMovements.some(term => text.includes(term));
+}
+
+async function suratTeslimatBilgisiGetir(account, salesCode) {
+    const envelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <WebSiparisKodundanKargoTeslimatBilgisi xmlns="http://tempuri.org/">
+      <gonderenCariKodu>${xmlGuvenli(account.username)}</gonderenCariKodu>
+      <satisKodu>${xmlGuvenli(salesCode)}</satisKodu>
+      <Sifre>${xmlGuvenli(account.password)}</Sifre>
+    </WebSiparisKodundanKargoTeslimatBilgisi>
+  </soap:Body>
+</soap:Envelope>`;
+    const response = await axios.post(suratApiUrl, envelope, {
+        timeout: 15000,
+        headers: {
+            "Content-Type": "text/xml; charset=utf-8",
+            SOAPAction: '"http://tempuri.org/WebSiparisKodundanKargoTeslimatBilgisi"'
+        }
+    });
+    const xml = String(response.data || "");
+    return {
+        accountType: account.type,
+        errorCode: xmlDegeriniOku(xml, "HataSonucu"),
+        errorDescription: xmlDegeriniOku(xml, "HataAciklamasi"),
+        deliveryDate: xmlDegeriniOku(xml, "TeslimatTarihi"),
+        recipient: xmlDegeriniOku(xml, "TeslimAlan"),
+        lastMovementDate: xmlDegeriniOku(xml, "SonHareketTarihi"),
+        status: xmlDegeriniOku(xml, "SonDurum"),
+        lastLocation: xmlDegeriniOku(xml, "SonBulunduguYer"),
+        lastMovement: xmlDegeriniOku(xml, "SonHareket"),
+        deliveryStatus: xmlDegeriniOku(xml, "TeslimatDurumu"),
+        deliveryDescription: xmlDegeriniOku(xml, "TeslimatAciklamasi")
+    };
+}
+
+async function suratSiparisDurumunuSorgula(orderCode, preferredAccountType = "") {
+    const accounts = [...suratAccounts].sort(account => account.type === preferredAccountType ? -1 : 1);
+    let lastResult = null;
+    for (const account of accounts) {
+        const result = await suratTeslimatBilgisiGetir(account, orderCode);
+        lastResult = result;
+        if (String(result.errorCode) === "1") return result;
+    }
+    return lastResult;
+}
+
+function siparisKargoFirmasi(item) {
+    return String(
+        item?.order?.shipmentFirmName
+        || item?.shipmentFirmName
+        || item?.order?.cargoCompany
+        || item?.cargoCompany
+        || ""
+    );
+}
+
+function siparisOdemeTipi(item) {
+    return suratMetniniNormalizeEt(
+        item?.order?.paymentMethod
+        || item?.paymentMethod
+        || item?.order?.paymentType
+        || item?.paymentType
+        || ""
+    );
+}
+
+let suratPollRunning = false;
+async function suratKabulDurumlariniGuncelle() {
+    if (!suratAccounts.length || suratPollRunning) return;
+    suratPollRunning = true;
+    try {
+        const orderMap = new Map(
+            (activeOrderCache?.result?.list || [])
+                .map(item => [siparisKimligi(item).toUpperCase(), item])
+                .filter(([code]) => code)
+        );
+        const rows = database.prepare(`
+            SELECT order_code, carrier_account_type
+            FROM order_shipments
+            WHERE status = 'ready' AND carrier_accepted_at IS NULL
+            ORDER BY COALESCE(carrier_last_checked_at, ready_at, updated_at)
+            LIMIT 50
+        `).all();
+
+        for (const row of rows) {
+            const order = orderMap.get(String(row.order_code).toUpperCase());
+            if (!order || !suratMetniniNormalizeEt(siparisKargoFirmasi(order)).includes("surat")) continue;
+            const preferredType = row.carrier_account_type
+                || (siparisOdemeTipi(order).includes("kapida") ? "cod" : "prepaid");
+            try {
+                const result = await suratSiparisDurumunuSorgula(row.order_code, preferredType);
+                if (!result) continue;
+                const accepted = suratFizikselKabulMu(result);
+                const carrierStatus = result.status || result.deliveryStatus || result.errorDescription || "";
+                const lastMovement = [
+                    result.lastMovement,
+                    result.lastLocation,
+                    result.lastMovementDate
+                ].filter(Boolean).join(" - ");
+                database.prepare(`
+                    UPDATE order_shipments SET
+                        carrier = 'Sürat Kargo',
+                        carrier_status = ?,
+                        carrier_last_movement = ?,
+                        carrier_last_checked_at = CURRENT_TIMESTAMP,
+                        carrier_account_type = ?,
+                        carrier_accepted_at = CASE
+                            WHEN ? = 1 THEN COALESCE(carrier_accepted_at, CURRENT_TIMESTAMP)
+                            ELSE carrier_accepted_at
+                        END,
+                        status = CASE WHEN ? = 1 THEN 'shipped' ELSE status END,
+                        shipped_at = CASE
+                            WHEN ? = 1 THEN COALESCE(shipped_at, CURRENT_TIMESTAMP)
+                            ELSE shipped_at
+                        END,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE order_code = ? COLLATE NOCASE
+                `).run(
+                    carrierStatus.slice(0, 500),
+                    lastMovement.slice(0, 1000),
+                    result.accountType || preferredType,
+                    accepted ? 1 : 0,
+                    accepted ? 1 : 0,
+                    accepted ? 1 : 0,
+                    row.order_code
+                );
+                if (accepted) {
+                    bildirimOlustur(
+                        "carrier_accepted",
+                        "Sipariş Sürat Kargo tarafından kabul edildi",
+                        `${row.order_code} numaralı sipariş taşıyıcı ağına girdi.`,
+                        row.order_code,
+                        "admin"
+                    );
+                    denetimKaydiOlustur(
+                        null,
+                        "shipment.carrier_accepted",
+                        "order",
+                        row.order_code,
+                        `${row.order_code} Sürat Kargo tarafından kabul edildi`,
+                        { carrierStatus, lastMovement }
+                    );
+                }
+            } catch (err) {
+                database.prepare(`
+                    UPDATE order_shipments SET
+                        carrier_last_checked_at = CURRENT_TIMESTAMP,
+                        carrier_status = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE order_code = ? COLLATE NOCASE
+                `).run(`Sürat durumu okunamadı: ${String(err.message || "").slice(0, 400)}`, row.order_code);
+            }
+        }
+    } finally {
+        suratPollRunning = false;
+    }
 }
 
 function urunGorselUrliniBul(product) {
@@ -1736,7 +1997,9 @@ function yerelHazirlamaDurumlariniEkle(data) {
 
 app.get("/orders", async (req, res) => {
     try {
-        res.json(yerelHazirlamaDurumlariniEkle(await aktifSiparisleriGetir()));
+        res.json(yerelHazirlamaDurumlariniEkle(
+            suratTarafindanKabulEdilenleriCikar(await aktifSiparisleriGetir())
+        ));
     } catch (err) {
         apiDurumunuGuncelle(false, err.response?.data?.error || err.message);
         apiHatasiGonder(err, res);
@@ -1758,7 +2021,9 @@ app.get("/api-status", (req, res) => {
 
 app.get("/order/:code", async (req, res) => {
     try {
-        const data = yerelHazirlamaDurumlariniEkle(await aktifSiparisleriGetir());
+        const data = yerelHazirlamaDurumlariniEkle(
+            suratTarafindanKabulEdilenleriCikar(await aktifSiparisleriGetir())
+        );
         const siparis = data.result.list.find(
             item => siparisKimligi(item).toUpperCase() === String(req.params.code).toUpperCase()
         );
@@ -2967,6 +3232,10 @@ function sevkiyatKaydiniDonustur(row) {
         carrier: row.carrier || "",
         trackingNumber: row.tracking_number || "",
         trackingUrl: row.tracking_url || "",
+        carrierStatus: row.carrier_status || "",
+        carrierLastMovement: row.carrier_last_movement || "",
+        carrierLastCheckedAt: row.carrier_last_checked_at,
+        carrierAcceptedAt: row.carrier_accepted_at,
         readyAt: row.ready_at,
         shippedAt: row.shipped_at,
         updatedAt: row.updated_at
@@ -3185,6 +3454,23 @@ setTimeout(() => {
 setInterval(() => urunKatalogunuGuncelle().catch(err =>
     console.error("Ürün kataloğu senkronizasyonu başarısız:", err.message)
 ), 6 * 60 * 60 * 1000).unref();
+
+if (process.env.NODE_ENV !== "test") {
+    setTimeout(() => aktifSiparisleriGetir().catch(() => {}), 3000).unref();
+    setInterval(() => {
+        nextOrderCheckAt = 0;
+        aktifSiparisleriGetir().catch(() => {});
+    }, Math.max(15000, orderCheckMs)).unref();
+}
+
+if (process.env.NODE_ENV !== "test" && suratAccounts.length) {
+    setTimeout(() => suratKabulDurumlariniGuncelle().catch(err =>
+        console.error("Surat Kargo durum kontrolu basarisiz:", err.message)
+    ), 30000).unref();
+    setInterval(() => suratKabulDurumlariniGuncelle().catch(err =>
+        console.error("Surat Kargo durum kontrolu basarisiz:", err.message)
+    ), suratPollMs).unref();
+}
 
 app.listen(port, "0.0.0.0", () => {
     console.log(`Zoom Depo Pro calisiyor: http://0.0.0.0:${port}`);

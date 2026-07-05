@@ -189,6 +189,23 @@ function toplamTutarSayisi(item) {
     return Number.isFinite(sayi) ? sayi : 0;
 }
 
+function odemeYontemi(item) {
+    const value = alanOku(item, [
+        "order.paymentMethod",
+        "order.paymentMethodName",
+        "order.paymentType",
+        "order.paymentTypeName",
+        "paymentMethod",
+        "paymentMethodName",
+        "paymentType",
+        "paymentTypeName"
+    ], "");
+    if (value && typeof value === "object") {
+        return value.name || value.title || value.value || value.type || "Belirtilmemiş";
+    }
+    return value || "Belirtilmemiş";
+}
+
 function siparisToplamAdedi(item) {
     return (item.products || [])
         .filter(urun => !hizmetUrunuMu(urun))
@@ -598,7 +615,18 @@ function recursiveAnahtarDegeriBul(kaynak, hedefAnahtarlar) {
 }
 
 function hizmetUrunuMu(urun) {
-    return HIZMET_BARKODLARI.includes(barkodKarsilastir(urunBarkodu(urun)));
+    const barcode = barkodKarsilastir(urunBarkodu(urun));
+    const code = barkodKarsilastir(urunKodu(urun));
+    const name = aramaNormalize(urunAdi(urun));
+    return HIZMET_BARKODLARI.includes(barcode)
+        || HIZMET_BARKODLARI.includes(code)
+        || [
+            "kargo ve hizmet bedeli",
+            "kargo bedeli",
+            "hizmet bedeli",
+            "shipping fee",
+            "service fee"
+        ].some(term => name.includes(term));
 }
 
 function gercekUrunler() {
@@ -1179,6 +1207,7 @@ function listeGoster(liste) {
     const platformListesi = siparisSiralamaUygula(hazirlanacakListe.filter(item =>
         platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
         && (!aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
+        && (aktifSiparisGorunumu !== "quick" || siparisToplamAdedi(item) === 1)
     ));
     const toplamSayfa = Math.max(1, Math.ceil(platformListesi.length / siparisSayfaBoyutu));
     aktifSiparisSayfasi = Math.min(Math.max(1, aktifSiparisSayfasi), toplamSayfa);
@@ -1208,6 +1237,7 @@ function listeGoster(liste) {
                 <span>Hazırlama şekli</span>
                 <select id="orderViewMode">
                     <option value="single" ${aktifSiparisGorunumu === "single" ? "selected" : ""}>Tek Siparişler</option>
+                    <option value="quick" ${aktifSiparisGorunumu === "quick" ? "selected" : ""}>Tek Ürün Hızlı</option>
                     <option value="batch" ${aktifSiparisGorunumu === "batch" ? "selected" : ""}>Aynı Ürünlü Gruplar</option>
                 </select>
             </label>
@@ -1222,7 +1252,7 @@ function listeGoster(liste) {
                 <strong>${temizle(sayfadakiSiparisler.length)} / ${temizle(platformListesi.length)} sipariş</strong>
             </div>
         </div>
-        <div class="bulkLabelControls" ${aktifSiparisGorunumu === "single" ? "" : "hidden"}>
+        <div class="bulkLabelControls" ${aktifSiparisGorunumu !== "batch" ? "" : "hidden"}>
             <div>
                 <strong>Kargo etiketi seçimi</strong>
                 <span id="selectedOrderCount">${temizle(secilenSiparisKodlari.size)} sipariş seçildi</span>
@@ -1277,7 +1307,8 @@ function listeGoster(liste) {
 
     sayfadakiSiparisler.forEach(item => {
         const kod = siparisKodu(item);
-        const urunSayisi = (item.products || []).length;
+        const urunSayisi = (item.products || []).filter(urun => !hizmetUrunuMu(urun)).length;
+        const hizliSiparis = siparisToplamAdedi(item) === 1;
 
         result.innerHTML += `
             <article class="orderCard">
@@ -1303,14 +1334,16 @@ function listeGoster(liste) {
                 <div class="cardMeta">
                     <span><b>Platform</b>${temizle(platformAdi(item))}</span>
                     <span><b>Ürün Sayısı</b>${temizle(urunSayisi)}</span>
+                    <span><b>Ödeme</b>${temizle(odemeYontemi(item))}</span>
+                    <span><b>Tutar</b>${temizle(toplamTutar(item))}</span>
                 </div>
 
                 <div class="orderCardActions">
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(kod)}">
                         100×100 Kargo Etiketi
                     </button>
-                    <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}">
-                        📦 Siparişi Aç
+                    <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}" ${hizliSiparis ? "data-quick-order" : ""}>
+                        ${hizliSiparis ? "Tek Ürün Hızlı Hazırla" : "Siparişi Aç"}
                     </button>
                 </div>
             </article>
@@ -2181,6 +2214,21 @@ function teslimatAdresi(siparis) {
     };
 }
 
+function kargoEtiketiSiparisOzeti(siparis) {
+    const products = (siparis.products || []).filter(urun => !hizmetUrunuMu(urun));
+    const visible = products.slice(0, 4).map(urun =>
+        `<span><b>${temizle(urunAdedi(urun))}x</b> ${temizle(urunAdi(urun))} · ${temizle(urunRengi(urun))} / ${temizle(urunBedeni(urun))}</span>`
+    ).join("");
+    const remaining = products.length - 4;
+    return `
+        <div class="cargoOrderInfo">
+            <strong>${temizle(odemeYontemi(siparis))} · ${temizle(toplamTutar(siparis))}</strong>
+            ${visible}
+            ${remaining > 0 ? `<span>+ ${temizle(remaining)} ürün daha</span>` : ""}
+        </div>
+    `;
+}
+
 async function etiketBaskiKayitlariniGetir() {
     try {
         const response = await fetch("/label-prints", { cache: "no-store" });
@@ -2246,6 +2294,7 @@ function kargoCikisEtiketiGoster(siparis) {
                 </div>
                 <p class="cargoAddress">${temizle(delivery.address || "Adres bilgisi yok")}</p>
                 <strong class="cargoCity">${temizle([delivery.district, delivery.city].filter(Boolean).join(" / ") || "-")}</strong>
+                ${kargoEtiketiSiparisOzeti(siparis)}
                 <div class="cargoBarcodeArea">
                     <svg id="cargoBarcodeSvg" aria-label="${temizle(shipmentCode)}"></svg>
                     <span>Kargo barkodu · Sipariş: ${temizle(siparisKodu(siparis))}</span>
@@ -2324,6 +2373,7 @@ function topluKargoEtiketleriGoster(orders) {
                             <div class="cargoCustomer"><strong>${temizle(musteriAdi(order))}</strong>${phone ? `<span>${temizle(phone)}</span>` : ""}</div>
                             <p class="cargoAddress">${temizle(delivery.address || "Adres bilgisi yok")}</p>
                             <strong class="cargoCity">${temizle([delivery.district, delivery.city].filter(Boolean).join(" / ") || "-")}</strong>
+                            ${kargoEtiketiSiparisOzeti(order)}
                             <div class="cargoBarcodeArea">
                                 <svg id="bulkCargoBarcode${index}" aria-label="${temizle(kargoEtiketiBarkodu(order))}"></svg>
                                 <span>Kargo barkodu · Sipariş: ${temizle(siparisKodu(order))}</span>
@@ -2420,6 +2470,9 @@ async function sevkiyatDurumuKaydet(siparis, status, extra = {}) {
 function sevkiyatKarti(siparis, kayit, shipped = false) {
     const code = siparisKodu(siparis);
     const kargoBarkoduHazir = Boolean(kargoGonderiKodu(siparis));
+    const tasiyiciBilgisi = kayit?.carrierAcceptedAt
+        ? "Sürat Kargo kabul etti"
+        : (kayit?.carrierLastMovement || kayit?.carrierStatus || "Sürat Kargo kabulü bekleniyor");
 
     return `
         <article class="shipmentCard pending">
@@ -2428,6 +2481,7 @@ function sevkiyatKarti(siparis, kayit, shipped = false) {
                 <h3>${temizle(musteriAdi(siparis))}</h3>
                 <p>${temizle(code)} · ${temizle(platformAdi(siparis))}</p>
                 <p>${kargoBarkoduHazir ? "Gerçek kargo barkodu hazır" : "Quka kargo barkodu bekleniyor"}</p>
+                <p>${temizle(tasiyiciBilgisi)}</p>
             </div>
             <div class="shipmentActions">
                 <button type="button" class="printShipmentButton" data-print-cargo-order="${temizle(code)}" ${kargoBarkoduHazir ? "" : "disabled"}>
@@ -3565,6 +3619,7 @@ function urunListesiHtml(urunler) {
 
     return urunler.map((urun, index) => {
         const hizmet = hizmetUrunuMu(urun);
+        if (hizmet) return "";
         const gereken = hizmet ? 0 : urunAdedi(urun);
         const okutulan = hizmet ? 0 : okutulanAdet(index);
         const tamamlandi = urunTamamlandiMi(urun, index);
@@ -3776,6 +3831,10 @@ function siparisDetayGoster(siparis) {
                     <span>Toplam Tutar</span>
                     <strong>${temizle(toplamTutar(siparis))}</strong>
                 </div>
+                <div>
+                    <span>Ödeme Yöntemi</span>
+                    <strong>${temizle(odemeYontemi(siparis))}</strong>
+                </div>
             </div>
 
             <div class="scannerControls">
@@ -3796,7 +3855,7 @@ function siparisDetayGoster(siparis) {
 
             <div class="scanMessage info" id="scanMessage">
                 <strong>Barkod okutmaya başlamak için kamerayı açın.</strong>
-                <span>HZMBDL hizmet ürünleri doğrulamaya dahil edilmez.</span>
+                <span>Hizmet bedeli ve kargo ücreti ürün/adet hesabına dahil edilmez.</span>
             </div>
 
             <label class="proofUpload">
@@ -3812,7 +3871,7 @@ function siparisDetayGoster(siparis) {
 
             <div class="sectionTitle">
                 <h3>Siparişteki Ürünler · Raf Rotası</h3>
-                <span>${temizle(urunler.length)} ürün · raf sırasına göre</span>
+                <span>${temizle(urunler.filter(urun => !hizmetUrunuMu(urun)).length)} ürün · raf sırasına göre</span>
             </div>
 
             <div class="productList" id="productList">
@@ -3845,7 +3904,7 @@ function siparisHazirEkraniGoster() {
 }
 
 function siparisOzeti(siparis) {
-    const products = (siparis.products || []).map(urun => ({
+    const products = (siparis.products || []).filter(urun => !hizmetUrunuMu(urun)).map(urun => ({
         barcode: urunBarkodu(urun),
         name: urunAdi(urun),
         code: urunKodu(urun),
@@ -3870,6 +3929,7 @@ function siparisOzeti(siparis) {
         ], ""),
         delivery: teslimatAdresi(siparis),
         shipmentCode: kargoGonderiKodu(siparis),
+        paymentMethod: odemeYontemi(siparis),
         total: toplamTutar(siparis),
         products
     };
@@ -3967,7 +4027,7 @@ async function hazirlamaKaydiGonder(islem, siparis, extra = {}) {
     return response.json();
 }
 
-async function siparisSec(kod) {
+async function siparisSec(kod, hizliHazirlama = false) {
     const siparis = siparisler.find(item => siparisKodu(item) === kod);
 
     if (!siparis) {
@@ -3990,6 +4050,7 @@ async function siparisSec(kod) {
     try {
         await hazirlamaKaydiGonder("start", siparis);
         siparisDetayGoster(siparis);
+        if (hizliHazirlama) manuelHazirlamaPaneliGoster();
     } catch (err) {
         result.innerHTML = `
             <div class="notfound">
@@ -4408,7 +4469,7 @@ result.addEventListener("click", async function (event) {
     const acButonu = event.target.closest("[data-order-code]");
 
     if (acButonu) {
-        siparisSec(acButonu.dataset.orderCode);
+        siparisSec(acButonu.dataset.orderCode, acButonu.hasAttribute("data-quick-order"));
         return;
     }
 

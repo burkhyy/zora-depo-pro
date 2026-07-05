@@ -88,6 +88,8 @@ function New-ShippingLabelZpl($Payload) {
     $phone = Convert-ToZplText $Payload.phone 25
     $orderCode = Convert-ToZplText $Payload.orderCode 35
     $platform = Convert-ToZplText $Payload.platform 20
+    $paymentMethod = Convert-ToZplText $Payload.paymentMethod 30
+    $total = Convert-ToZplText $Payload.total 18
     $addressLines = Split-ZplText (Convert-ToZplText $Payload.delivery.address 116) 58
     $city = Convert-ToZplText ("{0} / {1}" -f $Payload.delivery.district, $Payload.delivery.city) 48
     $barcode = Convert-ToZplText $Payload.barcode 45
@@ -100,14 +102,15 @@ function New-ShippingLabelZpl($Payload) {
     $zpl += "^FO38,24^A0N,38,38^FD$customer^FS"
     if ($phone) { $zpl += "^FO540,30^A0N,21,21^FD$phone^FS" }
     $zpl += "^FO38,72^A0N,24,24^FDSiparis: $orderCode  $platform^FS"
-    $zpl += "^FO38,108^GB724,2,2^FS"
-    $zpl += "^FO38,126^A0N,21,21^FDAdres:^FS"
-    if ($addressLines.Count -gt 0) { $zpl += "^FO38,157^A0N,24,24^FD$($addressLines[0])^FS" }
-    if ($addressLines.Count -gt 1) { $zpl += "^FO38,190^A0N,24,24^FD$($addressLines[1])^FS" }
-    $zpl += "^FO38,228^A0N,27,27^FD$city^FS"
-    $zpl += "^FO38,270^GB724,2,2^FS"
-    $zpl += "^FO38,288^A0N,23,23^FDUrunler:^FS"
-    $zpl += "^FO630,288^A0N,23,23^FDRaf:^FS"
+    $zpl += "^FO38,102^A0N,21,21^FDOdeme: $paymentMethod  Tutar: $total^FS"
+    $zpl += "^FO38,132^GB724,2,2^FS"
+    $zpl += "^FO38,148^A0N,21,21^FDAdres:^FS"
+    if ($addressLines.Count -gt 0) { $zpl += "^FO38,177^A0N,24,24^FD$($addressLines[0])^FS" }
+    if ($addressLines.Count -gt 1) { $zpl += "^FO38,208^A0N,24,24^FD$($addressLines[1])^FS" }
+    $zpl += "^FO38,244^A0N,27,27^FD$city^FS"
+    $zpl += "^FO38,282^GB724,2,2^FS"
+    $zpl += "^FO38,300^A0N,23,23^FDUrunler:^FS"
+    $zpl += "^FO630,300^A0N,23,23^FDRaf:^FS"
 
     $visibleCount = [Math]::Min(5, $productGroups.Count)
     for ($index = 0; $index -lt $visibleCount; $index++) {
@@ -127,13 +130,13 @@ function New-ShippingLabelZpl($Payload) {
         if ($code) { $detail += " [$code]" }
         if ($variantDetails.Count) { $detail += " - " + ($variantDetails -join ", ") }
         $line = Convert-ToZplText $detail 54
-        $y = 324 + ($index * 32)
+        $y = 336 + ($index * 32)
         $zpl += "^FO38,$y^A0N,22,22^FB570,1,0,L,0^FD$line^FS"
         $zpl += "^FO630,$y^A0N,24,24^FD$location^FS"
     }
     if ($productGroups.Count -gt 5) {
         $remaining = $productGroups.Count - 5
-        $zpl += "^FO38,488^A0N,20,20^FD+$remaining urun grubu daha^FS"
+        $zpl += "^FO38,500^A0N,20,20^FD+$remaining urun grubu daha^FS"
     }
 
     $barcodeModules = (11 * ($barcode.Length + 2)) + 13
