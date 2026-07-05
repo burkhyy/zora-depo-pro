@@ -778,6 +778,90 @@ h1{
     opacity:.65;
 }
 
+.scannerActionButtons{
+    display:flex;
+    align-items:center;
+    gap:8px;
+}
+
+.manualPrepareButton{
+    min-height:46px;
+    border:1px solid #98a2b3;
+    border-radius:9px;
+    background:#fff;
+    color:#344054;
+    font-size:14px;
+    font-weight:800;
+    padding:0 14px;
+    cursor:pointer;
+}
+
+.manualPreparationCard{
+    width:min(680px, calc(100vw - 24px));
+}
+
+.manualPreparationWarning{
+    margin-bottom:10px;
+    padding:9px 10px;
+    border-left:3px solid #f79009;
+    background:#fffaeb;
+    color:#7a2e0e;
+    font-size:13px;
+    font-weight:700;
+}
+
+.manualPreparationList{
+    display:grid;
+    gap:7px;
+    max-height:55vh;
+    overflow:auto;
+}
+
+.manualPreparationRow{
+    display:grid;
+    grid-template-columns:minmax(0, 1fr) auto 118px;
+    align-items:center;
+    gap:10px;
+    padding:9px 10px;
+    border:1px solid #e4e7ec;
+    border-radius:6px;
+}
+
+.manualPreparationRow>div{
+    display:flex;
+    min-width:0;
+    flex-direction:column;
+    gap:2px;
+}
+
+.manualPreparationRow span{
+    overflow:hidden;
+    color:#667085;
+    font-size:12px;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+}
+
+.manualPreparationRow button{
+    min-height:36px;
+    border:0;
+    border-radius:6px;
+    background:#175cd3;
+    color:#fff;
+    font-weight:800;
+    cursor:pointer;
+}
+
+.manualPreparationRow.completed{
+    background:#ecfdf3;
+}
+
+.manualPreparationRow button:disabled{
+    background:#e4e7ec;
+    color:#667085;
+    cursor:default;
+}
+
 .scannerPanel{
     position:relative;
     overflow:hidden;
@@ -3000,6 +3084,19 @@ h1{
 
     .productActions{
         justify-items:stretch;
+    }
+
+    .scannerActionButtons{
+        display:grid;
+        grid-template-columns:1fr 1fr;
+    }
+
+    .manualPreparationRow{
+        grid-template-columns:minmax(0, 1fr) auto;
+    }
+
+    .manualPreparationRow button{
+        grid-column:1 / -1;
     }
 
     .productImageWrap{

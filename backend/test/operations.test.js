@@ -257,7 +257,7 @@ test("heartbeat kilidi uzatır, okutma kanıtı tamamlamada saklanır", async ()
             customerName: "Test Müşteri",
             platform: "Zoombutik",
             orderSnapshot: { products: [{ barcode: "123", quantity: 1 }] },
-            scans: [{ barcode: "123", productName: "Test Ürün", quantityIndex: 1 }]
+            scans: [{ barcode: "123", productName: "Test Ürün", quantityIndex: 1, source: "manual" }]
         })
     }, workerCookie);
     assert.equal(complete.response.status, 200);
@@ -266,6 +266,7 @@ test("heartbeat kilidi uzatır, okutma kanıtı tamamlamada saklanır", async ()
     assert.equal(evidence.response.status, 200);
     assert.equal(evidence.data.result.scans.length, 1);
     assert.equal(evidence.data.result.scans[0].barcode, "123");
+    assert.equal(evidence.data.result.scans[0].source, "manual");
 });
 
 test("süresi dolan hazırlama kilidi otomatik kaldırılır", async () => {

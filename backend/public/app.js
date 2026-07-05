@@ -867,6 +867,7 @@ function barkodIsle(okunanBarkod) {
         barcode: barkod,
         productName: urunAdi(eksikUrun.urun),
         quantityIndex: taramaDurumu[eksikUrun.index],
+        source: "barcode",
         scannedAt: new Date().toISOString()
     });
     hazirlamaKilitleriniYenile().catch(() =>
@@ -3691,6 +3692,78 @@ function urunListesiGuncelle() {
     }
 }
 
+function manuelHazirlamaPaneliGoster() {
+    document.getElementById("manualPreparationDialog")?.remove();
+    const urunler = aktifSiparis?.products || [];
+    const satirlar = urunler.map((urun, index) => {
+        if (hizmetUrunuMu(urun)) return "";
+        const gereken = urunAdedi(urun);
+        const okutulan = okutulanAdet(index);
+        const kalan = Math.max(0, gereken - okutulan);
+        const sorun = urununAcikSorunu(index);
+        return `
+            <div class="manualPreparationRow${kalan === 0 ? " completed" : ""}">
+                <div>
+                    <strong>${temizle(urunAdi(urun))}</strong>
+                    <span>${temizle(urunRengi(urun))} · ${temizle(urunBedeni(urun))} · ${temizle(urunBarkodu(urun))}</span>
+                </div>
+                <b>${temizle(okutulan)} / ${temizle(gereken)}</b>
+                <button type="button" data-manual-verify="${index}" ${kalan === 0 || sorun ? "disabled" : ""}>
+                    ${sorun ? "Sorun Kaydı Açık" : kalan === 0 ? "Tamamlandı" : "+1 Doğrula"}
+                </button>
+            </div>
+        `;
+    }).join("");
+
+    result.insertAdjacentHTML("beforeend", `
+        <div class="issueDialog manualPreparationDialog" id="manualPreparationDialog" role="dialog" aria-modal="true" aria-labelledby="manualPreparationTitle">
+            <div class="issueDialogCard manualPreparationCard">
+                <div class="issueDialogHeader">
+                    <div>
+                        <p class="eyebrow">Kamerasız Hazırlama</p>
+                        <h3 id="manualPreparationTitle">Ürünleri fiziksel olarak doğrula</h3>
+                        <span>Renk, beden ve ürünü kontrol ettikten sonra her adet için bir kez doğrulayın.</span>
+                    </div>
+                    <button type="button" class="issueCloseButton" data-close-manual aria-label="Kapat">×</button>
+                </div>
+                <div class="manualPreparationWarning">Manuel doğrulamalar personel adıyla işlem geçmişine kaydedilir.</div>
+                <div class="manualPreparationList">${satirlar}</div>
+            </div>
+        </div>
+    `);
+}
+
+async function urunuManuelDogrula(index) {
+    const urun = aktifSiparis?.products?.[index];
+    if (!urun || hizmetUrunuMu(urun) || urunTamamlandiMi(urun, index) || urununAcikSorunu(index)) return;
+
+    taramaDurumu[index] = okutulanAdet(index) + 1;
+    aktifTaramaKaniti.push({
+        barcode: urunBarkodu(urun),
+        productName: urunAdi(urun),
+        quantityIndex: taramaDurumu[index],
+        source: "manual",
+        scannedAt: new Date().toISOString()
+    });
+    await hazirlamaKilitleriniYenile().catch(() => {});
+    urunListesiGuncelle();
+    mesajGoster("success", "Manuel doğrulama kaydedildi", `${urunAdi(urun)} · ${taramaDurumu[index]} / ${urunAdedi(urun)}`);
+
+    if (tumGercekUrunlerTamamlandiMi()) {
+        if (aktifSiparisSorunlari.some(item => item.status === "open")) {
+            document.getElementById("manualPreparationDialog")?.remove();
+            mesajGoster("warning", "Sipariş beklemeye alındı", "Açık ürün sorunu çözülmeden sipariş tamamlanamaz.");
+            return;
+        }
+        document.getElementById("manualPreparationDialog")?.remove();
+        scannerDurdur();
+        await siparisiTamamla();
+        return;
+    }
+
+    manuelHazirlamaPaneliGoster();
+}
+
 function siparisDetayGoster(siparis) {
     scannerDurdur();
     aktifSiparis = siparis;
@@ -3750,7 +3823,10 @@ function siparisDetayGoster(siparis) {
                     <h3>Barkod Doğrulama</h3>
                     <p id="scanProgress">0 / ${temizle(toplamGerekliAdet)} adet doğrulandı</p>
                 </div>
-                <button class="scanButton" type="button" id="startScanner">📷 Barkodu Okut</button>
+                <div class="scannerActionButtons">
+                    <button class="manualPrepareButton" type="button" id="manualPrepare">Kamerasız Hazırla</button>
+                    <button class="scanButton" type="button" id="startScanner">📷 Barkodu Okut</button>
+                </div>
             </div>
 
             <div class="scannerPanel" id="scannerPanel" hidden>
@@ -4380,6 +4456,24 @@ result.addEventListener("click", async function (event) {
 
     if (scannerButonu) {
         scannerBaslat("order");
+        return;
+    }
+
+    if (event.target.closest("#manualPrepare")) {
+        scannerDurdur();
+        manuelHazirlamaPaneliGoster();
+        return;
+    }
+
+    if (event.target.closest("[data-close-manual]")) {
+        document.getElementById("manualPreparationDialog")?.remove();
+        return;
+    }
+
+    const manuelDogrulaButonu = event.target.closest("[data-manual-verify]");
+    if (manuelDogrulaButonu) {
+        manuelDogrulaButonu.disabled = true;
+        await urunuManuelDogrula(Number(manuelDogrulaButonu.dataset.manualVerify));
         return;
     }
 

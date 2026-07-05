@@ -319,6 +319,14 @@ const preparationColumns = new Set(
     database.prepare(`PRAGMA table_info(order_preparations)`).all().map(column => column.name)
 );
 
+const preparationScanColumns = new Set(
+    database.prepare(`PRAGMA table_info(preparation_scans)`).all().map(column => column.name)
+);
+
+if (!preparationScanColumns.has("source")) {
+    database.exec(`ALTER TABLE preparation_scans ADD COLUMN source TEXT NOT NULL DEFAULT 'barcode'`);
+}
+
 if (!preparationColumns.has("platform")) {
     database.exec(`ALTER TABLE order_preparations ADD COLUMN platform TEXT NOT NULL DEFAULT ''`);
 }
@@ -2729,15 +2737,16 @@ app.post("/preparations/complete", async (req, res, next) => {
 
         const insertScan = database.prepare(`
             INSERT INTO preparation_scans (
-                preparation_id, barcode, product_name, quantity_index, scanned_by_user_id
-            ) VALUES (?, ?, ?, ?, ?)
+                preparation_id, barcode, product_name, quantity_index, scanned_by_user_id, source
+            ) VALUES (?, ?, ?, ?, ?, ?)
         `);
         scans.forEach(scan => insertScan.run(
             preparation.id,
             String(scan.barcode || "").slice(0, 120),
             String(scan.productName || "").slice(0, 500),
             Math.max(1, Number(scan.quantityIndex) || 1),
-            req.user.id
+            req.user.id,
+            scan.source === "manual" ? "manual" : "barcode"
         ));
         let printSnapshot = {};
         try {
@@ -2765,7 +2774,9 @@ app.post("/preparations/complete", async (req, res, next) => {
     );
     denetimKaydiOlustur(req, "preparation.complete", "order", orderCode, `${orderCode} hazırlandı`, {
         customerName,
-        platform
+        platform,
+        barcodeScanCount: scans.filter(scan => scan.source !== "manual").length,
+        manualVerificationCount: scans.filter(scan => scan.source === "manual").length
     });
 
     res.json({ result: { id: preparation.id, status: "completed", proofImageUrl } });
@@ -2804,6 +2815,7 @@ app.get("/preparations/:id/evidence", (req, res) => {
     if (!preparation) return res.status(404).json({ error: "Hazırlama kaydı bulunamadı." });
     const scans = database.prepare(`
         SELECT scans.barcode, scans.product_name AS productName, scans.quantity_index AS quantityIndex,
+               scans.source,
                scans.scanned_at AS scannedAt, users.display_name AS scannedBy
         FROM preparation_scans scans
         JOIN app_users users ON users.id = scans.scanned_by_user_id
