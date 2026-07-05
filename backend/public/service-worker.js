@@ -1,4 +1,4 @@
-const CACHE_NAME = "zoom-depo-v3.9.2";
+const CACHE_NAME = "zoom-depo-v3.9.3";
 const STATIC_ASSETS = [
     "/style.css",
     "/app.js?v=3.8.2",
