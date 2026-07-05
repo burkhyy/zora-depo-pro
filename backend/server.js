@@ -731,10 +731,12 @@ function yazdirmaIsiDonustur(row) {
 }
 
 function otomatikEtiketiKuyrugaEkle(orderCode, snapshot) {
+    const shipmentCode = String(snapshot?.shipmentCode || "").trim();
+    if (!shipmentCode || shipmentCode.toUpperCase().startsWith("ZOOM-ORDER-")) return false;
     const payload = {
         ...snapshot,
         orderCode,
-        barcode: String(snapshot?.shipmentCode || `ZOOM-ORDER-${orderCode}`)
+        barcode: shipmentCode
     };
     database.prepare(`
         INSERT INTO print_jobs (order_code, label_type, payload_json)
@@ -745,6 +747,7 @@ function otomatikEtiketiKuyrugaEkle(orderCode, snapshot) {
             error_message = '',
             updated_at = CURRENT_TIMESTAMP
     `).run(orderCode, JSON.stringify(payload).slice(0, 250000));
+    return true;
 }
 
 app.post("/admin/print-agent/token", yoneticiGerekli, (req, res) => {
@@ -1273,19 +1276,18 @@ async function aktifSiparisleriGetir() {
                 .map(item => [siparisKimligi(item), item])
                 .filter(([key]) => key)
         );
-        const cancelledCodes = new Set(
+        const closedCodes = new Set(
             allPages
-                .filter(page => page.status === 6)
+                .filter(page => [3, 6].includes(page.status))
                 .flatMap(page => page.list)
                 .map(siparisKimligi)
                 .filter(Boolean)
         );
-        cancelledCodes.forEach(code => unique.delete(code));
-        allPages.filter(page => page.status !== 6).forEach(page => {
+        closedCodes.forEach(code => unique.delete(code));
+        allPages.filter(page => ![3, 6].includes(page.status)).forEach(page => {
             page.list.forEach(item => {
                 const key = siparisKimligi(item);
                 if (!key) return;
-                if (page.status === 3 && !unique.has(key)) return;
                 unique.set(key, item);
             });
         });
@@ -1734,8 +1736,7 @@ function yerelHazirlamaDurumlariniEkle(data) {
 
 app.get("/orders", async (req, res) => {
     try {
-        const data = yerelKargoCikisiYapilanlariCikar(await aktifSiparisleriGetir());
-        res.json(yerelHazirlamaDurumlariniEkle(data));
+        res.json(yerelHazirlamaDurumlariniEkle(await aktifSiparisleriGetir()));
     } catch (err) {
         apiDurumunuGuncelle(false, err.response?.data?.error || err.message);
         apiHatasiGonder(err, res);
@@ -1757,8 +1758,7 @@ app.get("/api-status", (req, res) => {
 
 app.get("/order/:code", async (req, res) => {
     try {
-        const activeData = yerelKargoCikisiYapilanlariCikar(await aktifSiparisleriGetir());
-        const data = yerelHazirlamaDurumlariniEkle(activeData);
+        const data = yerelHazirlamaDurumlariniEkle(await aktifSiparisleriGetir());
         const siparis = data.result.list.find(
             item => siparisKimligi(item).toUpperCase() === String(req.params.code).toUpperCase()
         );

@@ -2162,7 +2162,7 @@ function kargoGonderiKodu(siparis) {
 }
 
 function kargoEtiketiBarkodu(siparis) {
-    return kargoGonderiKodu(siparis) || sevkiyatBarkodu(siparis);
+    return kargoGonderiKodu(siparis);
 }
 
 function kargoFirmaEtiketi(siparis) {
@@ -2213,10 +2213,9 @@ async function etiketBaskisiniKaydet(orders) {
 function kargoCikisEtiketiGoster(siparis) {
     const shipmentCode = kargoEtiketiBarkodu(siparis);
     if (!shipmentCode) {
-        alert("Sipariş barkodu oluşturulamadı.");
+        alert("Kargo şirketinin kullanacağı gerçek kargo barkodu henüz Quka tarafından oluşturulmadı.");
         return;
     }
-    const dahiliBarkod = !kargoGonderiKodu(siparis);
     const previousPrint = etiketBaskiKaydi(siparis);
     if (previousPrint && !confirm(
         `Bu siparişin etiketi daha önce ${previousPrint.printCount} kez yazdırıldı.\n`
@@ -2249,7 +2248,7 @@ function kargoCikisEtiketiGoster(siparis) {
                 <strong class="cargoCity">${temizle([delivery.district, delivery.city].filter(Boolean).join(" / ") || "-")}</strong>
                 <div class="cargoBarcodeArea">
                     <svg id="cargoBarcodeSvg" aria-label="${temizle(shipmentCode)}"></svg>
-                    <span>${dahiliBarkod ? "Dahili barkod" : "Kargo barkodu"} · Sipariş: ${temizle(siparisKodu(siparis))}</span>
+                    <span>Kargo barkodu · Sipariş: ${temizle(siparisKodu(siparis))}</span>
                 </div>
             </div>
             <div class="barcodePrintActions">
@@ -2327,7 +2326,7 @@ function topluKargoEtiketleriGoster(orders) {
                             <strong class="cargoCity">${temizle([delivery.district, delivery.city].filter(Boolean).join(" / ") || "-")}</strong>
                             <div class="cargoBarcodeArea">
                                 <svg id="bulkCargoBarcode${index}" aria-label="${temizle(kargoEtiketiBarkodu(order))}"></svg>
-                                <span>${kargoGonderiKodu(order) ? "Kargo barkodu" : "Dahili barkod"} · Sipariş: ${temizle(siparisKodu(order))}</span>
+                                <span>Kargo barkodu · Sipariş: ${temizle(siparisKodu(order))}</span>
                             </div>
                         </div>
                     `;
@@ -2420,41 +2419,20 @@ async function sevkiyatDurumuKaydet(siparis, status, extra = {}) {
 
 function sevkiyatKarti(siparis, kayit, shipped = false) {
     const code = siparisKodu(siparis);
-    const hazirMi = kayit?.status === "ready";
-    const status = shipped
-        ? "Kargoya Verildi"
-        : hazirMi
-            ? "Kargoya Hazır"
-            : kayit?.status === "pending" ? "Eksikte Bekliyor" : "Hazırlanmadı";
+    const kargoBarkoduHazir = Boolean(kargoGonderiKodu(siparis));
 
     return `
-        <article class="shipmentCard ${shipped ? "shipped" : "pending"}">
+        <article class="shipmentCard pending">
             <div>
-                <span class="shipmentStatus">${temizle(status)}</span>
+                <span class="shipmentStatus">Kargoya Hazır</span>
                 <h3>${temizle(musteriAdi(siparis))}</h3>
                 <p>${temizle(code)} · ${temizle(platformAdi(siparis))}</p>
-                ${kayit?.trackingNumber ? `<p><strong>${temizle(kayit.carrier || "Kargo")}</strong> · ${temizle(kayit.trackingNumber)}
-                    ${kayit.trackingUrl ? ` · <a href="${temizle(kayit.trackingUrl)}" target="_blank" rel="noopener">Takibi Aç</a>` : ""}</p>` : ""}
+                <p>${kargoBarkoduHazir ? "Gerçek kargo barkodu hazır" : "Quka kargo barkodu bekleniyor"}</p>
             </div>
             <div class="shipmentActions">
-                <button type="button" class="printShipmentButton" data-print-shipment="${temizle(code)}">
-                    Sevkiyat Barkodu
-                </button>
-                <button type="button" class="printShipmentButton" data-print-cargo-order="${temizle(code)}">
+                <button type="button" class="printShipmentButton" data-print-cargo-order="${temizle(code)}" ${kargoBarkoduHazir ? "" : "disabled"}>
                     100×100 Kargo Etiketi
                 </button>
-                <button type="button" class="printShipmentButton" data-tracking-order="${temizle(code)}">
-                    Takip Bilgisi
-                </button>
-                ${shipped ? `
-                    <button type="button" class="undoShippedButton" data-undo-shipped="${temizle(code)}">
-                        Geri Al
-                    </button>
-                ` : `
-                    <button type="button" class="markShippedButton${hazirMi ? "" : " blocked"}" data-mark-shipped="${temizle(code)}" ${hazirMi ? "" : "disabled"} title="${hazirMi ? "Siparişi kargoya verilenlere taşı" : "Önce siparişteki tüm ürünler hazırlanmalıdır"}">
-                        ${hazirMi ? "Kargoya Verildi" : "Önce Hazırla"}
-                    </button>
-                `}
             </div>
         </article>
     `;
@@ -2486,7 +2464,7 @@ function sevkiyatListeleriniGoster() {
     const kayitMap = new Map(sevkiyatKayitlari.map(item => [item.orderCode.toUpperCase(), item]));
     const bekleyenTum = siparisler.filter(item => {
         const kayit = kayitMap.get(siparisKodu(item).toUpperCase());
-        return kayit?.status !== "shipped";
+        return kayit?.status === "ready";
     });
     const verilenTum = sevkiyatKayitlari
         .filter(item => item.status === "shipped")
@@ -2576,18 +2554,13 @@ async function sevkiyatEkraniGoster() {
         <section class="shipmentTool">
             <div class="locationHeader">
                 <div>
-                    <p class="eyebrow">Sevkiyat Takibi</p>
-                    <h2>Kargo çıkış kontrolü</h2>
+                    <p class="eyebrow">Kargoya Hazır</p>
+                    <h2>100×100 kargo etiketleri</h2>
                 </div>
-                <button class="scanButton" type="button" id="startShipmentScanner">📷 Sipariş Barkodu Okut</button>
-            </div>
-            <div class="scannerPanel" id="scannerPanel" hidden>
-                <video id="scannerVideo" muted playsinline></video>
-                <div class="scanFrame"></div>
             </div>
             <div class="scanMessage info" id="scanMessage">
-                <strong>Kargoya verilen siparişin sevkiyat barkodunu okutun.</strong>
-                <span>Sipariş otomatik olarak Kargoya Verilenler listesine taşınır.</span>
+                <strong>Depoda ikinci bir sevkiyat okutması yapılmaz.</strong>
+                <span>Kargo firması 100×100 etiketi okuttuğunda Quka durumu güncellenir ve sipariş bu listeden otomatik çıkar.</span>
             </div>
             <div id="shipmentPlatformTabs">
                 ${platformSekmeleriHtml("shipments", aktifSevkiyatPlatformu, [], platformAdi)}
@@ -2597,27 +2570,15 @@ async function sevkiyatEkraniGoster() {
                 <input id="shipmentSearch" type="search" placeholder="Müşteri adı, sipariş no veya platform..." autocomplete="off">
                 <small id="shipmentSearchSummary">Müşteri adı, sipariş no veya platform ile arayın.</small>
             </label>
-            <div class="shipmentViewTabs" role="tablist" aria-label="Sevkiyat listeleri">
-                <button class="active" type="button" role="tab" aria-selected="true" data-shipment-view="pending">
-                    Eksikte Bekleyenler <span id="pendingShipmentCount">0</span>
-                </button>
-                <button type="button" role="tab" aria-selected="false" data-shipment-view="shipped">
-                    Kargoya Verilenler <span id="shippedShipmentCount">0</span>
-                </button>
-            </div>
             <div class="shipmentPanels">
                 <section id="pendingShipmentPanel" role="tabpanel">
                     <div class="sectionTitle">
-                        <h3>Eksikte Bekleyenler</h3>
+                        <h3>Etiket Bekleyen Hazır Paketler</h3>
+                        <span><b id="pendingShipmentCount">0</b> sipariş</span>
                     </div>
                     <div class="shipmentList" id="pendingShipments"></div>
                 </section>
-                <section id="shippedShipmentPanel" role="tabpanel" hidden>
-                    <div class="sectionTitle">
-                        <h3>Kargoya Verilenler</h3>
-                    </div>
-                    <div class="shipmentList" id="shippedShipments"></div>
-                </section>
+                <div id="shippedShipmentPanel" hidden><div id="shippedShipments"></div><span id="shippedShipmentCount">0</span></div>
             </div>
         </section>
     `;
@@ -3908,7 +3869,7 @@ function siparisOzeti(siparis) {
             "shippingAddress.phone"
         ], ""),
         delivery: teslimatAdresi(siparis),
-        shipmentCode: kargoGonderiKodu(siparis) || sevkiyatBarkodu(siparis),
+        shipmentCode: kargoGonderiKodu(siparis),
         total: toplamTutar(siparis),
         products
     };

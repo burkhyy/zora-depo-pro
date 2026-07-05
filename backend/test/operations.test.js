@@ -180,7 +180,7 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
     assert.equal(refreshedQueue.data.result.some(item => item.orderCode === "CACHED-ORDER"), false);
 });
 
-test("sipariş yalnızca yerel kargo çıkışından sonra aktif listeden kalkar", async () => {
+test("yerel sevkiyat işlemi Quka kargo durumundan önce siparişi gizlemez", async () => {
     const adminCookie = await login("testadmin", "TestPassword123!");
     const completed = await request("/preparations/complete", {
         method: "POST",
@@ -218,7 +218,7 @@ test("sipariş yalnızca yerel kargo çıkışından sonra aktif listeden kalkar
     assert.equal(shipped.response.status, 200);
 
     const afterShipmentScan = await request("/orders", {}, adminCookie);
-    assert.equal(afterShipmentScan.data.result.list.some(item => item.order.code === "CACHED-ORDER"), false);
+    assert.equal(afterShipmentScan.data.result.list.some(item => item.order.code === "CACHED-ORDER"), true);
 });
 
 test.after(async () => {
