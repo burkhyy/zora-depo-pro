@@ -2199,7 +2199,16 @@ function kargoGonderiKodu(siparis) {
 }
 
 function kargoEtiketiBarkodu(siparis) {
-    return kargoGonderiKodu(siparis);
+    const shipmentCode = kargoGonderiKodu(siparis);
+    if (shipmentCode) return shipmentCode;
+
+    const suratSiparisi = aramaNormalize(kargoFirmaEtiketi(siparis)).includes("surat");
+    const zoombutikSiparisi = platformAnahtari(platformAdi(siparis)) === "zoombutik";
+    return suratSiparisi && zoombutikSiparisi ? String(siparisKodu(siparis)).trim() : "";
+}
+
+function qukaSiparisKoduBarkodOlarakKullaniliyor(siparis) {
+    return !kargoGonderiKodu(siparis) && Boolean(kargoEtiketiBarkodu(siparis));
 }
 
 function kargoFirmaEtiketi(siparis) {
@@ -2301,7 +2310,7 @@ function kargoCikisEtiketiGoster(siparis) {
                 ${kargoEtiketiSiparisOzeti(siparis)}
                 <div class="cargoBarcodeArea">
                     <svg id="cargoBarcodeSvg" aria-label="${temizle(shipmentCode)}"></svg>
-                    <span>Kargo barkodu · Sipariş: ${temizle(siparisKodu(siparis))}</span>
+                    <span>${qukaSiparisKoduBarkodOlarakKullaniliyor(siparis) ? "Quka kargo kodu" : "Kargo barkodu"} · Sipariş: ${temizle(siparisKodu(siparis))}</span>
                 </div>
             </div>
             <div class="barcodePrintActions">
@@ -2380,7 +2389,7 @@ function topluKargoEtiketleriGoster(orders) {
                             ${kargoEtiketiSiparisOzeti(order)}
                             <div class="cargoBarcodeArea">
                                 <svg id="bulkCargoBarcode${index}" aria-label="${temizle(kargoEtiketiBarkodu(order))}"></svg>
-                                <span>Kargo barkodu · Sipariş: ${temizle(siparisKodu(order))}</span>
+                                <span>${qukaSiparisKoduBarkodOlarakKullaniliyor(order) ? "Quka kargo kodu" : "Kargo barkodu"} · Sipariş: ${temizle(siparisKodu(order))}</span>
                             </div>
                         </div>
                     `;
@@ -3932,7 +3941,7 @@ function siparisOzeti(siparis) {
             "shippingAddress.phone"
         ], ""),
         delivery: teslimatAdresi(siparis),
-        shipmentCode: kargoGonderiKodu(siparis),
+        shipmentCode: kargoEtiketiBarkodu(siparis),
         paymentMethod: odemeYontemi(siparis),
         total: toplamTutar(siparis),
         products
