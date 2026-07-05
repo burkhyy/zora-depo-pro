@@ -141,6 +141,8 @@ function siparisiYereldeHazirIsaretle(siparis) {
 
 function toplamTutar(item) {
     const tutar = alanOku(item, [
+        "summary.overall",
+        "summary.total",
         "order.total",
         "order.totalPrice",
         "order.grandTotal",
@@ -170,6 +172,8 @@ function toplamTutar(item) {
 
 function toplamTutarSayisi(item) {
     const deger = alanOku(item, [
+        "summary.overall",
+        "summary.total",
         "order.total",
         "order.totalPrice",
         "order.grandTotal",
