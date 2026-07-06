@@ -1292,11 +1292,14 @@ function listeGoster(liste) {
         </div>
         <div class="bulkLabelControls" ${aktifSiparisGorunumu !== "batch" ? "" : "hidden"}>
             <div>
-                <strong>Kargo etiketi seçimi</strong>
+                <strong>Toplu yazdırma seçimi</strong>
                 <span id="selectedOrderCount">${temizle(secilenSiparisKodlari.size)} sipariş seçildi</span>
             </div>
             <button type="button" data-select-all-orders>Tümünü Seç</button>
             <button type="button" data-clear-order-selection>Seçimi Kaldır</button>
+            <button class="cargoLabelButton" type="button" data-print-selected-slips ${secilenSiparisKodlari.size ? "" : "disabled"}>
+                Seçilen A4 Sipariş Fişlerini Yazdır
+            </button>
             <button class="cargoLabelButton" type="button" data-print-selected-orders ${secilenSiparisKodlari.size ? "" : "disabled"}>
                 Seçilen Kargo Etiketlerini Yazdır
             </button>
@@ -1351,9 +1354,8 @@ function listeGoster(liste) {
                 <div class="cardTop">
                     <label class="orderSelect">
                         <input type="checkbox" data-select-order="${temizle(kod)}"
-                            ${secilenSiparisKodlari.has(kod) ? "checked" : ""}
-                            ${kargoEtiketiBarkodu(item) ? "" : "disabled"}>
-                        <span>Etiket için seç</span>
+                            ${secilenSiparisKodlari.has(kod) ? "checked" : ""}>
+                        <span>Yazdırmak için seç</span>
                     </label>
                     <div class="orderCardIdentity">
                         <h2>${temizle(musteriAdi(item))}</h2>
@@ -1398,9 +1400,11 @@ function sekmeDurumuGuncelle() {
 
 function secimKontrolleriniGuncelle() {
     const count = document.getElementById("selectedOrderCount");
-    const printButton = document.querySelector("[data-print-selected-orders]");
+    const printButtons = document.querySelectorAll("[data-print-selected-orders], [data-print-selected-slips]");
     if (count) count.textContent = `${secilenSiparisKodlari.size} sipariş seçildi`;
-    if (printButton) printButton.disabled = secilenSiparisKodlari.size === 0;
+    printButtons.forEach(button => {
+        button.disabled = secilenSiparisKodlari.size === 0;
+    });
 }
 
 function rafKayitlari() {
@@ -2407,14 +2411,11 @@ function manuelKargoEtiketleriniYazdir(etiketler) {
     document.body.appendChild(frame);
 }
 
-async function siparisFisiYazdir(siparis) {
-    await Promise.all([
-        siparisRafRotasiniUygula(siparis),
-        urunGorselleriniYukle()
-    ]);
-
-    const urunler = (siparis.products || []).filter(urun => !hizmetUrunuMu(urun));
-    const teslimat = teslimatAdresi(siparis);
+async function siparisFisiYazdir(siparisVeyaListe) {
+    const fisSiparisleri = (Array.isArray(siparisVeyaListe) ? siparisVeyaListe : [siparisVeyaListe]).filter(Boolean);
+    if (!fisSiparisleri.length) return;
+    await Promise.all(fisSiparisleri.map(siparisRafRotasiniUygula));
+    await urunGorselleriniYukle();
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.position = "fixed";
@@ -2449,12 +2450,14 @@ async function siparisFisiYazdir(siparis) {
         <html lang="tr">
         <head>
             <meta charset="utf-8">
-            <title>Sipariş Fişi · ${temizle(siparisKodu(siparis))}</title>
+            <title>Sipariş Fişi · ${temizle(fisSiparisleri.length === 1 ? siparisKodu(fisSiparisleri[0]) : `${fisSiparisleri.length} sipariş`)}</title>
             <style>
                 @page { size: A4 portrait; margin: 10mm; }
                 * { box-sizing: border-box; }
                 html, body { margin: 0; padding: 0; color: #101828; background: #fff; font-family: Arial, sans-serif; }
                 body { width: 190mm; font-size: 10pt; }
+                .slipPage { width: 190mm; min-height: 277mm; break-after: page; page-break-after: always; }
+                .slipPage:last-child { break-after: auto; page-break-after: auto; }
                 header { display: flex; justify-content: space-between; gap: 10mm; padding-bottom: 5mm; border-bottom: 2px solid #101828; }
                 h1 { margin: 0 0 2mm; font-size: 22pt; }
                 .brand { font-size: 12pt; font-weight: 900; letter-spacing: .08em; }
@@ -2478,7 +2481,10 @@ async function siparisFisiYazdir(siparis) {
                 footer div { padding-top: 7mm; border-top: 1px solid #667085; color: #667085; text-align: center; }
             </style>
         </head>
-        <body>
+        <body>${fisSiparisleri.map(siparis => {
+            const urunler = (siparis.products || []).filter(urun => !hizmetUrunuMu(urun));
+            const teslimat = teslimatAdresi(siparis);
+            return `<section class="slipPage">
             <header>
                 <div>
                     <div class="brand">ZOOM DEPO</div>
@@ -2525,7 +2531,8 @@ async function siparisFisiYazdir(siparis) {
                 }).join("")}
             </main>
             <footer><div>Hazırlayan</div><div>Kontrol Eden</div></footer>
-        </body>
+            </section>`;
+        }).join("")}</body>
         </html>
     `;
     document.body.appendChild(frame);
@@ -4600,6 +4607,12 @@ result.addEventListener("click", async function (event) {
     if (event.target.closest("[data-print-selected-orders]")) {
         const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
         topluKargoEtiketleriGoster(orders);
+        return;
+    }
+
+    if (event.target.closest("[data-print-selected-slips]")) {
+        const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
+        await siparisFisiYazdir(orders);
         return;
     }
 
