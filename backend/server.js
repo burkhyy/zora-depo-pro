@@ -1439,7 +1439,7 @@ function apiDurumunuGuncelle(healthy, message = "") {
         bildirimOlustur(
             "api_recovered",
             "Qukasoft API bağlantısı düzeldi",
-            "Trendyol ve Zoombutik siparişleri yeniden güncelleniyor.",
+            "Zoom siparişleri yeniden güncelleniyor.",
             "",
             "admin"
         );
@@ -1556,8 +1556,18 @@ async function aktifSiparisleriGetir() {
                 unique.set(key, item);
             });
         });
+        const qukaSirasi = new Map();
+        allPages
+            .filter(page => ![3, 6].includes(page.status))
+            .flatMap(page => page.list)
+            .forEach(item => {
+                const key = siparisKimligi(item);
+                if (key && !qukaSirasi.has(key)) qukaSirasi.set(key, qukaSirasi.size);
+            });
         const list = [...unique.values()].sort((a, b) =>
-            Number(b?.order?.id || b?.id || 0) - Number(a?.order?.id || a?.id || 0)
+            (qukaSirasi.get(siparisKimligi(a)) ?? Number.MAX_SAFE_INTEGER)
+            - (qukaSirasi.get(siparisKimligi(b)) ?? Number.MAX_SAFE_INTEGER)
+            || Number(b?.order?.id || b?.id || 0) - Number(a?.order?.id || a?.id || 0)
         );
         activeOrderCache = {
             code: 200,
