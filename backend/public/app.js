@@ -1385,7 +1385,7 @@ function listeGoster(liste) {
 
                 <div class="orderCardActions">
                     <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(kod)}">
-                        A4 Sipariş Fişi Yazdır
+                        ${temizle(siparisFisiButonMetni(item))}
                     </button>
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(kod)}">
                         100×100 Kargo Etiketi
@@ -2343,6 +2343,11 @@ async function siparisFisiBaskiKayitlariniGetir() {
 
 function siparisFisiBaskiKaydi(order) {
     return siparisFisiBaskiKayitlari[siparisKodu(order).toUpperCase()] || null;
+}
+
+function siparisFisiButonMetni(order, kisa = false) {
+    if (siparisFisiBaskiKaydi(order)) return "✓ Yazdırıldı · Tekrar Yazdır";
+    return kisa ? "A4 Sipariş Fişi" : "A4 Sipariş Fişi Yazdır";
 }
 
 async function siparisFisiBaskisiniKaydet(orders) {
@@ -4240,7 +4245,7 @@ function siparisDetayGoster(siparis) {
                 </div>
                 <div>
                     <span class="statusPill">${temizle(siparisDurumu(siparis))}</span>
-                    <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(siparisKodu(siparis))}">A4 Sipariş Fişi Yazdır</button>
+                    <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(siparisKodu(siparis))}">${temizle(siparisFisiButonMetni(siparis))}</button>
                 </div>
             </div>
 
@@ -4328,7 +4333,7 @@ function siparisHazirEkraniGoster() {
                         ${batchCount ? `${temizle(siparisKodu(order))} · ` : ""}100×100 Kargo Etiketi
                     </button>
                     <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(siparisKodu(order))}">
-                        ${batchCount ? `${temizle(siparisKodu(order))} · ` : ""}A4 Sipariş Fişi
+                        ${batchCount ? `${temizle(siparisKodu(order))} · ` : ""}${temizle(siparisFisiButonMetni(order, true))}
                     </button>
                 `).join("")}
             </div>
@@ -4545,9 +4550,15 @@ result.addEventListener("click", async function (event) {
             mesajGoster("error", "Sipariş fişi hazırlanamadı", "Sipariş bilgisi bulunamadı.");
             return;
         }
+        const oncekiBaski = siparisFisiBaskiKaydi(siparis);
+        if (oncekiBaski && !confirm(
+            `Bu siparişin A4 fişi daha önce ${oncekiBaski.printCount} kez yazdırıldı.\n`
+            + `Son baskı: ${oncekiBaski.lastPrintedBy} · ${tarihSaatGoster(oncekiBaski.lastPrintedAt)}\n\nTekrar yazdırılsın mı?`
+        )) return;
         siparisFisiButonu.disabled = true;
         try {
             await siparisFisiYazdir(siparis);
+            siparisFisiButonu.textContent = "✓ Yazdırıldı · Tekrar Yazdır";
         } catch (err) {
             mesajGoster("error", "Sipariş fişi hazırlanamadı", err.message);
         } finally {
@@ -4663,6 +4674,10 @@ result.addEventListener("click", async function (event) {
 
     if (event.target.closest("[data-print-selected-slips]")) {
         const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
+        const dahaOnceYazdirilanlar = orders.filter(siparisFisiBaskiKaydi);
+        if (dahaOnceYazdirilanlar.length && !confirm(
+            `Seçilen siparişlerden ${dahaOnceYazdirilanlar.length} tanesinin A4 fişi daha önce yazdırıldı.\n\nTümü tekrar yazdırılsın mı?`
+        )) return;
         await siparisFisiYazdir(orders);
         return;
     }
