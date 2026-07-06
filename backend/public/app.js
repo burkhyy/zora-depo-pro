@@ -2318,6 +2318,92 @@ async function etiketBaskisiniKaydet(orders) {
     await etiketBaskiKayitlariniGetir();
 }
 
+function manuelKargoEtiketleriniYazdir(etiketler) {
+    const etiketHtml = etiketler.map(etiket => etiket.outerHTML).join("");
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.position = "fixed";
+    frame.style.left = "-10000px";
+    frame.style.top = "0";
+    frame.style.width = "100mm";
+    frame.style.height = "100mm";
+    frame.style.border = "0";
+
+    const temizleFrame = () => frame.remove();
+    frame.addEventListener("load", () => {
+        const printWindow = frame.contentWindow;
+        if (!printWindow) {
+            temizleFrame();
+            mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+            return;
+        }
+
+        printWindow.addEventListener("afterprint", temizleFrame, { once: true });
+        printWindow.requestAnimationFrame(() => {
+            printWindow.requestAnimationFrame(() => {
+                window.setTimeout(() => {
+                    try {
+                        printWindow.focus();
+                        printWindow.print();
+                    } catch {
+                        temizleFrame();
+                        mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+                    }
+                }, 250);
+            });
+        });
+    }, { once: true });
+
+    frame.srcdoc = `
+        <!doctype html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>100x100 Kargo Etiketi</title>
+            <link rel="stylesheet" href="/style.css?v=3.10.6">
+            <style>
+                @page { size: 100mm 100mm; margin: 0; }
+                * { box-sizing: border-box; }
+                html, body {
+                    width: 100mm !important;
+                    min-width: 100mm !important;
+                    height: auto !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    overflow: visible !important;
+                    background: #fff !important;
+                }
+                body > .cargoShippingLabel {
+                    display: grid !important;
+                    width: 100mm !important;
+                    min-width: 100mm !important;
+                    max-width: 100mm !important;
+                    height: 100mm !important;
+                    min-height: 100mm !important;
+                    max-height: 100mm !important;
+                    margin: 0 !important;
+                    padding: 4mm !important;
+                    border: 0 !important;
+                    overflow: hidden !important;
+                    break-after: page;
+                    page-break-after: always;
+                }
+                body > .cargoShippingLabel:last-child {
+                    break-after: auto;
+                    page-break-after: auto;
+                }
+                .cargoBarcodeArea svg {
+                    width: 100% !important;
+                    max-width: none !important;
+                }
+            </style>
+        </head>
+        <body>${etiketHtml}</body>
+        </html>
+    `;
+    document.body.appendChild(frame);
+}
+
 function kargoCikisEtiketiGoster(siparis) {
     const shipmentCode = kargoEtiketiBarkodu(siparis);
     if (!shipmentCode) {
@@ -2391,11 +2477,9 @@ function kargoCikisEtiketiGoster(siparis) {
             mesajGoster("error", "Baskı kaydı oluşturulamadı", err.message);
             return;
         }
-        const pageStyle = document.createElement("style");
-        pageStyle.textContent = "@page{size:100mm 100mm;margin:0}";
-        document.head.appendChild(pageStyle);
-        window.print();
-        window.setTimeout(() => pageStyle.remove(), 500);
+        manuelKargoEtiketleriniYazdir([
+            modal.querySelector(".cargoShippingLabel")
+        ]);
     });
 }
 
@@ -2475,11 +2559,9 @@ function topluKargoEtiketleriGoster(orders) {
             mesajGoster("error", "Baskı kayıtları oluşturulamadı", err.message);
             return;
         }
-        const pageStyle = document.createElement("style");
-        pageStyle.textContent = "@page{size:100mm 100mm;margin:0}";
-        document.head.appendChild(pageStyle);
-        window.print();
-        window.setTimeout(() => pageStyle.remove(), 500);
+        manuelKargoEtiketleriniYazdir(
+            [...modal.querySelectorAll(".cargoShippingLabel")]
+        );
     });
 }
 
