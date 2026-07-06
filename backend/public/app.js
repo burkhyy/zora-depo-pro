@@ -4052,23 +4052,6 @@ function siparisHazirEkraniGoster() {
                 ? aktifTopluSiparisler.map(order => temizle(siparisKodu(order))).join(" · ")
                 : `Sipariş No: <strong>${temizle(siparisKodu(aktifSiparis))}</strong>`}</p>
             ${!batchCount && sonPaketKodu ? `<p class="packageSequenceNotice">Paket sıra numarası: <strong>${temizle(sonPaketKodu)}</strong></p>` : ""}
-            ${!batchCount ? (sonPaketKodu ? `
-                <div class="queueCompletionNotice success">
-                    <strong>Etiket kişisel kuyruğuna eklendi.</strong>
-                    <span>Etiketin çıkması için Kargoya Hazır ekranında “Etiketleri Zebra’ya Gönder” düğmesine bas.</span>
-                    <button type="button" id="openPersonalPrintQueue">Kişisel Kuyruğu Aç</button>
-                </div>
-            ` : `
-                <div class="queueCompletionNotice warning">
-                    <strong>Etiket kuyruğa eklenmedi.</strong>
-                    <span>Siparişte geçerli Quka/kargo barkodu bulunamadı. Siparişi yenileyip kargo barkodunu kontrol et.</span>
-                </div>
-            `) : `
-                <div class="queueCompletionNotice success">
-                    <strong>Hazırlanan etiketler personel kuyruklarına eklendi.</strong>
-                    <button type="button" id="openPersonalPrintQueue">Kişisel Kuyruğu Aç</button>
-                </div>
-            `}
             <div class="completeLabelActions">
                 ${(batchCount ? aktifTopluSiparisler : [aktifSiparis]).map(order => `
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(siparisKodu(order))}">
@@ -4697,11 +4680,6 @@ result.addEventListener("click", async function (event) {
 
     if (acButonu) {
         siparisSec(acButonu.dataset.orderCode);
-        return;
-    }
-
-    if (event.target.closest("#openPersonalPrintQueue")) {
-        await sevkiyatEkraniGoster();
         return;
     }
 
