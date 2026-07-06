@@ -2566,7 +2566,10 @@ async function siparisFisiYazdir(siparisVeyaListe) {
             </div>
             <main>
                 ${urunler.map(urun => {
-                    const gorsel = urunGorseli(urun);
+                    const productId = urunProductId(urun);
+                    const gorsel = productId
+                        ? `/product-image/${encodeURIComponent(productId)}`
+                        : urunGorseli(urun);
                     return `
                         <article class="product">
                             <div class="photo">${gorsel
