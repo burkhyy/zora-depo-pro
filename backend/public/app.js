@@ -2416,6 +2416,20 @@ async function siparisFisiYazdir(siparisVeyaListe) {
     if (!fisSiparisleri.length) return;
     await Promise.all(fisSiparisleri.map(siparisRafRotasiniUygula));
     await urunGorselleriniYukle();
+    const fisBarkodlari = new Map(fisSiparisleri.map(siparis => {
+        const barkod = kargoEtiketiBarkodu(siparis);
+        if (!barkod || typeof JsBarcode !== "function") return [siparis, ""];
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        JsBarcode(svg, barkod, {
+            format: "CODE128",
+            width: 1.5,
+            height: 42,
+            displayValue: true,
+            fontSize: 12,
+            margin: 0
+        });
+        return [siparis, svg.outerHTML];
+    }));
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.position = "fixed";
@@ -2461,7 +2475,9 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                 header { display: flex; justify-content: space-between; gap: 10mm; padding-bottom: 5mm; border-bottom: 2px solid #101828; }
                 h1 { margin: 0 0 2mm; font-size: 22pt; }
                 .brand { font-size: 12pt; font-weight: 900; letter-spacing: .08em; }
-                .orderCode { padding: 3mm 5mm; border: 2px solid #101828; border-radius: 2mm; font-size: 15pt; font-weight: 900; }
+                .orderCode { display: grid; justify-items: center; width: 68mm; padding: 2mm 3mm; border: 2px solid #101828; border-radius: 2mm; font-size: 15pt; font-weight: 900; text-align: center; }
+                .orderCode svg { display: block; width: 62mm; height: 17mm; }
+                .orderCode small { margin-top: 1mm; font-size: 7pt; font-weight: 700; }
                 .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2mm; margin: 4mm 0; }
                 .meta div { min-height: 16mm; padding: 2.5mm; border: 1px solid #d0d5dd; border-radius: 2mm; }
                 .meta span { display: block; margin-bottom: 1mm; color: #667085; font-size: 8pt; font-weight: 700; text-transform: uppercase; }
@@ -2477,8 +2493,6 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                 .details { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 4mm; color: #344054; font-size: 8.5pt; }
                 .details b { color: #101828; }
                 .quantity { font-size: 18pt; font-weight: 900; text-align: center; }
-                footer { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; margin-top: 6mm; break-inside: avoid; }
-                footer div { padding-top: 7mm; border-top: 1px solid #667085; color: #667085; text-align: center; }
             </style>
         </head>
         <body>${fisSiparisleri.map(siparis => {
@@ -2491,7 +2505,10 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                     <h1>Sipariş Toplama Fişi</h1>
                     <span>${temizle(new Date().toLocaleString("tr-TR"))}</span>
                 </div>
-                <div class="orderCode">${temizle(siparisKodu(siparis))}</div>
+                <div class="orderCode">
+                    ${fisBarkodlari.get(siparis) || temizle(siparisKodu(siparis))}
+                    ${fisBarkodlari.get(siparis) ? `<small>Sipariş: ${temizle(siparisKodu(siparis))}</small>` : ""}
+                </div>
             </header>
             <section class="meta">
                 <div><span>Müşteri</span><strong>${temizle(musteriAdi(siparis))}</strong></div>
@@ -2530,7 +2547,6 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                     `;
                 }).join("")}
             </main>
-            <footer><div>Hazırlayan</div><div>Kontrol Eden</div></footer>
             </section>`;
         }).join("")}</body>
         </html>
