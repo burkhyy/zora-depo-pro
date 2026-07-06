@@ -1238,7 +1238,6 @@ function listeGoster(liste) {
         platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
         && (!aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
         && siparisRafGrubunaUyuyor(item, aktifSiparisRafGrubu)
-        && (aktifSiparisGorunumu !== "quick" || siparisToplamAdedi(item) === 1)
     ));
     const toplamSayfa = Math.max(1, Math.ceil(platformListesi.length / siparisSayfaBoyutu));
     aktifSiparisSayfasi = Math.min(Math.max(1, aktifSiparisSayfasi), toplamSayfa);
@@ -1268,7 +1267,6 @@ function listeGoster(liste) {
                 <span>Hazırlama şekli</span>
                 <select id="orderViewMode">
                     <option value="single" ${aktifSiparisGorunumu === "single" ? "selected" : ""}>Tek Siparişler</option>
-                    <option value="quick" ${aktifSiparisGorunumu === "quick" ? "selected" : ""}>Tek Ürün Hızlı</option>
                     <option value="batch" ${aktifSiparisGorunumu === "batch" ? "selected" : ""}>Aynı Ürünlü Gruplar</option>
                 </select>
             </label>
@@ -1348,8 +1346,6 @@ function listeGoster(liste) {
     sayfadakiSiparisler.forEach(item => {
         const kod = siparisKodu(item);
         const urunSayisi = (item.products || []).filter(urun => !hizmetUrunuMu(urun)).length;
-        const hizliSiparis = siparisToplamAdedi(item) === 1;
-
         result.innerHTML += `
             <article class="orderCard">
                 <div class="cardTop">
@@ -1382,8 +1378,8 @@ function listeGoster(liste) {
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(kod)}">
                         100×100 Kargo Etiketi
                     </button>
-                    <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}" ${hizliSiparis ? "data-quick-order" : ""}>
-                        ${hizliSiparis ? "Tek Ürün Hızlı Hazırla" : "Siparişi Aç"}
+                    <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}">
+                        Siparişi Aç
                     </button>
                 </div>
             </article>
@@ -4056,6 +4052,23 @@ function siparisHazirEkraniGoster() {
                 ? aktifTopluSiparisler.map(order => temizle(siparisKodu(order))).join(" · ")
                 : `Sipariş No: <strong>${temizle(siparisKodu(aktifSiparis))}</strong>`}</p>
             ${!batchCount && sonPaketKodu ? `<p class="packageSequenceNotice">Paket sıra numarası: <strong>${temizle(sonPaketKodu)}</strong></p>` : ""}
+            ${!batchCount ? (sonPaketKodu ? `
+                <div class="queueCompletionNotice success">
+                    <strong>Etiket kişisel kuyruğuna eklendi.</strong>
+                    <span>Etiketin çıkması için Kargoya Hazır ekranında “Etiketleri Zebra’ya Gönder” düğmesine bas.</span>
+                    <button type="button" id="openPersonalPrintQueue">Kişisel Kuyruğu Aç</button>
+                </div>
+            ` : `
+                <div class="queueCompletionNotice warning">
+                    <strong>Etiket kuyruğa eklenmedi.</strong>
+                    <span>Siparişte geçerli Quka/kargo barkodu bulunamadı. Siparişi yenileyip kargo barkodunu kontrol et.</span>
+                </div>
+            `) : `
+                <div class="queueCompletionNotice success">
+                    <strong>Hazırlanan etiketler personel kuyruklarına eklendi.</strong>
+                    <button type="button" id="openPersonalPrintQueue">Kişisel Kuyruğu Aç</button>
+                </div>
+            `}
             <div class="completeLabelActions">
                 ${(batchCount ? aktifTopluSiparisler : [aktifSiparis]).map(order => `
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(siparisKodu(order))}">
@@ -4195,7 +4208,7 @@ async function hazirlamaKaydiGonder(islem, siparis, extra = {}) {
     return response.json();
 }
 
-async function siparisSec(kod, hizliHazirlama = false) {
+async function siparisSec(kod) {
     const siparis = siparisler.find(item => siparisKodu(item) === kod);
 
     if (!siparis) {
@@ -4218,7 +4231,6 @@ async function siparisSec(kod, hizliHazirlama = false) {
     try {
         await hazirlamaKaydiGonder("start", siparis);
         siparisDetayGoster(siparis);
-        if (hizliHazirlama) manuelHazirlamaPaneliGoster();
     } catch (err) {
         result.innerHTML = `
             <div class="notfound">
@@ -4684,7 +4696,12 @@ result.addEventListener("click", async function (event) {
     const acButonu = event.target.closest("[data-order-code]");
 
     if (acButonu) {
-        siparisSec(acButonu.dataset.orderCode, acButonu.hasAttribute("data-quick-order"));
+        siparisSec(acButonu.dataset.orderCode);
+        return;
+    }
+
+    if (event.target.closest("#openPersonalPrintQueue")) {
+        await sevkiyatEkraniGoster();
         return;
     }
 

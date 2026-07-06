@@ -364,6 +364,40 @@ h1{
     color:#1849a9;
 }
 .batchProgress span{font-size:13px}
+
+.queueCompletionNotice{
+    display:grid;
+    gap:7px;
+    width:min(560px,100%);
+    margin:14px auto;
+    border:1px solid;
+    border-radius:9px;
+    padding:14px;
+    text-align:left;
+}
+
+.queueCompletionNotice.success{
+    border-color:#6ce9a6;
+    background:#ecfdf3;
+    color:#067647;
+}
+
+.queueCompletionNotice.warning{
+    border-color:#fec84b;
+    background:#fffaeb;
+    color:#b54708;
+}
+
+.queueCompletionNotice button{
+    justify-self:start;
+    border:0;
+    border-radius:7px;
+    padding:9px 12px;
+    background:#101828;
+    color:#fff;
+    font-weight:900;
+    cursor:pointer;
+}
 .clearHistoryButton{
     border:1px solid #d92d20;
     border-radius:6px;
