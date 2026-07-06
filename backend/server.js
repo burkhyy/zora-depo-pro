@@ -2150,6 +2150,13 @@ app.get("/test", async (req, res) => {
 
 function yerelHazirlamaDurumlariniEkle(data) {
     const latestStatuses = new Map();
+    const openIssueOrderCodes = new Set(
+        database.prepare(`
+            SELECT DISTINCT order_code
+            FROM order_product_issues
+            WHERE status = 'open'
+        `).all().map(item => String(item.order_code || "").trim().toUpperCase())
+    );
     const barcodeOverrides = new Map(
         database.prepare(`
             SELECT original_barcode, override_barcode FROM product_barcode_overrides
@@ -2195,7 +2202,8 @@ function yerelHazirlamaDurumlariniEkle(data) {
                         __location: productLocations.get(effectiveBarcode.toUpperCase()) || ""
                     };
                 }),
-                localPreparationStatus: latestStatuses.get(siparisKimligi(order).toUpperCase()) || ""
+                localPreparationStatus: latestStatuses.get(siparisKimligi(order).toUpperCase()) || "",
+                hasOpenIssue: openIssueOrderCodes.has(siparisKimligi(order).toUpperCase())
             }))
         }
     };

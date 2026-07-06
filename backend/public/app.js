@@ -1233,7 +1233,7 @@ function listeGoster(liste) {
     document.body.classList.remove("historyMode");
     sekmeDurumuGuncelle();
 
-    const hazirlanacakListe = liste.filter(item => !yereldeHazirlanmisMi(item));
+    const hazirlanacakListe = liste.filter(item => !yereldeHazirlanmisMi(item) && !item?.hasOpenIssue);
     const platformListesi = siparisSiralamaUygula(hazirlanacakListe.filter(item =>
         platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
         && (!aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
