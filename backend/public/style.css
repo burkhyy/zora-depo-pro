@@ -3293,6 +3293,11 @@ h1{
         margin:0;
     }
 
+    @page cargo-label{
+        size:100mm 100mm;
+        margin:0;
+    }
+
     html,
     body{
         width:50mm !important;
@@ -3369,6 +3374,10 @@ h1{
     #barcodePrintModal.cargoPrintModal .cargoShippingLabel{
         width:100mm;
         height:100mm;
+    }
+
+    #barcodePrintModal.cargoPrintModal .cargoShippingLabel{
+        page:cargo-label;
     }
 
     #barcodePrintModal.bulkCargoPrintModal .barcodePrintDialog{
