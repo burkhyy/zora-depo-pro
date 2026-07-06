@@ -1474,6 +1474,11 @@ function siparisKimligi(item) {
     return String(item?.order?.code || item?.code || item?.orderCode || item?.order?.id || item?.id || "");
 }
 
+function zoomSiparisiMi(item) {
+    const platform = String(item?.order?.platform || item?.platform || "").toLocaleLowerCase("tr-TR");
+    return !platform.includes("trendyol") && !siparisKimligi(item).toUpperCase().startsWith("TY");
+}
+
 async function aktifSiparisleriGetir() {
     if (activeOrderCache && Date.now() < nextOrderCheckAt) {
         return activeOrderCache;
@@ -2203,7 +2208,7 @@ function yerelHazirlamaDurumlariniEkle(data) {
         if (key && !latestStatuses.has(key)) latestStatuses.set(key, row.status);
     });
 
-    const list = Array.isArray(data?.result?.list) ? data.result.list : [];
+    const list = (Array.isArray(data?.result?.list) ? data.result.list : []).filter(zoomSiparisiMi);
     return {
         ...data,
         result: {

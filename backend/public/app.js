@@ -20,7 +20,7 @@ let aktifSiparisSorunlari = [];
 let acikSorunKayitlari = [];
 let aktifSevkiyatListesi = "pending";
 let sevkiyatAramaMetni = "";
-let aktifSiparisPlatformu = "trendyol";
+let aktifSiparisPlatformu = "zoombutik";
 let aktifSiparisSiralama = "newest";
 let aktifSiparisDurumFiltresi = "";
 let aktifSiparisRafGrubu = "";
@@ -34,9 +34,9 @@ let etiketBaskiKayitlari = {};
 let siparisFisiBaskiKayitlari = {};
 let siparisSayfaBoyutu = 10;
 let aktifSiparisSayfasi = 1;
-let aktifEksikPlatformu = "trendyol";
-let aktifSevkiyatPlatformu = "trendyol";
-let aktifGecmisPlatformu = "trendyol";
+let aktifEksikPlatformu = "zoombutik";
+let aktifSevkiyatPlatformu = "zoombutik";
+let aktifGecmisPlatformu = "zoombutik";
 let bildirimler = [];
 let bildirimZamanlayici = null;
 let apiDurumZamanlayici = null;
@@ -118,19 +118,7 @@ function platformAnahtari(deger) {
 }
 
 function platformSekmeleriHtml(scope, aktif, kayitlar, platformOkuyucu) {
-    const trendyolSayisi = kayitlar.filter(item => platformAnahtari(platformOkuyucu(item)) === "trendyol").length;
-    const zoombutikSayisi = kayitlar.filter(item => platformAnahtari(platformOkuyucu(item)) === "zoombutik").length;
-
-    return `
-        <div class="platformTabs" role="tablist" aria-label="Platform seçimi">
-            <button type="button" role="tab" data-platform-scope="${temizle(scope)}" data-platform-value="trendyol" aria-selected="${aktif === "trendyol"}" class="${aktif === "trendyol" ? "active" : ""}">
-                Trendyol <span>${temizle(trendyolSayisi)}</span>
-            </button>
-            <button type="button" role="tab" data-platform-scope="${temizle(scope)}" data-platform-value="zoombutik" aria-selected="${aktif === "zoombutik"}" class="${aktif === "zoombutik" ? "active" : ""}">
-                Zoombutik <span>${temizle(zoombutikSayisi)}</span>
-            </button>
-        </div>
-    `;
+    return "";
 }
 
 function siparisDurumu(item) {
@@ -3094,7 +3082,7 @@ async function sevkiyatEkraniGoster() {
     document.body.classList.add("shipmentMode");
     aktifSevkiyatListesi = "pending";
     sevkiyatAramaMetni = "";
-    aktifSevkiyatPlatformu = "trendyol";
+    aktifSevkiyatPlatformu = "zoombutik";
     sekmeDurumuGuncelle();
 
     result.innerHTML = `
@@ -5777,7 +5765,7 @@ tabButtons.forEach(button => {
         }
 
         if (this.dataset.tab === "orders") {
-            aktifSiparisPlatformu = "trendyol";
+            aktifSiparisPlatformu = "zoombutik";
             searchInput.value = "";
             listeGoster(siparisler);
             return;
@@ -5786,13 +5774,13 @@ tabButtons.forEach(button => {
         if (this.dataset.tab === "operations") {
             operasyonPanosuGoster();
         } else if (this.dataset.tab === "users") {
-            aktifGecmisPlatformu = "trendyol";
+            aktifGecmisPlatformu = "zoombutik";
             yonetimEkraniGoster();
         } else if (this.dataset.tab === "history") {
-            aktifGecmisPlatformu = "trendyol";
+            aktifGecmisPlatformu = "zoombutik";
             hazirlamaGecmisiEkraniGoster();
         } else if (this.dataset.tab === "issues") {
-            aktifEksikPlatformu = "trendyol";
+            aktifEksikPlatformu = "zoombutik";
             sorunluSiparislerEkraniGoster();
         } else if (this.dataset.tab === "shipments") {
             sevkiyatEkraniGoster();
