@@ -23,6 +23,7 @@ let sevkiyatAramaMetni = "";
 let aktifSiparisPlatformu = "trendyol";
 let aktifSiparisSiralama = "newest";
 let aktifSiparisDurumFiltresi = "";
+let aktifSiparisRafGrubu = "";
 let aktifSiparisGorunumu = "single";
 let aktifTopluGruplar = [];
 let aktifTopluSiparisler = [];
@@ -53,6 +54,11 @@ const apiUrunDetayCache = new Map();
 const HIZMET_BARKODLARI = ["HZMBDL"];
 const OKUMA_BEKLEME_MS = 450;
 const TARAYICI_KARE_ARALIGI_MS = 90;
+const SIPARIS_RAF_GRUPLARI = {
+    bolge1: [[16, 23], [44, 51]],
+    bolge2: [[1, 15], [52, 72]],
+    bolge3: [[23, 36], [36, 43]]
+};
 
 const durumlar = {
     1: "Yeni Sipariş",
@@ -413,6 +419,23 @@ function urunBedeni(urun) {
 
 function urunRafKodu(urun) {
     return String(urun.__location || "").trim() || "-";
+}
+
+function rafSiraNumarasi(urun) {
+    const eslesme = urunRafKodu(urun).match(/^\s*(\d+)/);
+    return eslesme ? Number(eslesme[1]) : null;
+}
+
+function siparisRafGrubunaUyuyor(siparis, grup) {
+    if (!grup) return true;
+    const araliklar = SIPARIS_RAF_GRUPLARI[grup] || [];
+    return (siparis.products || []).some(urun => {
+        if (hizmetUrunuMu(urun)) return false;
+        const raf = rafSiraNumarasi(urun);
+        return raf !== null && araliklar.some(([baslangic, bitis]) =>
+            raf >= baslangic && raf <= bitis
+        );
+    });
 }
 
 async function siparisRafRotasiniUygula(siparis) {
@@ -1214,6 +1237,7 @@ function listeGoster(liste) {
     const platformListesi = siparisSiralamaUygula(hazirlanacakListe.filter(item =>
         platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
         && (!aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
+        && siparisRafGrubunaUyuyor(item, aktifSiparisRafGrubu)
         && (aktifSiparisGorunumu !== "quick" || siparisToplamAdedi(item) === 1)
     ));
     const toplamSayfa = Math.max(1, Math.ceil(platformListesi.length / siparisSayfaBoyutu));
@@ -1246,6 +1270,15 @@ function listeGoster(liste) {
                     <option value="single" ${aktifSiparisGorunumu === "single" ? "selected" : ""}>Tek Siparişler</option>
                     <option value="quick" ${aktifSiparisGorunumu === "quick" ? "selected" : ""}>Tek Ürün Hızlı</option>
                     <option value="batch" ${aktifSiparisGorunumu === "batch" ? "selected" : ""}>Aynı Ürünlü Gruplar</option>
+                </select>
+            </label>
+            <label>
+                <span>Raf bölgesi</span>
+                <select id="orderShelfGroup">
+                    <option value="" ${aktifSiparisRafGrubu === "" ? "selected" : ""}>Tüm Raflar</option>
+                    <option value="bolge1" ${aktifSiparisRafGrubu === "bolge1" ? "selected" : ""}>16–23 / 44–51</option>
+                    <option value="bolge2" ${aktifSiparisRafGrubu === "bolge2" ? "selected" : ""}>1–15 / 52–72</option>
+                    <option value="bolge3" ${aktifSiparisRafGrubu === "bolge3" ? "selected" : ""}>23–36 / 36–43</option>
                 </select>
             </label>
             <label>
@@ -5216,6 +5249,13 @@ result.addEventListener("change", function (event) {
 
     if (event.target.id === "orderViewMode") {
         aktifSiparisGorunumu = event.target.value;
+        aktifSiparisSayfasi = 1;
+        listeGoster(aktifListe);
+        return;
+    }
+
+    if (event.target.id === "orderShelfGroup") {
+        aktifSiparisRafGrubu = event.target.value;
         aktifSiparisSayfasi = 1;
         listeGoster(aktifListe);
         return;

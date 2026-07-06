@@ -2155,6 +2155,16 @@ function yerelHazirlamaDurumlariniEkle(data) {
             SELECT original_barcode, override_barcode FROM product_barcode_overrides
         `).all().map(item => [String(item.original_barcode).toUpperCase(), item.override_barcode])
     );
+    const productLocations = new Map(
+        database.prepare(`
+            SELECT barcode, location_code
+            FROM product_locations
+            WHERE source_scope = ?
+        `).all(apiDataScope).map(item => [
+            String(item.barcode || "").trim().toUpperCase(),
+            item.location_code || ""
+        ])
+    );
     database.prepare(`
         SELECT order_code, status
         FROM order_preparations
@@ -2174,12 +2184,16 @@ function yerelHazirlamaDurumlariniEkle(data) {
                 products: (order.products || []).map(product => {
                     const originalBarcode = String(product.barcode || product.barCode || "").trim();
                     const overrideBarcode = barcodeOverrides.get(originalBarcode.toUpperCase());
-                    return overrideBarcode ? {
+                    const effectiveBarcode = overrideBarcode || originalBarcode;
+                    return {
                         ...product,
-                        originalBarcode,
-                        barcode: overrideBarcode,
-                        barCode: overrideBarcode
-                    } : product;
+                        ...(overrideBarcode ? {
+                            originalBarcode,
+                            barcode: overrideBarcode,
+                            barCode: overrideBarcode
+                        } : {}),
+                        __location: productLocations.get(effectiveBarcode.toUpperCase()) || ""
+                    };
                 }),
                 localPreparationStatus: latestStatuses.get(siparisKimligi(order).toUpperCase()) || ""
             }))

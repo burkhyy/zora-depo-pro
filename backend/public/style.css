@@ -294,7 +294,7 @@ h1{
 
 .orderListControls{
     display:grid;
-    grid-template-columns:repeat(4,minmax(140px,1fr)) auto;
+    grid-template-columns:repeat(5,minmax(130px,1fr)) auto;
     align-items:end;
     gap:10px;
     margin-bottom:14px;

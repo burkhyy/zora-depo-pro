@@ -67,7 +67,10 @@ test.before(async () => {
         result: {
             total: 1,
             pageSize: 1,
-            list: [{ order: { code: "CACHED-ORDER", platform: "Zoombutik" }, products: [] }]
+            list: [{
+                order: { code: "CACHED-ORDER", platform: "Zoombutik" },
+                products: [{ barcode: "4422548804418", name: "Test Elbise", quantity: 1 }]
+            }]
         }
     }));
     seedDb.close();
@@ -137,6 +140,7 @@ test("Qukasoft kesintisinde son başarılı sipariş önbelleği gösterilir", a
 
     const refreshedOrders = await request("/orders", {}, adminCookie);
     assert.equal(refreshedOrders.data.result.list[0].localPreparationStatus, "completed");
+    assert.equal(refreshedOrders.data.result.list[0].products[0].__location, "23-B");
 
     const queue = await request("/admin/print-jobs", {}, adminCookie);
     assert.equal(queue.response.status, 200);
