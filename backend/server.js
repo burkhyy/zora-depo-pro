@@ -1563,11 +1563,12 @@ async function aktifSiparisleriGetir() {
             .forEach(item => {
                 const key = siparisKimligi(item);
                 if (key && !qukaSirasi.has(key)) qukaSirasi.set(key, qukaSirasi.size);
-            });
+        });
         const list = [...unique.values()].sort((a, b) =>
-            (qukaSirasi.get(siparisKimligi(a)) ?? Number.MAX_SAFE_INTEGER)
+            Number(b?.order?.id || b?.id || String(siparisKimligi(b)).replace(/\D/g, "") || 0)
+            - Number(a?.order?.id || a?.id || String(siparisKimligi(a)).replace(/\D/g, "") || 0)
+            || (qukaSirasi.get(siparisKimligi(a)) ?? Number.MAX_SAFE_INTEGER)
             - (qukaSirasi.get(siparisKimligi(b)) ?? Number.MAX_SAFE_INTEGER)
-            || Number(b?.order?.id || b?.id || 0) - Number(a?.order?.id || a?.id || 0)
         );
         activeOrderCache = {
             code: 200,

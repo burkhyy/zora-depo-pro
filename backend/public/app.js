@@ -1181,9 +1181,14 @@ async function siparisleriSessizYenile() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Siparişler yenilenemedi.");
 
-        const yeniListe = sadeceZoomSiparisleri(data?.result?.list);
+        const qukaListesi = sadeceZoomSiparisleri(data?.result?.list);
         const eskiKodlar = new Set(siparisler.map(siparisKodu));
-        const yeniSiparisSayisi = yeniListe.filter(item => !eskiKodlar.has(siparisKodu(item))).length;
+        const yeniGelenler = qukaListesi.filter(item => !eskiKodlar.has(siparisKodu(item)));
+        const yeniListe = [
+            ...yeniGelenler,
+            ...qukaListesi.filter(item => eskiKodlar.has(siparisKodu(item)))
+        ];
+        const yeniSiparisSayisi = yeniGelenler.length;
         siparisler = yeniListe;
         aktifListe = yeniListe;
 
