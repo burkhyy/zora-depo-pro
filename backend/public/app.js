@@ -117,6 +117,13 @@ function platformAnahtari(deger) {
     return metin.includes("trendyol") ? "trendyol" : "zoombutik";
 }
 
+function sadeceZoomSiparisleri(liste) {
+    return (Array.isArray(liste) ? liste : []).filter(item =>
+        platformAnahtari(platformAdi(item)) === "zoombutik"
+        && !siparisKodu(item).toUpperCase().startsWith("TY")
+    );
+}
+
 function platformSekmeleriHtml(scope, aktif, kayitlar, platformOkuyucu) {
     return "";
 }
@@ -1137,7 +1144,7 @@ async function yukle() {
         ]);
         const data = await response.json();
 
-        siparisler = data.result.list;
+        siparisler = sadeceZoomSiparisleri(data.result.list);
         aktifListe = siparisler;
         urunGorselleriniYukle();
 
@@ -1174,7 +1181,7 @@ async function siparisleriSessizYenile() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Siparişler yenilenemedi.");
 
-        const yeniListe = Array.isArray(data?.result?.list) ? data.result.list : [];
+        const yeniListe = sadeceZoomSiparisleri(data?.result?.list);
         const eskiKodlar = new Set(siparisler.map(siparisKodu));
         const yeniSiparisSayisi = yeniListe.filter(item => !eskiKodlar.has(siparisKodu(item))).length;
         siparisler = yeniListe;
