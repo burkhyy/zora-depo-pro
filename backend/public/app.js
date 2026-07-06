@@ -30,6 +30,7 @@ let aktifTopluSiparisler = [];
 let aktifTopluSiparisIndex = 0;
 const secilenSiparisKodlari = new Set();
 let etiketBaskiKayitlari = {};
+let siparisFisiBaskiKayitlari = {};
 let siparisSayfaBoyutu = 10;
 let aktifSiparisSayfasi = 1;
 let aktifEksikPlatformu = "trendyol";
@@ -1142,7 +1143,8 @@ async function yukle() {
     try {
         const [response] = await Promise.all([
             fetch("/orders"),
-            etiketBaskiKayitlariniGetir()
+            etiketBaskiKayitlariniGetir(),
+            siparisFisiBaskiKayitlariniGetir()
         ]);
         const data = await response.json();
 
@@ -1363,6 +1365,11 @@ function listeGoster(liste) {
                         ${etiketBaskiKaydi(item) ? `
                             <span class="printedLabelBadge" title="${temizle(etiketBaskiKaydi(item).lastPrintedBy)} · ${temizle(tarihSaatGoster(etiketBaskiKaydi(item).lastPrintedAt))}">
                                 ✓ Yazdırıldı · ${temizle(etiketBaskiKaydi(item).printCount)} kez
+                            </span>
+                        ` : ""}
+                        ${siparisFisiBaskiKaydi(item) ? `
+                            <span class="printedLabelBadge" title="${temizle(siparisFisiBaskiKaydi(item).lastPrintedBy)} · ${temizle(tarihSaatGoster(siparisFisiBaskiKaydi(item).lastPrintedAt))}">
+                                ✓ A4 Fiş Yazdırıldı · ${temizle(siparisFisiBaskiKaydi(item).printCount)} kez
                             </span>
                         ` : ""}
                     </div>
@@ -2325,6 +2332,33 @@ async function etiketBaskisiniKaydet(orders) {
     await etiketBaskiKayitlariniGetir();
 }
 
+async function siparisFisiBaskiKayitlariniGetir() {
+    const response = await fetch("/order-slip-prints", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "A4 fiş geçmişi alınamadı.");
+    siparisFisiBaskiKayitlari = Object.fromEntries(
+        (data.result || []).map(item => [String(item.orderCode).toUpperCase(), item])
+    );
+}
+
+function siparisFisiBaskiKaydi(order) {
+    return siparisFisiBaskiKayitlari[siparisKodu(order).toUpperCase()] || null;
+}
+
+async function siparisFisiBaskisiniKaydet(orders) {
+    const response = await fetch("/order-slip-prints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderCodes: orders.map(siparisKodu).filter(Boolean) })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "A4 fiş baskısı kaydedilemedi.");
+    await siparisFisiBaskiKayitlariniGetir();
+    if (aktifSekme === "orders" && !document.body.classList.contains("detailMode")) {
+        listeGoster(aktifListe);
+    }
+}
+
 function manuelKargoEtiketleriniYazdir(etiketler) {
     const etiketHtml = etiketler.map(etiket => etiket.outerHTML).join("");
     const frame = document.createElement("iframe");
@@ -2414,6 +2448,9 @@ function manuelKargoEtiketleriniYazdir(etiketler) {
 async function siparisFisiYazdir(siparisVeyaListe) {
     const fisSiparisleri = (Array.isArray(siparisVeyaListe) ? siparisVeyaListe : [siparisVeyaListe]).filter(Boolean);
     if (!fisSiparisleri.length) return;
+    siparisFisiBaskisiniKaydet(fisSiparisleri).catch(err => {
+        mesajGoster("error", "A4 fiş baskısı işaretlenemedi", err.message);
+    });
     const fisBarkodlari = new Map(fisSiparisleri.map(siparis => {
         const barkod = kargoEtiketiBarkodu(siparis);
         if (!barkod || typeof JsBarcode !== "function") return [siparis, ""];

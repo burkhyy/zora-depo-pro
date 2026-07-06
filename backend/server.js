@@ -203,6 +203,15 @@ database.exec(`
         FOREIGN KEY (last_printed_by_user_id) REFERENCES app_users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS order_slip_prints (
+        order_code TEXT PRIMARY KEY COLLATE NOCASE,
+        print_count INTEGER NOT NULL DEFAULT 1,
+        last_printed_by_user_id INTEGER NOT NULL,
+        first_printed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        last_printed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (last_printed_by_user_id) REFERENCES app_users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS product_search_catalog (
         barcode TEXT PRIMARY KEY COLLATE NOCASE,
         product_id TEXT NOT NULL DEFAULT '',
@@ -3519,6 +3528,56 @@ app.post("/label-prints", (req, res) => {
         throw err;
     }
     denetimKaydiOlustur(req, "label.print", "order", orderCodes.join(","), `${orderCodes.length} kargo etiketi yazdırıldı`, {
+        orderCodes
+    });
+    res.json({ result: { orderCodes, count: orderCodes.length } });
+});
+
+app.get("/order-slip-prints", (req, res) => {
+    const rows = database.prepare(`
+        SELECT prints.order_code, prints.print_count, prints.first_printed_at,
+               prints.last_printed_at, users.display_name AS last_printed_by
+        FROM order_slip_prints prints
+        JOIN app_users users ON users.id = prints.last_printed_by_user_id
+        ORDER BY prints.last_printed_at DESC
+        LIMIT 5000
+    `).all();
+    res.json({
+        result: rows.map(row => ({
+            orderCode: row.order_code,
+            printCount: row.print_count,
+            firstPrintedAt: row.first_printed_at,
+            lastPrintedAt: row.last_printed_at,
+            lastPrintedBy: row.last_printed_by
+        }))
+    });
+});
+
+app.post("/order-slip-prints", (req, res) => {
+    const orderCodes = [...new Set(
+        (Array.isArray(req.body.orderCodes) ? req.body.orderCodes : [])
+            .map(code => String(code || "").trim().slice(0, 128))
+            .filter(Boolean)
+    )].slice(0, 100);
+    if (!orderCodes.length) return res.status(400).json({ error: "Siparis kodu gerekli." });
+
+    const save = database.prepare(`
+        INSERT INTO order_slip_prints (order_code, last_printed_by_user_id)
+        VALUES (?, ?)
+        ON CONFLICT(order_code) DO UPDATE SET
+            print_count = order_slip_prints.print_count + 1,
+            last_printed_by_user_id = excluded.last_printed_by_user_id,
+            last_printed_at = CURRENT_TIMESTAMP
+    `);
+    database.exec("BEGIN");
+    try {
+        orderCodes.forEach(code => save.run(code, req.user.id));
+        database.exec("COMMIT");
+    } catch (err) {
+        database.exec("ROLLBACK");
+        throw err;
+    }
+    denetimKaydiOlustur(req, "order_slip.print", "order", orderCodes.join(","), `${orderCodes.length} A4 siparis fisi yazdirildi`, {
         orderCodes
     });
     res.json({ result: { orderCodes, count: orderCodes.length } });
