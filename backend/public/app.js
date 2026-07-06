@@ -2414,8 +2414,6 @@ function manuelKargoEtiketleriniYazdir(etiketler) {
 async function siparisFisiYazdir(siparisVeyaListe) {
     const fisSiparisleri = (Array.isArray(siparisVeyaListe) ? siparisVeyaListe : [siparisVeyaListe]).filter(Boolean);
     if (!fisSiparisleri.length) return;
-    await Promise.all(fisSiparisleri.map(siparisRafRotasiniUygula));
-    await urunGorselleriniYukle();
     const fisBarkodlari = new Map(fisSiparisleri.map(siparis => {
         const barkod = kargoEtiketiBarkodu(siparis);
         if (!barkod || typeof JsBarcode !== "function") return [siparis, ""];
@@ -2456,7 +2454,7 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                 temizleFrame();
                 mesajGoster("error", "Sipariş fişi yazdırılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
             }
-        }, 350);
+        }, 50);
     }, { once: true });
 
     frame.srcdoc = `
