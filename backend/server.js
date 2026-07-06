@@ -3799,7 +3799,7 @@ if (process.env.NODE_ENV !== "test") {
     setInterval(() => {
         nextOrderCheckAt = 0;
         aktifSiparisleriGetir().catch(() => {});
-    }, Math.max(15000, orderCheckMs)).unref();
+    }, Math.max(10000, orderCheckMs)).unref();
 }
 
 if (process.env.NODE_ENV !== "test" && suratAccounts.length) {

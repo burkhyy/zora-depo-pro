@@ -1033,7 +1033,7 @@ function kullaniciArayuzunuGuncelle() {
         apiDurumZamanlayici = window.setInterval(apiDurumunuGetir, 60000);
     }
     if (!siparisYenilemeZamanlayici) {
-        siparisYenilemeZamanlayici = window.setInterval(siparisleriSessizYenile, 15000);
+        siparisYenilemeZamanlayici = window.setInterval(siparisleriSessizYenile, 10000);
     }
 }
 
