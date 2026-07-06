@@ -2404,6 +2404,130 @@ function manuelKargoEtiketleriniYazdir(etiketler) {
     document.body.appendChild(frame);
 }
 
+async function siparisFisiYazdir(siparis) {
+    await Promise.all([
+        siparisRafRotasiniUygula(siparis),
+        urunGorselleriniYukle()
+    ]);
+
+    const urunler = (siparis.products || []).filter(urun => !hizmetUrunuMu(urun));
+    const teslimat = teslimatAdresi(siparis);
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.position = "fixed";
+    frame.style.left = "-10000px";
+    frame.style.top = "0";
+    frame.style.width = "210mm";
+    frame.style.height = "297mm";
+    frame.style.border = "0";
+
+    const temizleFrame = () => frame.remove();
+    frame.addEventListener("load", () => {
+        const printWindow = frame.contentWindow;
+        if (!printWindow) {
+            temizleFrame();
+            mesajGoster("error", "Sipariş fişi açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+            return;
+        }
+        printWindow.addEventListener("afterprint", temizleFrame, { once: true });
+        window.setTimeout(() => {
+            try {
+                printWindow.focus();
+                printWindow.print();
+            } catch {
+                temizleFrame();
+                mesajGoster("error", "Sipariş fişi yazdırılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+            }
+        }, 350);
+    }, { once: true });
+
+    frame.srcdoc = `
+        <!doctype html>
+        <html lang="tr">
+        <head>
+            <meta charset="utf-8">
+            <title>Sipariş Fişi · ${temizle(siparisKodu(siparis))}</title>
+            <style>
+                @page { size: A4 portrait; margin: 10mm; }
+                * { box-sizing: border-box; }
+                html, body { margin: 0; padding: 0; color: #101828; background: #fff; font-family: Arial, sans-serif; }
+                body { width: 190mm; font-size: 10pt; }
+                header { display: flex; justify-content: space-between; gap: 10mm; padding-bottom: 5mm; border-bottom: 2px solid #101828; }
+                h1 { margin: 0 0 2mm; font-size: 22pt; }
+                .brand { font-size: 12pt; font-weight: 900; letter-spacing: .08em; }
+                .orderCode { padding: 3mm 5mm; border: 2px solid #101828; border-radius: 2mm; font-size: 15pt; font-weight: 900; }
+                .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 2mm; margin: 4mm 0; }
+                .meta div { min-height: 16mm; padding: 2.5mm; border: 1px solid #d0d5dd; border-radius: 2mm; }
+                .meta span { display: block; margin-bottom: 1mm; color: #667085; font-size: 8pt; font-weight: 700; text-transform: uppercase; }
+                .meta strong { font-size: 10pt; overflow-wrap: anywhere; }
+                .address { margin-bottom: 4mm; padding: 3mm; border: 1px solid #d0d5dd; border-radius: 2mm; line-height: 1.35; }
+                .address strong { display: block; margin-bottom: 1mm; }
+                .summary { display: flex; justify-content: space-between; margin: 3mm 0 2mm; font-weight: 900; }
+                .product { display: grid; grid-template-columns: 24mm 20mm minmax(0, 1fr) 18mm; gap: 3mm; align-items: center; min-height: 30mm; padding: 2.5mm 0; border-top: 1px solid #d0d5dd; break-inside: avoid; page-break-inside: avoid; }
+                .photo { display: flex; align-items: center; justify-content: center; width: 24mm; height: 24mm; overflow: hidden; border: 1px solid #d0d5dd; border-radius: 2mm; color: #98a2b3; font-size: 7pt; text-align: center; }
+                .photo img { width: 100%; height: 100%; object-fit: contain; }
+                .shelf { display: flex; align-items: center; justify-content: center; min-height: 18mm; padding: 1mm; border: 2px solid #101828; border-radius: 2mm; font-size: 14pt; font-weight: 900; text-align: center; }
+                .product h2 { margin: 0 0 1mm; font-size: 11pt; }
+                .details { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 4mm; color: #344054; font-size: 8.5pt; }
+                .details b { color: #101828; }
+                .quantity { font-size: 18pt; font-weight: 900; text-align: center; }
+                footer { display: grid; grid-template-columns: 1fr 1fr; gap: 8mm; margin-top: 6mm; break-inside: avoid; }
+                footer div { padding-top: 7mm; border-top: 1px solid #667085; color: #667085; text-align: center; }
+            </style>
+        </head>
+        <body>
+            <header>
+                <div>
+                    <div class="brand">ZOOM DEPO</div>
+                    <h1>Sipariş Toplama Fişi</h1>
+                    <span>${temizle(new Date().toLocaleString("tr-TR"))}</span>
+                </div>
+                <div class="orderCode">${temizle(siparisKodu(siparis))}</div>
+            </header>
+            <section class="meta">
+                <div><span>Müşteri</span><strong>${temizle(musteriAdi(siparis))}</strong></div>
+                <div><span>Platform</span><strong>${temizle(platformAdi(siparis))}</strong></div>
+                <div><span>Ödeme</span><strong>${temizle(odemeYontemi(siparis))}</strong></div>
+                <div><span>Toplam</span><strong>${temizle(toplamTutar(siparis))}</strong></div>
+            </section>
+            <section class="address">
+                <strong>Teslimat Adresi · ${temizle([teslimat.district, teslimat.city].filter(Boolean).join(" / ") || "-")}</strong>
+                ${temizle(teslimat.address || "Adres bilgisi yok")}
+            </section>
+            <div class="summary">
+                <span>Ürünler · Raf sırasına göre</span>
+                <span>${temizle(urunler.length)} çeşit · ${temizle(urunler.reduce((toplam, urun) => toplam + urunAdedi(urun), 0))} adet</span>
+            </div>
+            <main>
+                ${urunler.map(urun => {
+                    const gorsel = urunGorseli(urun);
+                    return `
+                        <article class="product">
+                            <div class="photo">${gorsel
+                                ? `<img src="${temizle(gorsel)}" alt="${temizle(urunAdi(urun))}">`
+                                : "Görsel yok"}</div>
+                            <div class="shelf">${temizle(urunRafKodu(urun))}</div>
+                            <div>
+                                <h2>${temizle(urunAdi(urun))}</h2>
+                                <div class="details">
+                                    <span>Ürün Kodu: <b>${temizle(urunKodu(urun) || "-")}</b></span>
+                                    <span>Barkod: <b>${temizle(urunBarkodu(urun))}</b></span>
+                                    <span>Renk: <b>${temizle(urunRengi(urun))}</b></span>
+                                    <span>Beden: <b>${temizle(urunBedeni(urun))}</b></span>
+                                </div>
+                            </div>
+                            <div class="quantity">${temizle(urunAdedi(urun))}×</div>
+                        </article>
+                    `;
+                }).join("")}
+            </main>
+            <footer><div>Hazırlayan</div><div>Kontrol Eden</div></footer>
+        </body>
+        </html>
+    `;
+    document.body.appendChild(frame);
+}
+
 function kargoCikisEtiketiGoster(siparis) {
     const shipmentCode = kargoEtiketiBarkodu(siparis);
     if (!shipmentCode) {
@@ -4053,7 +4177,10 @@ function siparisDetayGoster(siparis) {
                     <h2>${temizle(musteriAdi(siparis))}</h2>
                     <p class="detailCode">${temizle(siparisKodu(siparis))}</p>
                 </div>
-                <span class="statusPill">${temizle(siparisDurumu(siparis))}</span>
+                <div>
+                    <span class="statusPill">${temizle(siparisDurumu(siparis))}</span>
+                    <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(siparisKodu(siparis))}">A4 Sipariş Fişi Yazdır</button>
+                </div>
             </div>
 
             <div class="infoGrid">
@@ -4138,6 +4265,9 @@ function siparisHazirEkraniGoster() {
                 ${(batchCount ? aktifTopluSiparisler : [aktifSiparis]).map(order => `
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(siparisKodu(order))}">
                         ${batchCount ? `${temizle(siparisKodu(order))} · ` : ""}100×100 Kargo Etiketi
+                    </button>
+                    <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(siparisKodu(order))}">
+                        ${batchCount ? `${temizle(siparisKodu(order))} · ` : ""}A4 Sipariş Fişi
                     </button>
                 `).join("")}
             </div>
@@ -4345,6 +4475,26 @@ searchInput.addEventListener("keyup", function (event) {
 });
 
 result.addEventListener("click", async function (event) {
+    const siparisFisiButonu = event.target.closest("[data-print-order-slip]");
+    if (siparisFisiButonu) {
+        const kod = String(siparisFisiButonu.dataset.printOrderSlip || "").toUpperCase();
+        const siparis = [aktifSiparis, ...aktifTopluSiparisler, ...siparisler]
+            .find(item => item && siparisKodu(item).toUpperCase() === kod);
+        if (!siparis) {
+            mesajGoster("error", "Sipariş fişi hazırlanamadı", "Sipariş bilgisi bulunamadı.");
+            return;
+        }
+        siparisFisiButonu.disabled = true;
+        try {
+            await siparisFisiYazdir(siparis);
+        } catch (err) {
+            mesajGoster("error", "Sipariş fişi hazırlanamadı", err.message);
+        } finally {
+            siparisFisiButonu.disabled = false;
+        }
+        return;
+    }
+
     const releaseQueueButton = event.target.closest("[data-release-print-queue]");
     if (releaseQueueButton) {
         releaseQueueButton.disabled = true;
