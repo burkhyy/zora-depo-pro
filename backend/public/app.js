@@ -1375,6 +1375,9 @@ function listeGoster(liste) {
                 </div>
 
                 <div class="orderCardActions">
+                    <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(kod)}">
+                        A4 Sipariş Fişi Yazdır
+                    </button>
                     <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(kod)}">
                         100×100 Kargo Etiketi
                     </button>
