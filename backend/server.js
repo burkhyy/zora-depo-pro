@@ -212,6 +212,14 @@ database.exec(`
         FOREIGN KEY (last_printed_by_user_id) REFERENCES app_users(id)
     );
 
+    CREATE TABLE IF NOT EXISTS order_workflow_stages (
+        order_code TEXT PRIMARY KEY COLLATE NOCASE,
+        stage TEXT NOT NULL DEFAULT 'new' CHECK (stage IN ('new', 'preparing')),
+        updated_by_user_id INTEGER NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id)
+    );
+
     CREATE TABLE IF NOT EXISTS product_search_catalog (
         barcode TEXT PRIMARY KEY COLLATE NOCASE,
         product_id TEXT NOT NULL DEFAULT '',
@@ -2159,6 +2167,11 @@ app.get("/test", async (req, res) => {
 
 function yerelHazirlamaDurumlariniEkle(data) {
     const latestStatuses = new Map();
+    const workflowStages = new Map(
+        database.prepare(`SELECT order_code, stage FROM order_workflow_stages`)
+            .all()
+            .map(item => [String(item.order_code || "").trim().toUpperCase(), item.stage])
+    );
     const openIssueOrderCodes = new Set(
         database.prepare(`
             SELECT DISTINCT order_code
@@ -2212,7 +2225,8 @@ function yerelHazirlamaDurumlariniEkle(data) {
                     };
                 }),
                 localPreparationStatus: latestStatuses.get(siparisKimligi(order).toUpperCase()) || "",
-                hasOpenIssue: openIssueOrderCodes.has(siparisKimligi(order).toUpperCase())
+                hasOpenIssue: openIssueOrderCodes.has(siparisKimligi(order).toUpperCase()),
+                localWorkflowStage: workflowStages.get(siparisKimligi(order).toUpperCase()) || "new"
             }))
         }
     };
@@ -3531,6 +3545,42 @@ app.post("/label-prints", (req, res) => {
         orderCodes
     });
     res.json({ result: { orderCodes, count: orderCodes.length } });
+});
+
+app.put("/order-workflow/stage", (req, res) => {
+    const stage = String(req.body.stage || "").trim();
+    const orderCodes = [...new Set(
+        (Array.isArray(req.body.orderCodes) ? req.body.orderCodes : [])
+            .map(code => String(code || "").trim().slice(0, 128))
+            .filter(Boolean)
+    )].slice(0, 100);
+    if (!["new", "preparing"].includes(stage)) {
+        return res.status(400).json({ error: "Gecersiz siparis asamasi." });
+    }
+    if (!orderCodes.length) {
+        return res.status(400).json({ error: "Siparis kodu gerekli." });
+    }
+    const save = database.prepare(`
+        INSERT INTO order_workflow_stages (order_code, stage, updated_by_user_id)
+        VALUES (?, ?, ?)
+        ON CONFLICT(order_code) DO UPDATE SET
+            stage = excluded.stage,
+            updated_by_user_id = excluded.updated_by_user_id,
+            updated_at = CURRENT_TIMESTAMP
+    `);
+    database.exec("BEGIN");
+    try {
+        orderCodes.forEach(code => save.run(code, stage, req.user.id));
+        database.exec("COMMIT");
+    } catch (err) {
+        database.exec("ROLLBACK");
+        throw err;
+    }
+    denetimKaydiOlustur(req, "order.workflow_stage", "order", orderCodes.join(","), `${orderCodes.length} siparis ${stage} asamasina alindi`, {
+        orderCodes,
+        stage
+    });
+    res.json({ result: { orderCodes, stage, count: orderCodes.length } });
 });
 
 app.get("/order-slip-prints", (req, res) => {

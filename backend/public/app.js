@@ -25,6 +25,7 @@ let aktifSiparisSiralama = "newest";
 let aktifSiparisDurumFiltresi = "";
 let aktifSiparisRafGrubu = "";
 let aktifSiparisGorunumu = "single";
+let aktifSiparisKuyrugu = "new";
 let aktifTopluGruplar = [];
 let aktifTopluSiparisler = [];
 let aktifTopluSiparisIndex = 0;
@@ -1236,7 +1237,10 @@ function listeGoster(liste) {
     sekmeDurumuGuncelle();
 
     const hazirlanacakListe = liste.filter(item => !yereldeHazirlanmisMi(item) && !item?.hasOpenIssue);
-    const platformListesi = siparisSiralamaUygula(hazirlanacakListe.filter(item =>
+    const kuyrukListesi = hazirlanacakListe.filter(item =>
+        (item.localWorkflowStage || "new") === aktifSiparisKuyrugu
+    );
+    const platformListesi = siparisSiralamaUygula(kuyrukListesi.filter(item =>
         platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
         && (!aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
         && siparisRafGrubunaUyuyor(item, aktifSiparisRafGrubu)
@@ -1246,7 +1250,15 @@ function listeGoster(liste) {
     const sayfaBaslangici = (aktifSiparisSayfasi - 1) * siparisSayfaBoyutu;
     const sayfadakiSiparisler = platformListesi.slice(sayfaBaslangici, sayfaBaslangici + siparisSayfaBoyutu);
     result.innerHTML = `
-        ${platformSekmeleriHtml("orders", aktifSiparisPlatformu, hazirlanacakListe, platformAdi)}
+        <div class="platformTabs orderQueueTabs" role="tablist" aria-label="Sipariş kuyruğu">
+            <button type="button" data-order-queue="new" class="${aktifSiparisKuyrugu === "new" ? "active" : ""}">
+                Yeni Siparişler <span>${temizle(hazirlanacakListe.filter(item => (item.localWorkflowStage || "new") === "new").length)}</span>
+            </button>
+            <button type="button" data-order-queue="preparing" class="${aktifSiparisKuyrugu === "preparing" ? "active" : ""}">
+                Hazırlanan Siparişler <span>${temizle(hazirlanacakListe.filter(item => item.localWorkflowStage === "preparing").length)}</span>
+            </button>
+        </div>
+        ${platformSekmeleriHtml("orders", aktifSiparisPlatformu, kuyrukListesi, platformAdi)}
         <div class="orderListControls">
             <label>
                 <span>Sıralama</span>
@@ -1299,6 +1311,15 @@ function listeGoster(liste) {
             </div>
             <button type="button" data-select-all-orders>Tümünü Seç</button>
             <button type="button" data-clear-order-selection>Seçimi Kaldır</button>
+            ${aktifSiparisKuyrugu === "new" ? `
+                <button class="cargoLabelButton" type="button" data-move-selected-to-preparing ${secilenSiparisKodlari.size ? "" : "disabled"}>
+                    Seçilenleri Hazırlananlara Al
+                </button>
+            ` : `
+                <button class="cargoLabelButton" type="button" data-manual-ready-selected ${secilenSiparisKodlari.size ? "" : "disabled"}>
+                    Seçilenleri Manuel Kargola
+                </button>
+            `}
             <button class="cargoLabelButton" type="button" data-print-selected-slips ${secilenSiparisKodlari.size ? "" : "disabled"}>
                 Seçilen A4 Sipariş Fişlerini Yazdır
             </button>
@@ -1387,12 +1408,12 @@ function listeGoster(liste) {
                     <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(kod)}">
                         ${temizle(siparisFisiButonMetni(item))}
                     </button>
-                    <button class="cargoLabelButton" type="button" data-print-cargo-order="${temizle(kod)}">
-                        100×100 Kargo Etiketi
-                    </button>
-                    <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}">
-                        Siparişi Aç
-                    </button>
+                    ${aktifSiparisKuyrugu === "new" ? `
+                        <button class="cargoLabelButton" type="button" data-move-to-preparing="${temizle(kod)}">Hazırlananlara Al</button>
+                    ` : `
+                        <button class="cargoLabelButton" type="button" data-manual-ready-order="${temizle(kod)}">Manuel Kargola</button>
+                        <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}">Siparişi Aç</button>
+                    `}
                 </div>
             </article>
         `;
@@ -1407,11 +1428,51 @@ function sekmeDurumuGuncelle() {
 
 function secimKontrolleriniGuncelle() {
     const count = document.getElementById("selectedOrderCount");
-    const printButtons = document.querySelectorAll("[data-print-selected-orders], [data-print-selected-slips]");
+    const printButtons = document.querySelectorAll(
+        "[data-print-selected-orders], [data-print-selected-slips], [data-move-selected-to-preparing], [data-manual-ready-selected]"
+    );
     if (count) count.textContent = `${secilenSiparisKodlari.size} sipariş seçildi`;
     printButtons.forEach(button => {
         button.disabled = secilenSiparisKodlari.size === 0;
     });
+}
+
+async function siparisAsamasiniGuncelle(orders, stage) {
+    const response = await fetch("/order-workflow/stage", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            orderCodes: orders.map(siparisKodu).filter(Boolean),
+            stage
+        })
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Sipariş aşaması güncellenemedi.");
+    orders.forEach(order => {
+        order.localWorkflowStage = stage;
+    });
+    secilenSiparisKodlari.clear();
+    listeGoster(aktifListe);
+    return data.result;
+}
+
+async function siparisleriManuelKargola(orders) {
+    let tamamlanan = 0;
+    for (const order of orders) {
+        if (order.hasOpenIssue) {
+            throw new Error(`${siparisKodu(order)} siparişinde açık eksik/sorun kaydı var.`);
+        }
+        await hazirlamaKaydiGonder("complete", order, {
+            scans: [],
+            orderSnapshot: siparisOzeti(order)
+        });
+        await sevkiyatDurumuKaydet(order, "ready");
+        siparisiYereldeHazirIsaretle(order);
+        tamamlanan += 1;
+    }
+    secilenSiparisKodlari.clear();
+    listeGoster(aktifListe);
+    return tamamlanan;
 }
 
 function rafKayitlari() {
@@ -4544,6 +4605,69 @@ searchInput.addEventListener("keyup", function (event) {
 });
 
 result.addEventListener("click", async function (event) {
+    const kuyrukButonu = event.target.closest("[data-order-queue]");
+    if (kuyrukButonu) {
+        aktifSiparisKuyrugu = kuyrukButonu.dataset.orderQueue;
+        aktifSiparisSayfasi = 1;
+        secilenSiparisKodlari.clear();
+        listeGoster(aktifListe);
+        return;
+    }
+
+    const hazirlananlaraAlButonu = event.target.closest("[data-move-to-preparing]");
+    if (hazirlananlaraAlButonu) {
+        const order = siparisler.find(item => siparisKodu(item) === hazirlananlaraAlButonu.dataset.moveToPreparing);
+        if (!order) return;
+        hazirlananlaraAlButonu.disabled = true;
+        try {
+            await siparisAsamasiniGuncelle([order], "preparing");
+            mesajGoster("success", "Sipariş hazırlananlara alındı", siparisKodu(order));
+        } catch (err) {
+            hazirlananlaraAlButonu.disabled = false;
+            mesajGoster("error", "Sipariş taşınamadı", err.message);
+        }
+        return;
+    }
+
+    if (event.target.closest("[data-move-selected-to-preparing]")) {
+        const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
+        if (!orders.length) return;
+        try {
+            await siparisAsamasiniGuncelle(orders, "preparing");
+            mesajGoster("success", "Siparişler hazırlananlara alındı", `${orders.length} sipariş taşındı.`);
+        } catch (err) {
+            mesajGoster("error", "Siparişler taşınamadı", err.message);
+        }
+        return;
+    }
+
+    const manuelKargolaButonu = event.target.closest("[data-manual-ready-order]");
+    if (manuelKargolaButonu) {
+        const order = siparisler.find(item => siparisKodu(item) === manuelKargolaButonu.dataset.manualReadyOrder);
+        if (!order || !confirm(`${siparisKodu(order)} siparişi barkod taramadan Kargoya Hazır'a alınsın mı?`)) return;
+        manuelKargolaButonu.disabled = true;
+        try {
+            await siparisleriManuelKargola([order]);
+            mesajGoster("success", "Sipariş Kargoya Hazır'a alındı", siparisKodu(order));
+        } catch (err) {
+            manuelKargolaButonu.disabled = false;
+            mesajGoster("error", "Manuel kargolama tamamlanamadı", err.message);
+        }
+        return;
+    }
+
+    if (event.target.closest("[data-manual-ready-selected]")) {
+        const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
+        if (!orders.length || !confirm(`${orders.length} sipariş barkod taramadan Kargoya Hazır'a alınsın mı?`)) return;
+        try {
+            const count = await siparisleriManuelKargola(orders);
+            mesajGoster("success", "Siparişler Kargoya Hazır'a alındı", `${count} sipariş tamamlandı.`);
+        } catch (err) {
+            mesajGoster("error", "Toplu manuel kargolama durdu", err.message);
+        }
+        return;
+    }
+
     const siparisFisiButonu = event.target.closest("[data-print-order-slip]");
     if (siparisFisiButonu) {
         const kod = String(siparisFisiButonu.dataset.printOrderSlip || "").toUpperCase();
