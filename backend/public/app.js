@@ -1830,22 +1830,32 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
             <title>100x100 Ürün Barkodu</title>
             <style>
                 @page { size: 100mm 100mm; margin: 0; }
+                @page product-label-100 { size: 100mm 100mm; margin: 0; }
                 * { box-sizing: border-box; }
                 html, body {
-                    width: 100mm;
-                    height: 100mm;
-                    margin: 0;
-                    padding: 0;
-                    overflow: hidden;
-                    background: #fff;
+                    width: 100mm !important;
+                    min-width: 100mm !important;
+                    max-width: 100mm !important;
+                    height: 100mm !important;
+                    min-height: 100mm !important;
+                    max-height: 100mm !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    overflow: hidden !important;
+                    background: #fff !important;
                 }
                 .barcodeLabel {
+                    page: product-label-100;
                     display: grid;
                     grid-template-rows: 12mm 10mm 10mm minmax(0, 1fr);
                     align-items: center;
-                    width: 100mm;
-                    height: 100mm;
-                    margin: 0;
+                    width: 100mm !important;
+                    min-width: 100mm !important;
+                    max-width: 100mm !important;
+                    height: 100mm !important;
+                    min-height: 100mm !important;
+                    max-height: 100mm !important;
+                    margin: 0 !important;
                     padding: 6mm;
                     overflow: hidden;
                     background: #fff;
@@ -1884,8 +1894,8 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                 }
                 svg {
                     display: block;
-                    width: 100%;
-                    height: 100%;
+                    width: 88mm !important;
+                    height: 55mm !important;
                     min-height: 0;
                 }
             </style>
