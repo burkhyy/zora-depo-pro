@@ -118,14 +118,33 @@ function platformAnahtari(deger) {
 }
 
 function sadeceZoomSiparisleri(liste) {
-    return (Array.isArray(liste) ? liste : []).filter(item =>
-        platformAnahtari(platformAdi(item)) === "zoombutik"
-        && !siparisKodu(item).toUpperCase().startsWith("TY")
-    );
+    return Array.isArray(liste) ? liste : [];
 }
 
 function platformSekmeleriHtml(scope, aktif, kayitlar, platformOkuyucu) {
-    return "";
+    const kaynak = Array.isArray(kayitlar) ? kayitlar : [];
+    const sayilar = kaynak.reduce((toplam, item) => {
+        const key = platformAnahtari(platformOkuyucu(item));
+        toplam[key] = (toplam[key] || 0) + 1;
+        return toplam;
+    }, { trendyol: 0, zoombutik: 0 });
+    const sekmeler = [
+        ["trendyol", "Trendyol"],
+        ["zoombutik", "Zoombutik"]
+    ];
+    return `
+        <div class="platformTabs" role="tablist" aria-label="Platform filtreleri">
+            ${sekmeler.map(([key, label]) => `
+                <button type="button"
+                    data-platform-scope="${temizle(scope)}"
+                    data-platform-value="${key}"
+                    class="${aktif === key ? "active" : ""}"
+                    aria-selected="${aktif === key}">
+                    ${label} <span>${temizle(sayilar[key] || 0)}</span>
+                </button>
+            `).join("")}
+        </div>
+    `;
 }
 
 function siparisDurumu(item) {
@@ -1323,6 +1342,9 @@ function listeGoster(liste) {
             <button class="cargoLabelButton" type="button" data-print-selected-slips ${secilenSiparisKodlari.size ? "" : "disabled"}>
                 Seçilen A4 Sipariş Fişlerini Yazdır
             </button>
+            <button class="cargoLabelButton" type="button" data-print-selected-cargo-barcodes ${secilenSiparisKodlari.size ? "" : "disabled"}>
+                Seçilen 100×100 Kargo Barkodlarını Yazdır
+            </button>
             <button class="cargoLabelButton" type="button" data-print-selected-orders ${secilenSiparisKodlari.size ? "" : "disabled"}>
                 Seçilen Kargo Etiketlerini Yazdır
             </button>
@@ -1408,6 +1430,9 @@ function listeGoster(liste) {
                     <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(kod)}">
                         ${temizle(siparisFisiButonMetni(item))}
                     </button>
+                    <button class="cargoLabelButton" type="button" data-print-cargo-barcode="${temizle(kod)}">
+                        100×100 Kargo Barkodu
+                    </button>
                     ${aktifSiparisKuyrugu === "new" ? `
                         <button class="cargoLabelButton" type="button" data-move-to-preparing="${temizle(kod)}">Hazırlananlara Al</button>
                     ` : `
@@ -1429,7 +1454,7 @@ function sekmeDurumuGuncelle() {
 function secimKontrolleriniGuncelle() {
     const count = document.getElementById("selectedOrderCount");
     const printButtons = document.querySelectorAll(
-        "[data-print-selected-orders], [data-print-selected-slips], [data-move-selected-to-preparing], [data-manual-ready-selected]"
+        "[data-print-selected-orders], [data-print-selected-slips], [data-print-selected-cargo-barcodes], [data-move-selected-to-preparing], [data-manual-ready-selected]"
     );
     if (count) count.textContent = `${secilenSiparisKodlari.size} sipariş seçildi`;
     printButtons.forEach(button => {
@@ -2307,11 +2332,26 @@ function sevkiyatBarkodu(siparis) {
 
 function kargoGonderiKodu(siparis) {
     return String(alanOku(siparis, [
+        "order.cargoBarcode",
+        "order.shipmentBarcode",
+        "order.shippingBarcode",
         "order.shipmentCode",
         "order.shipmentCode2",
+        "order.cargoTrackingNumber",
+        "order.cargoTrackingCode",
+        "order.trackingNumber",
+        "order.trackingCode",
+        "order.barcode",
+        "cargoBarcode",
+        "shipmentBarcode",
+        "shippingBarcode",
         "shipmentCode",
         "cargoCode",
-        "trackingNumber"
+        "cargoTrackingNumber",
+        "cargoTrackingCode",
+        "trackingNumber",
+        "trackingCode",
+        "barcode"
     ], "")).trim();
 }
 
@@ -2663,6 +2703,166 @@ async function siparisFisiYazdir(siparisVeyaListe) {
             </main>
             </section>`;
         }).join("")}</body>
+        </html>
+    `;
+    document.body.appendChild(frame);
+}
+
+function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
+    const orders = (Array.isArray(siparisVeyaListe) ? siparisVeyaListe : [siparisVeyaListe]).filter(Boolean);
+    if (!orders.length) return;
+    const printable = orders.filter(order => kargoEtiketiBarkodu(order));
+    if (!printable.length) {
+        mesajGoster("warning", "Kargo barkodu yok", "Seçilen siparişlerin kargo şirketi barkodu henüz oluşmamış.");
+        return;
+    }
+
+    if (typeof JsBarcode !== "function") {
+        mesajGoster("error", "Barkod oluşturulamadı", "Barkod kütüphanesi yüklenemedi.");
+        return;
+    }
+
+    const etiketler = printable.map(order => {
+        const code = kargoEtiketiBarkodu(order);
+        const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+        JsBarcode(svg, code, {
+            format: "CODE128",
+            width: 2.15,
+            height: 48,
+            displayValue: true,
+            fontSize: 15,
+            margin: 0
+        });
+        return { order, code, barcode: svg.outerHTML };
+    });
+
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.position = "fixed";
+    frame.style.left = "-10000px";
+    frame.style.top = "0";
+    frame.style.width = "100mm";
+    frame.style.height = "100mm";
+    frame.style.border = "0";
+
+    const temizleFrame = () => frame.remove();
+    frame.addEventListener("load", () => {
+        const printWindow = frame.contentWindow;
+        if (!printWindow) {
+            temizleFrame();
+            mesajGoster("error", "Kargo barkodu açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+            return;
+        }
+
+        printWindow.addEventListener("afterprint", temizleFrame, { once: true });
+        printWindow.requestAnimationFrame(() => {
+            printWindow.requestAnimationFrame(() => {
+                window.setTimeout(() => {
+                    try {
+                        printWindow.focus();
+                        printWindow.print();
+                    } catch {
+                        temizleFrame();
+                        mesajGoster("error", "Kargo barkodu yazdırılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+                    }
+                }, 150);
+            });
+        });
+    }, { once: true });
+
+    frame.srcdoc = `
+        <!doctype html>
+        <html lang="tr">
+        <head>
+            <meta charset="utf-8">
+            <title>100x100 Kargo Barkodu</title>
+            <style>
+                @page { size: 100mm 100mm; margin: 0; }
+                * { box-sizing: border-box; }
+                html, body {
+                    width: 100mm !important;
+                    min-width: 100mm !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    background: #fff !important;
+                    color: #101828;
+                    font-family: Arial, sans-serif;
+                }
+                .cargoBarcodeOnlyLabel {
+                    display: grid;
+                    grid-template-rows: 10mm 20mm 10mm 1fr 12mm;
+                    align-items: center;
+                    width: 100mm;
+                    min-width: 100mm;
+                    max-width: 100mm;
+                    height: 100mm;
+                    min-height: 100mm;
+                    max-height: 100mm;
+                    padding: 7mm;
+                    overflow: hidden;
+                    page-break-after: always;
+                    break-after: page;
+                    border: 0;
+                }
+                .cargoBarcodeOnlyLabel:last-child {
+                    page-break-after: auto;
+                    break-after: auto;
+                }
+                .labelBrand {
+                    font-size: 12pt;
+                    font-weight: 900;
+                    letter-spacing: .12em;
+                    text-align: center;
+                }
+                .customerName {
+                    font-size: 21pt;
+                    font-weight: 900;
+                    line-height: 1.05;
+                    text-align: center;
+                    overflow-wrap: anywhere;
+                }
+                .orderCodeText {
+                    font-size: 14pt;
+                    font-weight: 900;
+                    text-align: center;
+                }
+                .barcodeBox {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 100%;
+                    min-height: 34mm;
+                }
+                .barcodeBox svg {
+                    width: 86mm !important;
+                    height: 34mm !important;
+                    max-width: 86mm !important;
+                }
+                .platformLine {
+                    display: flex;
+                    justify-content: space-between;
+                    gap: 3mm;
+                    font-size: 10pt;
+                    font-weight: 800;
+                    border-top: 1px solid #101828;
+                    padding-top: 2mm;
+                }
+            </style>
+        </head>
+        <body>
+            ${etiketler.map(({ order, code, barcode }) => `
+                <section class="cargoBarcodeOnlyLabel">
+                    <div class="labelBrand">ZOOM DEPO</div>
+                    <div class="customerName">${temizle(musteriAdi(order))}</div>
+                    <div class="orderCodeText">Sipariş No: ${temizle(siparisKodu(order))}</div>
+                    <div class="barcodeBox">${barcode}</div>
+                    <div class="platformLine">
+                        <span>${temizle(kargoFirmaEtiketi(order))}</span>
+                        <span>Kargo Barkodu</span>
+                    </div>
+                </section>
+            `).join("")}
+        </body>
         </html>
     `;
     document.body.appendChild(frame);
@@ -4320,6 +4520,7 @@ function siparisDetayGoster(siparis) {
                 <div>
                     <span class="statusPill">${temizle(siparisDurumu(siparis))}</span>
                     <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(siparisKodu(siparis))}">${temizle(siparisFisiButonMetni(siparis))}</button>
+                    <button class="cargoLabelButton" type="button" data-print-cargo-barcode="${temizle(siparisKodu(siparis))}">100×100 Kargo Barkodu</button>
                 </div>
             </div>
 
@@ -4816,6 +5017,26 @@ result.addEventListener("click", async function (event) {
             `Seçilen siparişlerden ${dahaOnceYazdirilanlar.length} tanesinin A4 fişi daha önce yazdırıldı.\n\nTümü tekrar yazdırılsın mı?`
         )) return;
         await siparisFisiYazdir(orders);
+        return;
+    }
+
+    if (event.target.closest("[data-print-selected-cargo-barcodes]")) {
+        const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
+        kargoBarkodEtiketleriniYazdir(orders);
+        return;
+    }
+
+    const cargoBarcodeButton = event.target.closest("[data-print-cargo-barcode]");
+    if (cargoBarcodeButton) {
+        const code = cargoBarcodeButton.dataset.printCargoBarcode;
+        const order = aktifTopluSiparisler.find(item => siparisKodu(item) === code)
+            || siparisler.find(item => siparisKodu(item) === code)
+            || (aktifSiparis && siparisKodu(aktifSiparis) === code ? aktifSiparis : null);
+        if (!order) {
+            mesajGoster("error", "Sipariş bulunamadı", code);
+            return;
+        }
+        kargoBarkodEtiketleriniYazdir(order);
         return;
     }
 

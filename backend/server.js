@@ -2219,7 +2219,7 @@ function yerelHazirlamaDurumlariniEkle(data) {
         if (key && !latestStatuses.has(key)) latestStatuses.set(key, row.status);
     });
 
-    const list = (Array.isArray(data?.result?.list) ? data.result.list : []).filter(zoomSiparisiMi);
+    const list = Array.isArray(data?.result?.list) ? data.result.list : [];
     return {
         ...data,
         result: {
