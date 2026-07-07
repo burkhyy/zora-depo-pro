@@ -1877,7 +1877,7 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                 .barcodeLabel {
                     page: product-label-50x30;
                     display: grid;
-                    grid-template-rows: 5mm 4mm 4mm minmax(0, 1fr);
+                    grid-template-rows: 4.2mm 3.8mm 3.8mm minmax(0, 1fr);
                     align-items: center;
                     width: 50mm !important;
                     min-width: 50mm !important;
@@ -1886,7 +1886,7 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     min-height: 30mm !important;
                     max-height: 30mm !important;
                     margin: 0 !important;
-                    padding: 1.5mm 2mm;
+                    padding: 1mm 1.5mm;
                     overflow: hidden;
                     background: #fff;
                     color: #000;
@@ -1895,8 +1895,8 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                 .barcodeLabelName {
                     display: block;
                     overflow: hidden;
-                    font-size: 7pt;
-                    line-height: 5mm;
+                    font-size: 5.6pt;
+                    line-height: 4.2mm;
                     text-align: center;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -1905,9 +1905,9 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     display: block;
                     overflow: hidden;
                     min-width: 0;
-                    font-size: 5.5pt;
+                    font-size: 4.8pt;
                     font-weight: 700;
-                    line-height: 4mm;
+                    line-height: 3.8mm;
                     text-align: center;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -1916,16 +1916,23 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    gap: 2mm;
+                    gap: 1.4mm;
                     min-width: 0;
-                    font-size: 5.8pt;
+                    font-size: 5.1pt;
                     font-weight: 800;
-                    line-height: 4mm;
+                    line-height: 3.8mm;
+                }
+                .barcodeLabelVariant span {
+                    display: block;
+                    min-width: 0;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
                 }
                 svg {
                     display: block;
-                    width: 46mm !important;
-                    height: 17mm !important;
+                    width: 47mm !important;
+                    height: 16mm !important;
                     min-height: 0;
                 }
             </style>
@@ -1977,10 +1984,10 @@ function barkodEtiketiGoster(kayit) {
 
     JsBarcode("#barcodeLabelSvg", kayit.barcode, {
         format: barkodYazdirmaFormati(kayit.barcode),
-        width: 1.4,
-        height: 36,
+        width: 1.25,
+        height: 30,
         displayValue: true,
-        fontSize: 8,
+        fontSize: 7,
         textMargin: 1,
         marginTop: 0,
         marginBottom: 0,
