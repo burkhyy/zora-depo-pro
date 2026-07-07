@@ -1948,6 +1948,126 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
     document.body.appendChild(frame);
 }
 
+function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
+    const printWindow = window.open("", "zoomProductBarcodePrint", "popup,width=420,height=320");
+    if (!printWindow) {
+        tamamlandi();
+        mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının açılır pencere iznini kontrol edin.");
+        return;
+    }
+
+    const temizle = () => {
+        window.setTimeout(() => {
+            try { printWindow.close(); } catch {}
+        }, 300);
+        tamamlandi();
+    };
+
+    printWindow.document.open();
+    printWindow.document.write(`
+        <!doctype html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>50x30 Ürün Barkodu</title>
+            <style>
+                @page { size: 50mm 30mm; margin: 0; }
+                * { box-sizing: border-box; }
+                html, body {
+                    width: 50mm !important;
+                    min-width: 50mm !important;
+                    max-width: 50mm !important;
+                    height: 30mm !important;
+                    min-height: 30mm !important;
+                    max-height: 30mm !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                    overflow: hidden !important;
+                    background: #fff !important;
+                }
+                body {
+                    display: flex !important;
+                    align-items: flex-start !important;
+                    justify-content: center !important;
+                }
+                .barcodeLabel {
+                    display: grid;
+                    grid-template-rows: 3.4mm 3mm 3mm minmax(0, 1fr);
+                    align-items: center;
+                    width: 46mm !important;
+                    min-width: 46mm !important;
+                    max-width: 46mm !important;
+                    height: 26mm !important;
+                    min-height: 26mm !important;
+                    max-height: 26mm !important;
+                    margin: 0 !important;
+                    padding: .5mm .8mm;
+                    overflow: hidden;
+                    background: #fff;
+                    color: #000;
+                    font-family: Arial, sans-serif;
+                }
+                .barcodeLabelName {
+                    display: block;
+                    overflow: hidden;
+                    font-size: 5pt;
+                    line-height: 3.4mm;
+                    text-align: center;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .barcodeLabelCode {
+                    display: block;
+                    overflow: hidden;
+                    min-width: 0;
+                    font-size: 4.3pt;
+                    font-weight: 700;
+                    line-height: 3mm;
+                    text-align: center;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .barcodeLabelVariant {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 1mm;
+                    min-width: 0;
+                    font-size: 4.5pt;
+                    font-weight: 800;
+                    line-height: 3mm;
+                }
+                .barcodeLabelVariant span {
+                    display: block;
+                    min-width: 0;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                svg {
+                    display: block;
+                    width: 44mm !important;
+                    height: 14.5mm !important;
+                    min-height: 0;
+                }
+            </style>
+        </head>
+        <body>${etiket.outerHTML}</body>
+        </html>
+    `);
+    printWindow.document.close();
+    printWindow.addEventListener("afterprint", temizle, { once: true });
+    printWindow.setTimeout(() => {
+        try {
+            printWindow.focus();
+            printWindow.print();
+        } catch {
+            temizle();
+            mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+        }
+    }, 300);
+}
+
 function barkodEtiketiGoster(kayit) {
     document.getElementById("barcodePrintModal")?.remove();
 
@@ -2009,7 +2129,7 @@ function barkodEtiketiGoster(kayit) {
         yazdirButonu.disabled = true;
         yazdirButonu.textContent = "Yazdırılıyor...";
         const etiket = modal.querySelector("#barcodeLabel");
-        urunEtiketiYazdir(etiket, () => {
+        urunEtiketiPenceredeYazdir(etiket, () => {
             yazdirButonu.disabled = false;
             yazdirButonu.textContent = "Yazdır";
         });
