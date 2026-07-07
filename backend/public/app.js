@@ -2649,6 +2649,18 @@ async function siparisFisiYazdir(siparisVeyaListe) {
         <body>${fisSiparisleri.map(siparis => {
             const urunler = (siparis.products || []).filter(urun => !hizmetUrunuMu(urun));
             const teslimat = teslimatAdresi(siparis);
+            const telefon = alanOku(siparis, [
+                "customer.phone",
+                "customer.mobilePhone",
+                "customer.delivery.phone",
+                "delivery.phone",
+                "shippingAddress.phone",
+                "phone"
+            ], "");
+            const adresBasligi = [
+                [teslimat.district, teslimat.city].filter(Boolean).join(" / "),
+                telefon ? `Tel: ${telefon}` : ""
+            ].filter(Boolean).join(" · ");
             return `<section class="slipPage">
             <header>
                 <div>
@@ -2668,7 +2680,7 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                 <div><span>Toplam</span><strong>${temizle(toplamTutar(siparis))}</strong></div>
             </section>
             <section class="address">
-                <strong>Teslimat Adresi · ${temizle([teslimat.district, teslimat.city].filter(Boolean).join(" / ") || "-")}</strong>
+                <strong>Teslimat Adresi · ${temizle(adresBasligi || "-")}</strong>
                 ${temizle(teslimat.address || "Adres bilgisi yok")}
             </section>
             <div class="summary">
