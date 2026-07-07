@@ -1860,7 +1860,6 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
             <title>50x30 Ürün Barkodu</title>
             <style>
                 @page { size: 50mm 30mm; margin: 0; }
-                @page product-label-50x30 { size: 50mm 30mm; margin: 0; }
                 * { box-sizing: border-box; }
                 html, body {
                     width: 50mm !important;
@@ -1875,10 +1874,11 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     background: #fff !important;
                 }
                 body {
-                    display: block !important;
+                    display: flex !important;
+                    align-items: flex-start !important;
+                    justify-content: flex-start !important;
                 }
                 .barcodeLabel {
-                    page: product-label-50x30;
                     display: grid;
                     grid-template-rows: 3.8mm 3.4mm 3.4mm minmax(0, 1fr);
                     align-items: center;
