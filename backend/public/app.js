@@ -1819,8 +1819,8 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
     frame.style.position = "fixed";
     frame.style.left = "-10000px";
     frame.style.top = "0";
-    frame.style.width = "50mm";
-    frame.style.height = "30mm";
+    frame.style.width = "48mm";
+    frame.style.height = "28mm";
     frame.style.border = "0";
 
     const temizle = () => {
@@ -1859,35 +1859,37 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
             <meta charset="utf-8">
             <title>50x30 Ürün Barkodu</title>
             <style>
-                @page { size: 50mm 30mm; margin: 0; }
+                @page { size: 48mm 28mm; margin: 0; }
                 * { box-sizing: border-box; }
                 html, body {
-                    width: 50mm !important;
-                    min-width: 50mm !important;
-                    max-width: 50mm !important;
-                    height: 30mm !important;
-                    min-height: 30mm !important;
-                    max-height: 30mm !important;
+                    width: 48mm !important;
+                    min-width: 48mm !important;
+                    max-width: 48mm !important;
+                    height: 28mm !important;
+                    min-height: 28mm !important;
+                    max-height: 28mm !important;
                     margin: 0 !important;
                     padding: 0 !important;
                     overflow: hidden !important;
                     background: #fff !important;
                 }
                 body {
-                    display: flex !important;
-                    align-items: flex-start !important;
-                    justify-content: flex-start !important;
+                    display: block !important;
+                    position: relative !important;
                 }
                 .barcodeLabel {
                     display: grid;
-                    grid-template-rows: 3.8mm 3.4mm 3.4mm minmax(0, 1fr);
+                    grid-template-rows: 3.5mm 3.2mm 3.2mm minmax(0, 1fr);
                     align-items: center;
-                    width: 49mm !important;
-                    min-width: 49mm !important;
-                    max-width: 49mm !important;
-                    height: 29mm !important;
-                    min-height: 29mm !important;
-                    max-height: 29mm !important;
+                    position: absolute !important;
+                    top: 0 !important;
+                    left: 0 !important;
+                    width: 47mm !important;
+                    min-width: 47mm !important;
+                    max-width: 47mm !important;
+                    height: 27mm !important;
+                    min-height: 27mm !important;
+                    max-height: 27mm !important;
                     margin: 0 !important;
                     padding: .7mm 1mm;
                     overflow: hidden;
@@ -1898,8 +1900,8 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                 .barcodeLabelName {
                     display: block;
                     overflow: hidden;
-                    font-size: 5.2pt;
-                    line-height: 3.8mm;
+                    font-size: 5pt;
+                    line-height: 3.5mm;
                     text-align: center;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -1908,9 +1910,9 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     display: block;
                     overflow: hidden;
                     min-width: 0;
-                    font-size: 4.5pt;
+                    font-size: 4.3pt;
                     font-weight: 700;
-                    line-height: 3.4mm;
+                    line-height: 3.2mm;
                     text-align: center;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -1921,9 +1923,9 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     justify-content: center;
                     gap: 1mm;
                     min-width: 0;
-                    font-size: 4.7pt;
+                    font-size: 4.5pt;
                     font-weight: 800;
-                    line-height: 3.4mm;
+                    line-height: 3.2mm;
                 }
                 .barcodeLabelVariant span {
                     display: block;
@@ -1934,8 +1936,8 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                 }
                 svg {
                     display: block;
-                    width: 47mm !important;
-                    height: 15.8mm !important;
+                    width: 45mm !important;
+                    height: 15mm !important;
                     min-height: 0;
                 }
             </style>
