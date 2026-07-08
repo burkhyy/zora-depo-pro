@@ -1443,6 +1443,7 @@ function listeGoster(liste) {
             </article>
         `;
     });
+    kargoBarkoduButonlariniGuncelle(sayfadakiSiparisler);
 }
 
 function sekmeDurumuGuncelle() {
@@ -2563,6 +2564,19 @@ function etiketBaskiKaydi(order) {
     return etiketBaskiKayitlari[siparisKodu(order).toUpperCase()] || null;
 }
 
+function kargoBarkoduButonMetni(order) {
+    return etiketBaskiKaydi(order) ? "✓ Yazdırıldı · Tekrar Yazdır" : "100×100 Kargo Barkodu";
+}
+
+function kargoBarkoduButonlariniGuncelle(kaynakListe = []) {
+    document.querySelectorAll("[data-print-cargo-barcode]").forEach(button => {
+        const kod = String(button.dataset.printCargoBarcode || "").toUpperCase();
+        const order = [aktifSiparis, ...aktifTopluSiparisler, ...kaynakListe, ...siparisler]
+            .find(item => item && siparisKodu(item).toUpperCase() === kod);
+        if (order) button.textContent = kargoBarkoduButonMetni(order);
+    });
+}
+
 async function etiketBaskisiniKaydet(orders) {
     const orderCodes = orders.map(siparisKodu).filter(Boolean);
     const response = await fetch("/label-prints", {
@@ -2852,12 +2866,31 @@ async function siparisFisiYazdir(siparisVeyaListe) {
     document.body.appendChild(frame);
 }
 
-function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
+async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
     const orders = (Array.isArray(siparisVeyaListe) ? siparisVeyaListe : [siparisVeyaListe]).filter(Boolean);
     if (!orders.length) return;
     const printable = orders.filter(order => kargoEtiketiBarkodu(order));
     if (!printable.length) {
         mesajGoster("warning", "Kargo barkodu yok", "Seçilen siparişlerin kargo şirketi barkodu henüz oluşmamış.");
+        return;
+    }
+
+    if (typeof JsBarcode !== "function") {
+        mesajGoster("error", "Barkod oluÅŸturulamadÄ±", "Barkod kÃ¼tÃ¼phanesi yÃ¼klenemedi.");
+        return;
+    }
+
+    const previouslyPrinted = printable.filter(order => etiketBaskiKaydi(order));
+    if (previouslyPrinted.length && !confirm(
+        `${previouslyPrinted.length} kargo barkodu daha önce yazdırılmış.\n`
+        + `Toplam ${printable.length} barkod tekrar yazdırılsın mı?`
+    )) return;
+
+    try {
+        await etiketBaskisiniKaydet(printable);
+        kargoBarkoduButonlariniGuncelle(printable);
+    } catch (err) {
+        mesajGoster("error", "Baskı kaydı oluşturulamadı", err.message);
         return;
     }
 
@@ -4365,6 +4398,7 @@ function eksigeAlindiEkraniGoster(eksikAdet) {
             </div>
         </section>
     `;
+    kargoBarkoduButonlariniGuncelle([siparis]);
 }
 
 function sorunDuzenlemeFormuGoster(issue) {
@@ -4822,6 +4856,7 @@ function siparisDetayGoster(siparis) {
             </div>
         </section>
     `;
+    kargoBarkoduButonlariniGuncelle(batchCount ? aktifTopluSiparisler : [aktifSiparis]);
 }
 
 function siparisHazirEkraniGoster() {
@@ -5255,7 +5290,7 @@ result.addEventListener("click", async function (event) {
 
     if (event.target.closest("[data-print-selected-cargo-barcodes]")) {
         const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
-        kargoBarkodEtiketleriniYazdir(orders);
+        await kargoBarkodEtiketleriniYazdir(orders);
         return;
     }
 
@@ -5269,7 +5304,7 @@ result.addEventListener("click", async function (event) {
             mesajGoster("error", "Sipariş bulunamadı", code);
             return;
         }
-        kargoBarkodEtiketleriniYazdir(order);
+        await kargoBarkodEtiketleriniYazdir(order);
         return;
     }
 
