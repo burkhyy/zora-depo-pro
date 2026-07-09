@@ -2793,8 +2793,11 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                 .photo img { width: 100%; height: 100%; object-fit: contain; }
                 .shelf { display: flex; align-items: center; justify-content: center; min-height: 18mm; padding: 1mm; border: 2px solid #101828; border-radius: 2mm; font-size: 14pt; font-weight: 900; text-align: center; }
                 .product h2 { margin: 0 0 1mm; font-size: 11pt; }
-                .details { display: grid; grid-template-columns: 1fr 1fr; gap: 1mm 4mm; color: #344054; font-size: 8.5pt; }
+                .details { display: grid; grid-template-columns: minmax(0, 1fr) 25mm; grid-template-rows: auto auto; gap: 1mm 4mm; align-items: center; color: #344054; font-size: 8.5pt; }
                 .details b { color: #101828; }
+                .sizeBadge { grid-column: 2; grid-row: 1 / span 2; display: grid; align-content: center; justify-items: center; min-height: 18mm; padding: 1mm; border: 2px solid #101828; border-radius: 2mm; color: #101828; text-align: center; }
+                .sizeBadge em { font-style: normal; font-size: 7pt; font-weight: 900; text-transform: uppercase; }
+                .sizeBadge b { display: block; font-size: 28pt; line-height: .9; font-weight: 900; }
                 .quantity { font-size: 18pt; font-weight: 900; text-align: center; }
             </style>
         </head>
@@ -2855,9 +2858,8 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                                 <h2>${temizle(urunAdi(urun))}</h2>
                                 <div class="details">
                                     <span>Ürün Kodu: <b>${temizle(urunKodu(urun) || "-")}</b></span>
-                                    <span>Barkod: <b>${temizle(urunBarkodu(urun))}</b></span>
+                                    <span class="sizeBadge"><em>Beden</em><b>${temizle(urunBedeni(urun))}</b></span>
                                     <span>Renk: <b>${temizle(urunRengi(urun))}</b></span>
-                                    <span>Beden: <b>${temizle(urunBedeni(urun))}</b></span>
                                 </div>
                             </div>
                             <div class="quantity">${temizle(urunAdedi(urun))}×</div>
