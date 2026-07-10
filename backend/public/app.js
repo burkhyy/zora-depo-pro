@@ -505,6 +505,61 @@ function urunAdedi(urun) {
     return Number.isFinite(sayi) && sayi > 0 ? sayi : 1;
 }
 
+function fiyatSayiyaCevir(deger) {
+    if (typeof deger === "number") return Number.isFinite(deger) ? deger : null;
+    const metin = String(deger ?? "").trim();
+    if (!metin || metin === "-") return null;
+    const temiz = metin.replace(/[^\d,.-]/g, "");
+    const normalize = temiz.includes(",")
+        ? temiz.replaceAll(".", "").replace(",", ".")
+        : temiz;
+    const sayi = Number(normalize);
+    return Number.isFinite(sayi) ? sayi : null;
+}
+
+function fiyatYaz(sayi) {
+    return new Intl.NumberFormat("tr-TR", {
+        style: "currency",
+        currency: "TRY",
+        maximumFractionDigits: 2
+    }).format(sayi);
+}
+
+function urunFiyati(urun) {
+    const tekilFiyat = alanOku(urun, [
+        "unitPrice",
+        "unit_price",
+        "salePrice",
+        "sellingPrice",
+        "discountedPrice",
+        "productPrice",
+        "price",
+        "amountPerUnit",
+        "details.unitPrice",
+        "details.salePrice",
+        "details.sellingPrice",
+        "details.price"
+    ], "");
+    const tekilSayi = fiyatSayiyaCevir(tekilFiyat);
+    if (tekilSayi !== null) return fiyatYaz(tekilSayi);
+
+    const toplamFiyat = alanOku(urun, [
+        "totalPrice",
+        "lineTotal",
+        "total",
+        "amount",
+        "productTotal",
+        "details.totalPrice",
+        "details.lineTotal",
+        "details.total",
+        "details.amount"
+    ], "");
+    const toplamSayi = fiyatSayiyaCevir(toplamFiyat);
+    if (toplamSayi !== null) return fiyatYaz(toplamSayi / urunAdedi(urun));
+
+    return "-";
+}
+
 function barkodNormalize(barkod) {
     return String(barkod ?? "").trim();
 }
@@ -2797,7 +2852,8 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                 .details b { color: #101828; }
                 .sizeBadge { grid-column: 2; grid-row: 1 / span 2; display: grid; align-content: center; justify-items: center; min-height: 18mm; padding: 1mm; border: 2px solid #101828; border-radius: 2mm; color: #101828; text-align: center; }
                 .sizeBadge em { font-style: normal; font-size: 7pt; font-weight: 900; text-transform: uppercase; }
-                .sizeBadge b { display: block; font-size: 28pt; line-height: .9; font-weight: 900; }
+                .sizeBadge b { display: block; font-size: 26pt; line-height: .9; font-weight: 900; }
+                .sizeBadge strong { display: block; margin-top: 1mm; font-size: 10pt; line-height: 1; font-weight: 900; }
                 .quantity { font-size: 18pt; font-weight: 900; text-align: center; }
             </style>
         </head>
@@ -2858,7 +2914,7 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                                 <h2>${temizle(urunAdi(urun))}</h2>
                                 <div class="details">
                                     <span>Ürün Kodu: <b>${temizle(urunKodu(urun) || "-")}</b></span>
-                                    <span class="sizeBadge"><em>Beden</em><b>${temizle(urunBedeni(urun))}</b></span>
+                                    <span class="sizeBadge"><em>Beden</em><b>${temizle(urunBedeni(urun))}</b><strong>${temizle(urunFiyati(urun))}</strong></span>
                                     <span>Renk: <b>${temizle(urunRengi(urun))}</b></span>
                                 </div>
                             </div>
