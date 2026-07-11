@@ -156,6 +156,16 @@ function yereldeHazirlanmisMi(item) {
     return item?.localPreparationStatus === "completed";
 }
 
+function yereldeKargolanmisMi(item) {
+    return item?.localShipmentStatus === "shipped" || Boolean(item?.localShipmentCarrierAcceptedAt || item?.localShipmentShippedAt);
+}
+
+function siparisListeDurumuEtiketi(item) {
+    if (yereldeKargolanmisMi(item)) return "Kargolandı";
+    if (yereldeHazirlanmisMi(item)) return "Hazırlandı";
+    return siparisDurumu(item);
+}
+
 function siparisiYereldeHazirIsaretle(siparis) {
     const code = siparisKodu(siparis).toUpperCase();
     siparis.localPreparationStatus = "completed";
@@ -1310,13 +1320,16 @@ function listeGoster(liste) {
     document.body.classList.remove("historyMode");
     sekmeDurumuGuncelle();
 
-    const hazirlanacakListe = liste.filter(item => !yereldeHazirlanmisMi(item) && !item?.hasOpenIssue);
-    const kuyrukListesi = hazirlanacakListe.filter(item =>
-        (item.localWorkflowStage || "new") === aktifSiparisKuyrugu
-    );
+    const kargolananListe = liste.filter(item => yereldeKargolanmisMi(item));
+    const hazirlanacakListe = liste.filter(item => !yereldeHazirlanmisMi(item) && !item?.hasOpenIssue && !yereldeKargolanmisMi(item));
+    const kuyrukListesi = aktifSiparisKuyrugu === "shipped"
+        ? kargolananListe
+        : hazirlanacakListe.filter(item => (item.localWorkflowStage || "new") === aktifSiparisKuyrugu);
+    const kargolananGorunumu = aktifSiparisKuyrugu === "shipped";
+    const islemKuyruguGorunumu = !kargolananGorunumu;
     const platformListesi = siparisSiralamaUygula(kuyrukListesi.filter(item =>
         platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
-        && (!aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
+        && (kargolananGorunumu || !aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
         && siparisRafGrubunaUyuyor(item, aktifSiparisRafGrubu)
     ));
     const toplamSayfa = Math.max(1, Math.ceil(platformListesi.length / siparisSayfaBoyutu));
@@ -1330,6 +1343,9 @@ function listeGoster(liste) {
             </button>
             <button type="button" data-order-queue="preparing" class="${aktifSiparisKuyrugu === "preparing" ? "active" : ""}">
                 Hazırlanan Siparişler <span>${temizle(hazirlanacakListe.filter(item => item.localWorkflowStage === "preparing").length)}</span>
+            </button>
+            <button type="button" data-order-queue="shipped" class="${aktifSiparisKuyrugu === "shipped" ? "active" : ""}">
+                Kargolanan Siparisler <span>${temizle(kargolananListe.length)}</span>
             </button>
         </div>
         ${platformSekmeleriHtml("orders", aktifSiparisPlatformu, kuyrukListesi, platformAdi)}
@@ -1345,7 +1361,7 @@ function listeGoster(liste) {
             </label>
             <label>
                 <span>Durum</span>
-                <select id="orderStatusFilter">
+                <select id="orderStatusFilter" ${islemKuyruguGorunumu ? "" : "disabled"}>
                     <option value="" ${aktifSiparisDurumFiltresi === "" ? "selected" : ""}>Tüm Aktif Siparişler</option>
                     <option value="1" ${aktifSiparisDurumFiltresi === "1" ? "selected" : ""}>Yeni Sipariş</option>
                     <option value="2" ${aktifSiparisDurumFiltresi === "2" ? "selected" : ""}>Hazırlanıyor</option>
@@ -1353,7 +1369,7 @@ function listeGoster(liste) {
             </label>
             <label>
                 <span>Hazırlama şekli</span>
-                <select id="orderViewMode">
+                <select id="orderViewMode" ${islemKuyruguGorunumu ? "" : "disabled"}>
                     <option value="single" ${aktifSiparisGorunumu === "single" ? "selected" : ""}>Tek Siparişler</option>
                     <option value="batch" ${aktifSiparisGorunumu === "batch" ? "selected" : ""}>Aynı Ürünlü Gruplar</option>
                 </select>
@@ -1378,7 +1394,7 @@ function listeGoster(liste) {
                 <strong>${temizle(sayfadakiSiparisler.length)} / ${temizle(platformListesi.length)} sipariş</strong>
             </div>
         </div>
-        <div class="bulkLabelControls" ${aktifSiparisGorunumu !== "batch" ? "" : "hidden"}>
+        <div class="bulkLabelControls" ${islemKuyruguGorunumu && aktifSiparisGorunumu !== "batch" ? "" : "hidden"}>
             <div>
                 <strong>Toplu yazdırma seçimi</strong>
                 <span id="selectedOrderCount">${temizle(secilenSiparisKodlari.size)} sipariş seçildi</span>
@@ -1411,7 +1427,7 @@ function listeGoster(liste) {
         </div>
     `;
 
-    if (aktifSiparisGorunumu === "batch") {
+    if (islemKuyruguGorunumu && aktifSiparisGorunumu === "batch") {
         aktifTopluGruplar = ayniUrunluSiparisGruplari(platformListesi);
         if (!aktifTopluGruplar.length) {
             result.innerHTML += `<div class="notfound">Bu listede ürün ve adetleri tamamen aynı olan sipariş grubu yok.</div>`;
@@ -1452,7 +1468,7 @@ function listeGoster(liste) {
         result.innerHTML += `
             <article class="orderCard">
                 <div class="cardTop">
-                    <label class="orderSelect">
+                    <label class="orderSelect" ${islemKuyruguGorunumu ? "" : "hidden"}>
                         <input type="checkbox" data-select-order="${temizle(kod)}"
                             ${secilenSiparisKodlari.has(kod) ? "checked" : ""}>
                         <span>Yazdırmak için seç</span>
@@ -1471,7 +1487,7 @@ function listeGoster(liste) {
                             </span>
                         ` : ""}
                     </div>
-                    <span class="cardStatus">${temizle(siparisDurumu(item))}</span>
+                    <span class="cardStatus">${temizle(siparisListeDurumuEtiketi(item))}</span>
                 </div>
 
                 <div class="cardMeta">
@@ -1490,10 +1506,10 @@ function listeGoster(liste) {
                     </button>
                     ${aktifSiparisKuyrugu === "new" ? `
                         <button class="cargoLabelButton" type="button" data-move-to-preparing="${temizle(kod)}">Hazırlananlara Al</button>
-                    ` : `
+                    ` : aktifSiparisKuyrugu === "preparing" ? `
                         <button class="cargoLabelButton" type="button" data-manual-ready-order="${temizle(kod)}">Manuel Kargola</button>
                         <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}">Siparişi Aç</button>
-                    `}
+                    ` : ""}
                 </div>
             </article>
         `;

@@ -2195,6 +2195,7 @@ function yerelHazirlamaDurumlariniEkle(data) {
             WHERE status = 'open'
         `).all().map(item => String(item.order_code || "").trim().toUpperCase())
     );
+    const shipmentStatuses = new Map();
     const barcodeOverrides = new Map(
         database.prepare(`
             SELECT original_barcode, override_barcode FROM product_barcode_overrides
@@ -2218,13 +2219,27 @@ function yerelHazirlamaDurumlariniEkle(data) {
         const key = String(row.order_code || "").trim().toUpperCase();
         if (key && !latestStatuses.has(key)) latestStatuses.set(key, row.status);
     });
+    database.prepare(`
+        SELECT order_code, status, carrier, tracking_number, tracking_url,
+               carrier_accepted_at, shipped_at, updated_at
+        FROM order_shipments
+        ORDER BY updated_at DESC
+    `).all().forEach(row => {
+        const key = String(row.order_code || "").trim().toUpperCase();
+        if (key && !shipmentStatuses.has(key)) shipmentStatuses.set(key, row);
+    });
 
     const list = Array.isArray(data?.result?.list) ? data.result.list : [];
     return {
         ...data,
         result: {
             ...data.result,
-            list: list.map(order => ({
+            total: list.length,
+            pageSize: list.length,
+            list: list.map(order => {
+                const orderKey = siparisKimligi(order).toUpperCase();
+                const shipment = shipmentStatuses.get(orderKey);
+                return {
                 ...order,
                 products: (order.products || []).map(product => {
                     const originalBarcode = String(product.barcode || product.barCode || "").trim();
@@ -2240,10 +2255,17 @@ function yerelHazirlamaDurumlariniEkle(data) {
                         __location: productLocations.get(effectiveBarcode.toUpperCase()) || ""
                     };
                 }),
-                localPreparationStatus: latestStatuses.get(siparisKimligi(order).toUpperCase()) || "",
-                hasOpenIssue: openIssueOrderCodes.has(siparisKimligi(order).toUpperCase()),
-                localWorkflowStage: workflowStages.get(siparisKimligi(order).toUpperCase()) || "new"
-            }))
+                localPreparationStatus: latestStatuses.get(orderKey) || "",
+                hasOpenIssue: openIssueOrderCodes.has(orderKey),
+                localWorkflowStage: workflowStages.get(orderKey) || "new",
+                localShipmentStatus: shipment?.status || "",
+                localShipmentCarrierAcceptedAt: shipment?.carrier_accepted_at || "",
+                localShipmentShippedAt: shipment?.shipped_at || "",
+                localShipmentUpdatedAt: shipment?.updated_at || "",
+                localTrackingNumber: shipment?.tracking_number || "",
+                localTrackingUrl: shipment?.tracking_url || ""
+            };
+            })
         }
     };
 }
