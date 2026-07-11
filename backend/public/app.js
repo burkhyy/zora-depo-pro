@@ -1563,8 +1563,19 @@ async function siparisleriKargolananlaraAl(orders) {
             scans: [],
             orderSnapshot: siparisOzeti(order)
         });
-        await sevkiyatDurumuKaydet(order, "shipped");
+        const shipment = await sevkiyatDurumuKaydet(order, "shipped");
         siparisiYereldeHazirIsaretle(order);
+        order.localShipmentStatus = "shipped";
+        order.localShipmentShippedAt = shipment.shippedAt || new Date().toISOString();
+        order.localShipmentUpdatedAt = shipment.updatedAt || order.localShipmentShippedAt;
+        siparisler.forEach(item => {
+            if (siparisKodu(item).toUpperCase() === siparisKodu(order).toUpperCase()) {
+                item.localPreparationStatus = "completed";
+                item.localShipmentStatus = "shipped";
+                item.localShipmentShippedAt = order.localShipmentShippedAt;
+                item.localShipmentUpdatedAt = order.localShipmentUpdatedAt;
+            }
+        });
         tamamlanan += 1;
     }
     secilenSiparisKodlari.clear();
