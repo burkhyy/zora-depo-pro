@@ -1407,7 +1407,7 @@ function listeGoster(liste) {
                 </button>
             ` : `
                 <button class="cargoLabelButton" type="button" data-manual-ready-selected ${secilenSiparisKodlari.size ? "" : "disabled"}>
-                    Seçilenleri Manuel Kargola
+                    Seçilenleri Kargolanan Siparislere Al
                 </button>
             `}
             <button class="cargoLabelButton" type="button" data-print-selected-slips ${secilenSiparisKodlari.size ? "" : "disabled"}>
@@ -1507,7 +1507,7 @@ function listeGoster(liste) {
                     ${aktifSiparisKuyrugu === "new" ? `
                         <button class="cargoLabelButton" type="button" data-move-to-preparing="${temizle(kod)}">Hazırlananlara Al</button>
                     ` : aktifSiparisKuyrugu === "preparing" ? `
-                        <button class="cargoLabelButton" type="button" data-manual-ready-order="${temizle(kod)}">Manuel Kargola</button>
+                        <button class="cargoLabelButton" type="button" data-manual-ready-order="${temizle(kod)}">Kargolanan Siparislere Al</button>
                         <button class="openOrderButton" type="button" data-order-code="${temizle(kod)}">Siparişi Aç</button>
                     ` : ""}
                 </div>
@@ -1553,7 +1553,7 @@ async function siparisAsamasiniGuncelle(orders, stage) {
     return data.result;
 }
 
-async function siparisleriManuelKargola(orders) {
+async function siparisleriKargolananlaraAl(orders) {
     let tamamlanan = 0;
     for (const order of orders) {
         if (order.hasOpenIssue) {
@@ -1563,7 +1563,7 @@ async function siparisleriManuelKargola(orders) {
             scans: [],
             orderSnapshot: siparisOzeti(order)
         });
-        await sevkiyatDurumuKaydet(order, "ready");
+        await sevkiyatDurumuKaydet(order, "shipped");
         siparisiYereldeHazirIsaretle(order);
         tamamlanan += 1;
     }
@@ -5203,26 +5203,26 @@ result.addEventListener("click", async function (event) {
     const manuelKargolaButonu = event.target.closest("[data-manual-ready-order]");
     if (manuelKargolaButonu) {
         const order = siparisler.find(item => siparisKodu(item) === manuelKargolaButonu.dataset.manualReadyOrder);
-        if (!order || !confirm(`${siparisKodu(order)} siparişi barkod taramadan Kargoya Hazır'a alınsın mı?`)) return;
+        if (!order || !confirm(`${siparisKodu(order)} siparişi Kargolanan Siparisler listesine alınsın mı?`)) return;
         manuelKargolaButonu.disabled = true;
         try {
-            await siparisleriManuelKargola([order]);
-            mesajGoster("success", "Sipariş Kargoya Hazır'a alındı", siparisKodu(order));
+            await siparisleriKargolananlaraAl([order]);
+            mesajGoster("success", "Sipariş Kargolanan Siparislere alındı", siparisKodu(order));
         } catch (err) {
             manuelKargolaButonu.disabled = false;
-            mesajGoster("error", "Manuel kargolama tamamlanamadı", err.message);
+            mesajGoster("error", "Kargolanan siparislere alma tamamlanamadı", err.message);
         }
         return;
     }
 
     if (event.target.closest("[data-manual-ready-selected]")) {
         const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
-        if (!orders.length || !confirm(`${orders.length} sipariş barkod taramadan Kargoya Hazır'a alınsın mı?`)) return;
+        if (!orders.length || !confirm(`${orders.length} sipariş Kargolanan Siparisler listesine alınsın mı?`)) return;
         try {
-            const count = await siparisleriManuelKargola(orders);
-            mesajGoster("success", "Siparişler Kargoya Hazır'a alındı", `${count} sipariş tamamlandı.`);
+            const count = await siparisleriKargolananlaraAl(orders);
+            mesajGoster("success", "Siparişler Kargolanan Siparislere alındı", `${count} sipariş tamamlandı.`);
         } catch (err) {
-            mesajGoster("error", "Toplu manuel kargolama durdu", err.message);
+            mesajGoster("error", "Toplu kargolanan siparislere alma durdu", err.message);
         }
         return;
     }
