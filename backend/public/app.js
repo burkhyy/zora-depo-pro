@@ -1965,7 +1965,7 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                 }
                 .barcodeLabel {
                     display: grid;
-                    grid-template-rows: 3.5mm 3.2mm 3.2mm minmax(0, 1fr);
+                    grid-template-rows: 4mm 3.4mm 4.2mm minmax(0, 1fr);
                     align-items: center;
                     position: absolute !important;
                     top: 0 !important;
@@ -1977,17 +1977,19 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     min-height: 27mm !important;
                     max-height: 27mm !important;
                     margin: 0 !important;
-                    padding: .7mm 1mm;
+                    padding: .6mm 1mm;
                     overflow: hidden;
                     background: #fff;
                     color: #000;
-                    font-family: Arial, sans-serif;
+                    font-family: "Arial Black", Arial, sans-serif;
                 }
                 .barcodeLabelName {
                     display: block;
                     overflow: hidden;
-                    font-size: 5pt;
-                    line-height: 3.5mm;
+                    font-size: 5.8pt;
+                    font-weight: 900;
+                    letter-spacing: .01mm;
+                    line-height: 4mm;
                     text-align: center;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -1996,9 +1998,10 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     display: block;
                     overflow: hidden;
                     min-width: 0;
-                    font-size: 4.3pt;
-                    font-weight: 700;
-                    line-height: 3.2mm;
+                    font-size: 4.8pt;
+                    font-weight: 900;
+                    letter-spacing: .01mm;
+                    line-height: 3.4mm;
                     text-align: center;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -2007,11 +2010,23 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    gap: 1mm;
+                    gap: .8mm;
                     min-width: 0;
-                    font-size: 4.5pt;
-                    font-weight: 800;
-                    line-height: 3.2mm;
+                    font-size: 5.2pt;
+                    font-weight: 900;
+                    letter-spacing: .01mm;
+                    line-height: 4.2mm;
+                }
+                .barcodeLabelColor,
+                .barcodeLabelLocation {
+                    flex: 0 1 auto;
+                    max-width: 15mm;
+                }
+                .barcodeLabelSize {
+                    flex: 0 0 auto;
+                    font-size: 7pt;
+                    font-weight: 900;
+                    transform: translateY(-.1mm);
                 }
                 .barcodeLabelVariant span {
                     display: block;
@@ -2023,7 +2038,7 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                 svg {
                     display: block;
                     width: 45mm !important;
-                    height: 15mm !important;
+                    height: 13.6mm !important;
                     min-height: 0;
                 }
             </style>
@@ -2078,7 +2093,7 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                 }
                 .barcodeLabel {
                     display: grid;
-                    grid-template-rows: 3.6mm 3.2mm 3.2mm minmax(0, 1fr);
+                    grid-template-rows: 4.2mm 3.5mm 4.4mm minmax(0, 1fr);
                     align-items: center;
                     width: 46mm !important;
                     min-width: 46mm !important;
@@ -2087,7 +2102,7 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                     min-height: 26mm !important;
                     max-height: 26mm !important;
                     margin: 0 !important;
-                    padding: .5mm .8mm;
+                    padding: .45mm .8mm;
                     overflow: hidden;
                     background: #fff;
                     color: #000;
@@ -2098,10 +2113,10 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                 .barcodeLabelName {
                     display: block;
                     overflow: hidden;
-                    font-size: 5.8pt;
+                    font-size: 6.5pt;
                     font-weight: 900;
-                    letter-spacing: .02mm;
-                    line-height: 3.6mm;
+                    letter-spacing: .01mm;
+                    line-height: 4.2mm;
                     text-align: center;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -2110,10 +2125,10 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                     display: block;
                     overflow: hidden;
                     min-width: 0;
-                    font-size: 5pt;
+                    font-size: 5.4pt;
                     font-weight: 900;
                     letter-spacing: .01mm;
-                    line-height: 3.2mm;
+                    line-height: 3.5mm;
                     text-align: center;
                     text-overflow: ellipsis;
                     white-space: nowrap;
@@ -2122,12 +2137,23 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    gap: 1mm;
+                    gap: .8mm;
                     min-width: 0;
-                    font-size: 5.1pt;
+                    font-size: 5.6pt;
                     font-weight: 900;
                     letter-spacing: .01mm;
-                    line-height: 3.2mm;
+                    line-height: 4.4mm;
+                }
+                .barcodeLabelColor,
+                .barcodeLabelLocation {
+                    flex: 0 1 auto;
+                    max-width: 15mm;
+                }
+                .barcodeLabelSize {
+                    flex: 0 0 auto;
+                    font-size: 7.6pt;
+                    font-weight: 900;
+                    transform: translateY(-.15mm);
                 }
                 .barcodeLabelVariant span {
                     display: block;
@@ -2139,7 +2165,7 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                 svg {
                     display: block;
                     width: 44mm !important;
-                    height: 14mm !important;
+                    height: 12.8mm !important;
                     min-height: 0;
                 }
             </style>
@@ -2179,9 +2205,9 @@ function barkodEtiketiGoster(kayit) {
                 <strong class="barcodeLabelName">${temizle(kayit.name)}</strong>
                 <span class="barcodeLabelCode">${kayit.code ? `Ürün Kodu: ${temizle(kayit.code)}` : "&nbsp;"}</span>
                 <div class="barcodeLabelVariant">
-                    <span>${temizle(kayit.color)}</span>
-                    <span>${kayit.labelType === "shipment" ? "Sipariş" : "Beden"}: ${temizle(kayit.size)}</span>
-                    <span>Raf: ${temizle(kayit.location || "-")}</span>
+                    <span class="barcodeLabelColor">${temizle(kayit.color)}</span>
+                    <span class="barcodeLabelSize">${kayit.labelType === "shipment" ? "Sipariş" : "Beden"}: ${temizle(kayit.size)}</span>
+                    <span class="barcodeLabelLocation">Raf: ${temizle(kayit.location || "-")}</span>
                 </div>
                 <svg id="barcodeLabelSvg" aria-label="${temizle(kayit.barcode)}"></svg>
             </div>
@@ -2202,7 +2228,7 @@ function barkodEtiketiGoster(kayit) {
     JsBarcode("#barcodeLabelSvg", kayit.barcode, {
         format: barkodYazdirmaFormati(kayit.barcode),
         width: 1.35,
-        height: 29,
+        height: 27,
         displayValue: true,
         fontSize: 8,
         textMargin: 1,

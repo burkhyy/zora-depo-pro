@@ -1962,7 +1962,7 @@ h1{
 
 .barcodeLabel:not(.cargoShippingLabel){
     display:grid;
-    grid-template-rows:3.9mm 3.5mm 3.5mm minmax(0, 1fr);
+    grid-template-rows:4.2mm 3.5mm 4.4mm minmax(0, 1fr);
     align-items:center;
     justify-content:stretch;
 }
@@ -1970,10 +1970,10 @@ h1{
 .barcodeLabelName{
     display:block;
     overflow:hidden;
-    font-size:5.9pt;
+    font-size:6.5pt;
     font-weight:900;
-    letter-spacing:.02mm;
-    line-height:3.9mm;
+    letter-spacing:.01mm;
+    line-height:4.2mm;
     text-align:center;
     text-overflow:ellipsis;
     white-space:nowrap;
@@ -1984,7 +1984,7 @@ h1{
     overflow:hidden;
     min-width:0;
     margin:0;
-    font-size:5.1pt;
+    font-size:5.4pt;
     font-weight:900;
     letter-spacing:.01mm;
     line-height:3.5mm;
@@ -1997,13 +1997,26 @@ h1{
     display:flex;
     align-items:center;
     justify-content:center;
-    gap:1mm;
+    gap:.8mm;
     min-width:0;
     margin:0;
-    font-size:5.2pt;
+    font-size:5.6pt;
     font-weight:900;
     letter-spacing:.01mm;
-    line-height:3.5mm;
+    line-height:4.4mm;
+}
+
+.barcodeLabelColor,
+.barcodeLabelLocation{
+    flex:0 1 auto;
+    max-width:15mm;
+}
+
+.barcodeLabelSize{
+    flex:0 0 auto;
+    font-size:7.6pt;
+    font-weight:900;
+    transform:translateY(-.15mm);
 }
 
 .barcodeLabelVariant span{
