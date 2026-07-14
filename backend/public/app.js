@@ -1136,11 +1136,13 @@ async function apiDurumunuGetir() {
         }
 
         const zaman = data.lastErrorAt ? tarihSaatGoster(data.lastErrorAt) : "";
+        const detay = data.message ? ` Detay: ${temizle(data.message)}` : "";
         apiStatusBanner.innerHTML = `
             <strong>Qukasoft API bağlantısı kesildi.</strong>
             <span>${siparisler.length
                 ? "Son başarılı sipariş listesi gösteriliyor; yeni siparişler bağlantı gelince otomatik eklenecek."
                 : "Siparişler şu anda alınamıyor."}${zaman ? ` Son hata: ${temizle(zaman)}` : ""}</span>
+            ${detay ? `<small>${detay}</small>` : ""}
         `;
         apiStatusBanner.hidden = false;
     } catch (err) {
@@ -1227,8 +1229,9 @@ async function yukle() {
             siparisFisiBaskiKayitlariniGetir()
         ]);
         const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Siparişler yüklenemedi.");
 
-        siparisler = sadeceZoomSiparisleri(data.result.list);
+        siparisler = sadeceZoomSiparisleri(data?.result?.list);
         aktifListe = siparisler;
         urunGorselleriniYukle();
 

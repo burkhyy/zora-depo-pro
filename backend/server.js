@@ -22,7 +22,10 @@ const cloudinaryCloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim
 const cloudinaryApiKey = String(process.env.CLOUDINARY_API_KEY || "").trim();
 const cloudinaryApiSecret = String(process.env.CLOUDINARY_API_SECRET || "").trim();
 const externalProofStorageConfigured = Boolean(cloudinaryCloudName && cloudinaryApiKey && cloudinaryApiSecret);
-const apiDataScope = crypto.createHash("sha256").update(String(process.env.API_URL || "")).digest("hex").slice(0, 16);
+const qukaApiUrl = String(process.env.API_URL || "").trim();
+const qukaApiKey = String(process.env.API_KEY || "").trim();
+const qukaApiSecret = String(process.env.API_SECRET || "").trim();
+const apiDataScope = crypto.createHash("sha256").update(qukaApiUrl).digest("hex").slice(0, 16);
 
 if (process.env.RAILWAY_ENVIRONMENT && (!appUsername || !appPassword)) {
     throw new Error("Railway ortaminda APP_USERNAME ve APP_PASSWORD zorunludur.");
@@ -1326,11 +1329,11 @@ setTimeout(() => kritikOperasyonlariKontrolEt(), 30 * 1000).unref();
 setInterval(() => kritikOperasyonlariKontrolEt(), 15 * 60 * 1000).unref();
 
 const API = axios.create({
-    baseURL: process.env.API_URL,
+    baseURL: qukaApiUrl,
     timeout: Math.max(5000, Number(process.env.API_TIMEOUT_SECONDS || 20) * 1000),
     headers: {
-        apikey: process.env.API_KEY,
-        apisecret: process.env.API_SECRET
+        apikey: qukaApiKey,
+        apisecret: qukaApiSecret
     }
 });
 API.interceptors.response.use(
@@ -1479,15 +1482,45 @@ function zoomSiparisiMi(item) {
     return !platform.includes("trendyol") && !siparisKimligi(item).toUpperCase().startsWith("TY");
 }
 
+function bosQukaSiparisListesi(warning) {
+    return {
+        code: 200,
+        stale: true,
+        cachedAt: activeOrderCacheUpdatedAt,
+        warning,
+        result: {
+            total: 0,
+            pageSize: 0,
+            list: []
+        }
+    };
+}
+
+function qukaApiYapilandirmasiniDogrula() {
+    const missing = [];
+    if (!qukaApiUrl) missing.push("API_URL");
+    if (!qukaApiKey) missing.push("API_KEY");
+    if (!qukaApiSecret) missing.push("API_SECRET");
+    if (!missing.length) return;
+
+    const error = new Error(`Railway Qukasoft API ayarları eksik: ${missing.join(", ")}.`);
+    error.statusCode = 503;
+    throw error;
+}
+
 async function aktifSiparisleriGetir() {
     if (activeOrderCache && Date.now() < nextOrderCheckAt) {
         return activeOrderCache;
+    }
+    if (!activeOrderCache && upstreamStatus.healthy === false && Date.now() < nextOrderCheckAt) {
+        return bosQukaSiparisListesi(upstreamStatus.message || "Qukasoft bağlantısı kesik. Siparişler bağlantı gelince otomatik yüklenecek.");
     }
     if (activeOrderPromise) {
         return activeOrderPromise;
     }
 
     activeOrderPromise = (async () => {
+        qukaApiYapilandirmasiniDogrula();
         const firstPages = await Promise.all(activeOrderStatuses.map(async status => {
             const url = `/order/listsV2?pageStart=0&pageSize=100&orderBy=id&sort=desc&status=${status}`;
             const response = await API.get(url);
@@ -1599,7 +1632,7 @@ async function aktifSiparisleriGetir() {
                 warning: "Qukasoft bağlantısı kesik. Son başarılı sipariş listesi gösteriliyor."
             };
         }
-        throw err;
+        return bosQukaSiparisListesi(err.response?.data?.error || err.message || "Qukasoft bağlantısı kesik. Siparişler bağlantı gelince otomatik yüklenecek.");
     } finally {
         activeOrderPromise = null;
     }
