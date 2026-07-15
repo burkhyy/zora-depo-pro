@@ -2437,6 +2437,69 @@ function urunKatalogSatirlariniAra(query, barcode) {
     `).all(`%${query}%`, `%${query}%`, `${query}%`);
 }
 
+function urunKatalogKayitlariniKaydet(records) {
+    const items = Array.isArray(records) ? records.filter(item => item?.barcode) : [];
+    if (!items.length) return 0;
+    const insert = database.prepare(`
+        INSERT INTO product_search_catalog (
+            barcode, product_id, name, product_code, color, size, search_text, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(barcode) DO UPDATE SET
+            product_id = excluded.product_id,
+            name = excluded.name,
+            product_code = excluded.product_code,
+            color = excluded.color,
+            size = excluded.size,
+            search_text = excluded.search_text,
+            updated_at = CURRENT_TIMESTAMP
+    `);
+    const transaction = database.transaction(() => {
+        items.forEach(item => insert.run(
+            item.barcode, item.productId, item.name, item.code, item.color, item.size, item.searchText
+        ));
+    });
+    transaction();
+    return items.length;
+}
+
+async function qukaUrunleriniDirektAra(query, barcode) {
+    const term = String(barcode || query || "").trim();
+    if (!term) return [];
+    const encoded = encodeURIComponent(term);
+    const endpoints = [...new Set([
+        `/product/lists?barcode=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/lists?barCode=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/lists?productBarcode=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/lists?search=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/lists?q=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/lists?keyword=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/listsV2?barcode=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/listsV2?barCode=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/listsV2?search=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/list?barcode=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/list?barCode=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`,
+        `/product/list?search=${encoded}&pageStart=0&pageSize=100&orderBy=id&sort=desc`
+    ])];
+    const found = [];
+
+    for (const endpoint of endpoints) {
+        try {
+            const response = await API.get(endpoint);
+            found.push(...listeyiBul(response.data));
+        } catch (err) {
+            if (!err.response || ![400, 404, 405].includes(err.response.status)) {
+                console.error("Quka direkt urun aramasi hatasi:", endpoint, err.message);
+            }
+        }
+    }
+
+    const normalizedQuery = katalogMetni(query);
+    return found.flatMap(katalogKayitlari).filter(item => {
+        if (barcode && item.barcode.toLocaleLowerCase("tr-TR") === String(barcode).toLocaleLowerCase("tr-TR")) return true;
+        return normalizedQuery && item.searchText.includes(normalizedQuery);
+    });
+}
+
 app.get("/products/search", async (req, res) => {
     const query = katalogMetni(req.query.q).slice(0, 120);
     const barcode = String(req.query.barcode || "").trim().slice(0, 120);
@@ -2472,6 +2535,17 @@ app.get("/products/search", async (req, res) => {
             rows = urunKatalogSatirlariniAra(query, barcode);
         } catch (err) {
             console.error("Bos urun aramasi sonrasi katalog yenilenemedi:", err.message);
+        }
+    }
+    if (!rows.length && (barcode || query.length >= 2)) {
+        try {
+            const directRecords = await qukaUrunleriniDirektAra(query, barcode);
+            if (urunKatalogKayitlariniKaydet(directRecords)) {
+                rows = urunKatalogSatirlariniAra(query, barcode);
+                meta = urunKatalogMeta() || meta;
+            }
+        } catch (err) {
+            console.error("Quka direkt urun aramasi basarisiz:", err.message);
         }
     }
 
