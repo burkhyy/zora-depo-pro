@@ -1971,6 +1971,7 @@ async function urunListesiniGetir(options = {}) {
         const endpoints = ["/product/lists", "/product/listsV2", "/product/list"];
         const requestedPageSize = Math.max(50, Number(process.env.PRODUCT_PAGE_SIZE || 100));
         const concurrency = Math.max(2, Math.min(10, Number(process.env.PRODUCT_PAGE_CONCURRENCY || 6)));
+        const successful = [];
         let sonHata = null;
 
         for (const endpoint of endpoints) {
@@ -2026,18 +2027,42 @@ async function urunListesiniGetir(options = {}) {
                     result: { list },
                     raw: firstResponse.data
                 };
-                fullProductListCache = {
-                    expiresAt: Date.now() + productListCacheMs,
-                    data
-                };
-                apiDurumunuGuncelle(true);
-                return data;
+                successful.push(data);
             } catch (err) {
                 sonHata = err;
-                if (!err.response || ![404, 405].includes(err.response.status)) {
+                if (!successful.length && (!err.response || ![404, 405].includes(err.response.status))) {
                     throw err;
                 }
             }
+        }
+
+        if (successful.length) {
+            const unique = new Map();
+            successful.flatMap(data => data.result.list).forEach((product, index) => {
+                const key = String(
+                    product?.id
+                    ?? product?.productId
+                    ?? product?.barcode
+                    ?? product?.barCode
+                    ?? `${index}:${JSON.stringify(product).slice(0, 200)}`
+                );
+                if (!unique.has(key)) unique.set(key, product);
+            });
+            const list = [...unique.values()];
+            const data = {
+                source: successful.map(item => item.source).join("+"),
+                count: list.length,
+                total: Math.max(...successful.map(item => Number(item.total) || 0), list.length),
+                pages: successful.reduce((sum, item) => sum + Number(item.pages || 0), 0),
+                result: { list },
+                raw: successful[0].raw
+            };
+            fullProductListCache = {
+                expiresAt: Date.now() + productListCacheMs,
+                data
+            };
+            apiDurumunuGuncelle(true);
+            return data;
         }
 
         throw sonHata;
@@ -2383,6 +2408,35 @@ app.get("/products", async (req, res) => {
     }
 });
 
+function urunKatalogSatirlariniAra(query, barcode) {
+    if (barcode) {
+        return database.prepare(`
+            SELECT catalog.*, overrides.override_barcode
+            FROM product_search_catalog catalog
+            LEFT JOIN product_barcode_overrides overrides
+                ON overrides.original_barcode = catalog.barcode COLLATE NOCASE
+            WHERE catalog.barcode = ? COLLATE NOCASE
+               OR overrides.override_barcode = ? COLLATE NOCASE
+            LIMIT 10
+        `).all(barcode, barcode);
+    }
+
+    if (query.length < 2) return [];
+
+    return database.prepare(`
+        SELECT catalog.*, overrides.override_barcode
+        FROM product_search_catalog catalog
+        LEFT JOIN product_barcode_overrides overrides
+            ON overrides.original_barcode = catalog.barcode COLLATE NOCASE
+        WHERE catalog.search_text LIKE ?
+           OR overrides.override_barcode LIKE ?
+        ORDER BY
+            CASE WHEN catalog.search_text LIKE ? THEN 0 ELSE 1 END,
+            catalog.name COLLATE NOCASE, catalog.size COLLATE NOCASE
+        LIMIT 60
+    `).all(`%${query}%`, `%${query}%`, `${query}%`);
+}
+
 app.get("/products/search", async (req, res) => {
     const query = katalogMetni(req.query.q).slice(0, 120);
     const barcode = String(req.query.barcode || "").trim().slice(0, 120);
@@ -2410,30 +2464,15 @@ app.get("/products/search", async (req, res) => {
         });
     }
 
-    let rows = [];
-    if (barcode) {
-        rows = database.prepare(`
-            SELECT catalog.*, overrides.override_barcode
-            FROM product_search_catalog catalog
-            LEFT JOIN product_barcode_overrides overrides
-                ON overrides.original_barcode = catalog.barcode COLLATE NOCASE
-            WHERE catalog.barcode = ? COLLATE NOCASE
-               OR overrides.override_barcode = ? COLLATE NOCASE
-            LIMIT 10
-        `).all(barcode, barcode);
-    } else if (query.length >= 2) {
-        rows = database.prepare(`
-            SELECT catalog.*, overrides.override_barcode
-            FROM product_search_catalog catalog
-            LEFT JOIN product_barcode_overrides overrides
-                ON overrides.original_barcode = catalog.barcode COLLATE NOCASE
-            WHERE catalog.search_text LIKE ?
-               OR overrides.override_barcode LIKE ?
-            ORDER BY
-                CASE WHEN catalog.search_text LIKE ? THEN 0 ELSE 1 END,
-                catalog.name COLLATE NOCASE, catalog.size COLLATE NOCASE
-            LIMIT 60
-        `).all(`%${query}%`, `%${query}%`, `${query}%`);
+    let rows = urunKatalogSatirlariniAra(query, barcode);
+    if (!rows.length && (barcode || query.length >= 2) && !force) {
+        try {
+            await urunKatalogunuGuncelle({ force: true });
+            meta = urunKatalogMeta() || meta;
+            rows = urunKatalogSatirlariniAra(query, barcode);
+        } catch (err) {
+            console.error("Bos urun aramasi sonrasi katalog yenilenemedi:", err.message);
+        }
     }
 
     res.json({
