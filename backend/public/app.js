@@ -10,6 +10,8 @@ let aktifSekme = "orders";
 let aktifTaramaModu = "order";
 let apiUrunleri = null;
 let apiUrunleriPromise = null;
+let apiUrunleriSonGuncelleme = 0;
+const API_URUN_CACHE_MS = 30000;
 let rafKayitListesi = [];
 let sonRafAramaKayitlari = [];
 let rafKayitlariPromise = null;
@@ -1672,13 +1674,19 @@ function apiUrunKayitlariOlustur(urunler) {
         }));
 }
 
-async function apiUrunleriniGetir() {
-    if (apiUrunleri) {
+async function apiUrunleriniGetir(force = false) {
+    if (!force && apiUrunleri && Date.now() - apiUrunleriSonGuncelleme < API_URUN_CACHE_MS) {
         return apiUrunleri;
     }
 
+    if (force) {
+        apiUrunleri = null;
+        apiUrunleriPromise = null;
+        apiUrunleriSonGuncelleme = 0;
+    }
+
     if (!apiUrunleriPromise) {
-        apiUrunleriPromise = fetch("/products")
+        apiUrunleriPromise = fetch(`/products${force ? "?refresh=1" : ""}`, { cache: "no-store" })
             .then(response => {
                 if (!response.ok) {
                     throw new Error("Ürün listesi alınamadı.");
@@ -1689,6 +1697,7 @@ async function apiUrunleriniGetir() {
     }
 
     apiUrunleri = await apiUrunleriPromise;
+    apiUrunleriSonGuncelleme = Date.now();
     return apiUrunleri;
 }
 
@@ -5347,6 +5356,7 @@ result.addEventListener("click", async function (event) {
 
             apiUrunleri = null;
             apiUrunleriPromise = null;
+            apiUrunleriSonGuncelleme = 0;
             apiUrunDetayCache.clear();
             const arama = document.getElementById("locationSearch");
             if (arama?.value.trim()) {
@@ -5920,6 +5930,7 @@ result.addEventListener("submit", async function (event) {
             await rafKayitlariniGetir(true);
             apiUrunleri = null;
             apiUrunleriPromise = null;
+            apiUrunleriSonGuncelleme = 0;
             const arama = document.getElementById("locationSearch");
             if (arama?.value.trim()) {
                 arama.value = newBarcode;

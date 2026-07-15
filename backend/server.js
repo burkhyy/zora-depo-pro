@@ -1360,7 +1360,8 @@ const productImageCache = new Map(
 const productPageCache = new Map();
 let fullProductListCache = null;
 let fullProductListPromise = null;
-const productListCacheMs = Math.max(60, Number(process.env.PRODUCT_CACHE_SECONDS || 600)) * 1000;
+const productListCacheMs = Math.max(10, Number(process.env.PRODUCT_CACHE_SECONDS || 30)) * 1000;
+const productCatalogRefreshMs = Math.max(30, Number(process.env.PRODUCT_CATALOG_REFRESH_SECONDS || 60)) * 1000;
 const productImageSave = database.prepare(`
     INSERT INTO product_image_cache (product_id, image_url, source_scope, updated_at)
     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -1952,8 +1953,9 @@ async function urunGorselleriniGetir(productIds) {
     return Object.fromEntries(ids.map(id => [id, productImageCache.get(id) || ""]));
 }
 
-async function urunListesiniGetir() {
-    if (fullProductListCache && fullProductListCache.expiresAt > Date.now()) {
+async function urunListesiniGetir(options = {}) {
+    const force = Boolean(options.force);
+    if (!force && fullProductListCache && fullProductListCache.expiresAt > Date.now()) {
         return fullProductListCache.data;
     }
 
@@ -1962,6 +1964,10 @@ async function urunListesiniGetir() {
     }
 
     fullProductListPromise = (async () => {
+        if (force) {
+            fullProductListCache = null;
+            productPageCache.clear();
+        }
         const endpoints = ["/product/lists", "/product/listsV2", "/product/list"];
         const requestedPageSize = Math.max(50, Number(process.env.PRODUCT_PAGE_SIZE || 100));
         const concurrency = Math.max(2, Math.min(10, Number(process.env.PRODUCT_PAGE_CONCURRENCY || 6)));
@@ -2050,6 +2056,16 @@ function katalogMetni(deger) {
     return String(deger || "").toLocaleLowerCase("tr-TR").replace(/\s+/g, " ").trim();
 }
 
+function urunKatalogMeta() {
+    return database.prepare(`SELECT * FROM product_catalog_meta WHERE id = 1`).get() || null;
+}
+
+function urunKataloguEskiMi(meta = urunKatalogMeta()) {
+    if (!meta?.updated_at) return true;
+    const updatedAt = new Date(`${String(meta.updated_at).replace(" ", "T")}Z`).getTime();
+    return !Number.isFinite(updatedAt) || Date.now() - updatedAt > productCatalogRefreshMs;
+}
+
 function katalogRengi(product) {
     const attributes = Array.isArray(product?.attributes) ? product.attributes : [];
     const color = attributes.find(item => katalogMetni(item?.name).includes("renk"));
@@ -2085,10 +2101,10 @@ function katalogKayitlari(product) {
     }).filter(item => item.barcode);
 }
 
-async function urunKatalogunuGuncelle() {
+async function urunKatalogunuGuncelle(options = {}) {
     if (productCatalogSyncPromise) return productCatalogSyncPromise;
     productCatalogSyncPromise = (async () => {
-        const data = await urunListesiniGetir();
+        const data = await urunListesiniGetir({ force: Boolean(options.force) });
         const products = Array.isArray(data?.result?.list) ? data.result.list : [];
         const records = products.flatMap(katalogKayitlari);
         const insert = database.prepare(`
@@ -2146,6 +2162,15 @@ async function urunKatalogunuGuncelle() {
         productCatalogSyncPromise = null;
     }
 }
+
+function urunKatalogunuArkaPlandaGuncelle() {
+    urunKatalogunuGuncelle({ force: true }).catch(err => {
+        console.error("Urun katalogu otomatik guncellenemedi:", err.message);
+    });
+}
+
+setTimeout(urunKatalogunuArkaPlandaGuncelle, 10 * 1000).unref();
+setInterval(urunKatalogunuArkaPlandaGuncelle, productCatalogRefreshMs).unref();
 
 async function urunDetayiniGetir(id) {
     const encodedId = encodeURIComponent(id);
@@ -2350,19 +2375,35 @@ app.get("/order/:code", async (req, res) => {
 
 app.get("/products", async (req, res) => {
     try {
-        const data = await urunListesiniGetir();
+        const force = req.query.refresh === "1" || req.query.force === "1";
+        const data = await urunListesiniGetir({ force });
         res.json(data);
     } catch (err) {
         apiHatasiGonder(err, res);
     }
 });
 
-app.get("/products/search", (req, res) => {
+app.get("/products/search", async (req, res) => {
     const query = katalogMetni(req.query.q).slice(0, 120);
     const barcode = String(req.query.barcode || "").trim().slice(0, 120);
-    const meta = database.prepare(`SELECT * FROM product_catalog_meta WHERE id = 1`).get() || null;
+    const force = req.query.refresh === "1" || req.query.force === "1";
+    let meta = urunKatalogMeta();
+    if (!meta || force || urunKataloguEskiMi(meta)) {
+        try {
+            await urunKatalogunuGuncelle({ force: true });
+            meta = urunKatalogMeta();
+        } catch (err) {
+            if (!meta) {
+                urunKatalogunuGuncelle({ force: true }).catch(syncErr => console.error("Urun katalogu olusturulamadi:", syncErr.message));
+                return res.status(503).json({
+                    error: "Ürün kataloğu hazırlanıyor. Birkaç saniye sonra tekrar deneyin.",
+                    code: "CATALOG_BUILDING"
+                });
+            }
+            console.error("Urun katalogu yenilenemedi, mevcut katalog kullaniliyor:", err.message);
+        }
+    }
     if (!meta) {
-        urunKatalogunuGuncelle().catch(err => console.error("Ürün kataloğu oluşturulamadı:", err.message));
         return res.status(503).json({
             error: "Ürün kataloğu hazırlanıyor. Birkaç saniye sonra tekrar deneyin.",
             code: "CATALOG_BUILDING"
@@ -2473,7 +2514,7 @@ app.put("/admin/product-barcodes/:originalBarcode", yoneticiGerekli, (req, res) 
 
 app.post("/admin/products/sync", yoneticiGerekli, async (req, res, next) => {
     try {
-        const result = await urunKatalogunuGuncelle();
+        const result = await urunKatalogunuGuncelle({ force: true });
         denetimKaydiOlustur(req, "products.sync", "system", "", "Ürün arama kataloğu güncellendi", result);
         res.json({ result });
     } catch (err) {
