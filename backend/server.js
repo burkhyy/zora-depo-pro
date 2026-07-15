@@ -1363,6 +1363,7 @@ let fullProductListPromise = null;
 const productListCacheMs = Math.max(10, Number(process.env.PRODUCT_CACHE_SECONDS || 30)) * 1000;
 const productCatalogRefreshMs = Math.max(30, Number(process.env.PRODUCT_CATALOG_REFRESH_SECONDS || 60)) * 1000;
 const productBarcodeScanLimit = Math.max(50000, Number(process.env.PRODUCT_BARCODE_SCAN_LIMIT || 250000));
+const productCatalogRecentPages = Math.max(1, Number(process.env.PRODUCT_CATALOG_RECENT_PAGES || 8));
 const productImageSave = database.prepare(`
     INSERT INTO product_image_cache (product_id, image_url, source_scope, updated_at)
     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -1956,17 +1957,18 @@ async function urunGorselleriniGetir(productIds) {
 
 async function urunListesiniGetir(options = {}) {
     const force = Boolean(options.force);
-    if (!force && fullProductListCache && fullProductListCache.expiresAt > Date.now()) {
+    const recentOnly = Boolean(options.recentOnly);
+    if (!force && !recentOnly && fullProductListCache && fullProductListCache.expiresAt > Date.now()) {
         return fullProductListCache.data;
     }
 
-    if (fullProductListPromise) {
+    if (!recentOnly && fullProductListPromise) {
         return fullProductListPromise;
     }
 
-    fullProductListPromise = (async () => {
+    const listPromise = (async () => {
         if (force) {
-            fullProductListCache = null;
+            if (!recentOnly) fullProductListCache = null;
             productPageCache.clear();
         }
         const endpoints = ["/product/lists", "/product/listsV2", "/product/list"];
@@ -1990,7 +1992,10 @@ async function urunListesiniGetir(options = {}) {
                     firstList.length,
                     Number(firstResponse.data?.result?.total || firstResponse.data?.total || firstList.length)
                 );
-                const safeTotal = Math.min(total, 50000);
+                const maxRecentTotal = reportedPageSize * productCatalogRecentPages;
+                const safeTotal = recentOnly
+                    ? Math.min(total, maxRecentTotal)
+                    : Math.min(total, productBarcodeScanLimit);
                 const starts = [];
 
                 for (let start = reportedPageSize; start < safeTotal; start += reportedPageSize) {
@@ -2058,10 +2063,12 @@ async function urunListesiniGetir(options = {}) {
                 result: { list },
                 raw: successful[0].raw
             };
-            fullProductListCache = {
-                expiresAt: Date.now() + productListCacheMs,
-                data
-            };
+            if (!recentOnly) {
+                fullProductListCache = {
+                    expiresAt: Date.now() + productListCacheMs,
+                    data
+                };
+            }
             apiDurumunuGuncelle(true);
             return data;
         }
@@ -2069,10 +2076,14 @@ async function urunListesiniGetir(options = {}) {
         throw sonHata;
     })();
 
+    if (!recentOnly) {
+        fullProductListPromise = listPromise;
+    }
+
     try {
-        return await fullProductListPromise;
+        return await listPromise;
     } finally {
-        fullProductListPromise = null;
+        if (!recentOnly) fullProductListPromise = null;
     }
 }
 
@@ -2095,9 +2106,71 @@ function urunKataloguEskiMi(meta = urunKatalogMeta()) {
 function katalogRengi(product) {
     const attributes = Array.isArray(product?.attributes) ? product.attributes : [];
     const color = attributes.find(item => katalogMetni(item?.name).includes("renk"));
-    if (color?.value) return String(color.value);
+    if (color?.value || color?.attributeValue || color?.text) return String(color.value || color.attributeValue || color.text);
     const nameParts = String(product?.name || "").split(/\s+-\s+/);
     return nameParts.length > 1 ? nameParts[nameParts.length - 1].trim() : "";
+}
+
+function barkodluVaryantlariBul(product) {
+    const variants = [];
+    const seen = new Set();
+    const stack = [product];
+    const variantKeys = new Set([
+        "variants",
+        "variant",
+        "stocks",
+        "stock",
+        "productVariants",
+        "productVariant",
+        "items",
+        "item",
+        "details",
+        "detail",
+        "barcodes",
+        "barcodeList"
+    ]);
+
+    while (stack.length) {
+        const current = stack.pop();
+        if (!current || typeof current !== "object") continue;
+        if (seen.has(current)) continue;
+        seen.add(current);
+
+        const barcode = String(current.barcode || current.barCode || current.productBarcode || current.product_barcode || "").trim();
+        if (barcode) variants.push(current);
+
+        for (const [key, value] of Object.entries(current)) {
+            if (!variantKeys.has(key) && key.toLocaleLowerCase("tr-TR").includes("image")) continue;
+            if (Array.isArray(value)) value.forEach(item => stack.push(item));
+            else if (value && typeof value === "object" && variantKeys.has(key)) stack.push(value);
+        }
+    }
+
+    return variants.length ? variants : [product];
+}
+
+function katalogBeden(product, variant) {
+    const attributes = [
+        ...(Array.isArray(variant?.attributes) ? variant.attributes : []),
+        ...(Array.isArray(product?.attributes) ? product.attributes : [])
+    ];
+    const attributeSize = attributes.find(item => katalogMetni(item?.name || item?.key || item?.attributeName).includes("beden"));
+    return String(
+        variant?.size
+        || variant?.beden
+        || variant?.variantName
+        || variant?.variantValue
+        || variant?.value
+        || variant?.value1
+        || variant?.value2
+        || variant?.value3
+        || attributeSize?.value
+        || attributeSize?.attributeValue
+        || (katalogMetni(product?.variant1Name).includes("beden") ? variant?.value1 : "")
+        || (katalogMetni(product?.variant2Name).includes("beden") ? variant?.value2 : "")
+        || (katalogMetni(product?.variant3Name).includes("beden") ? variant?.value3 : "")
+        || ""
+    ).trim();
 }
 
 function katalogKayitlari(product) {
@@ -2105,16 +2178,10 @@ function katalogKayitlari(product) {
     const name = String(product?.name || product?.productName || product?.title || "");
     const color = katalogRengi(product);
     const code = String(product?.code || product?.productCode || product?.modelCode || product?.mpn || "").trim();
-    const variants = Array.isArray(product?.variants) && product.variants.length ? product.variants : [product];
+    const variants = barkodluVaryantlariBul(product);
     return variants.map(variant => {
-        const barcode = String(variant?.barcode || variant?.barCode || product?.barcode || product?.barCode || "").trim();
-        const size = String(
-            variant?.size
-            || (katalogMetni(product?.variant1Name).includes("beden") ? variant?.value1 : "")
-            || (katalogMetni(product?.variant2Name).includes("beden") ? variant?.value2 : "")
-            || (katalogMetni(product?.variant3Name).includes("beden") ? variant?.value3 : "")
-            || ""
-        ).trim();
+        const barcode = String(variant?.barcode || variant?.barCode || variant?.productBarcode || variant?.product_barcode || product?.barcode || product?.barCode || "").trim();
+        const size = katalogBeden(product, variant);
         return {
             barcode,
             productId,
@@ -2130,7 +2197,11 @@ function katalogKayitlari(product) {
 async function urunKatalogunuGuncelle(options = {}) {
     if (productCatalogSyncPromise) return productCatalogSyncPromise;
     productCatalogSyncPromise = (async () => {
-        const data = await urunListesiniGetir({ force: Boolean(options.force) });
+        const replace = options.replace !== false;
+        const data = await urunListesiniGetir({
+            force: Boolean(options.force),
+            recentOnly: Boolean(options.recentOnly)
+        });
         const products = Array.isArray(data?.result?.list) ? data.result.list : [];
         const records = products.flatMap(katalogKayitlari);
         const insert = database.prepare(`
@@ -2148,7 +2219,7 @@ async function urunKatalogunuGuncelle(options = {}) {
         `);
         database.exec("BEGIN");
         try {
-            database.exec("DELETE FROM product_search_catalog");
+            if (replace) database.exec("DELETE FROM product_search_catalog");
             records.forEach(item => insert.run(
                 item.barcode, item.productId, item.name, item.code, item.color, item.size, item.searchText
             ));
@@ -2171,8 +2242,14 @@ async function urunKatalogunuGuncelle(options = {}) {
                 INSERT INTO product_catalog_meta (id, product_count, variant_count, updated_at)
                 VALUES (1, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(id) DO UPDATE SET
-                    product_count = excluded.product_count,
-                    variant_count = excluded.variant_count,
+                    product_count = CASE
+                        WHEN excluded.product_count > product_catalog_meta.product_count THEN excluded.product_count
+                        ELSE product_catalog_meta.product_count
+                    END,
+                    variant_count = CASE
+                        WHEN excluded.variant_count > product_catalog_meta.variant_count THEN excluded.variant_count
+                        ELSE product_catalog_meta.variant_count
+                    END,
                     updated_at = CURRENT_TIMESTAMP
             `).run(products.length, records.length);
             database.exec("COMMIT");
@@ -2190,7 +2267,7 @@ async function urunKatalogunuGuncelle(options = {}) {
 }
 
 function urunKatalogunuArkaPlandaGuncelle() {
-    urunKatalogunuGuncelle({ force: true }).catch(err => {
+    urunKatalogunuGuncelle({ force: true, recentOnly: true, replace: false }).catch(err => {
         console.error("Urun katalogu otomatik guncellenemedi:", err.message);
     });
 }
@@ -2561,11 +2638,15 @@ app.get("/products/search", async (req, res) => {
     let meta = urunKatalogMeta();
     if (!meta || force) {
         try {
-            await urunKatalogunuGuncelle({ force: true });
+            await urunKatalogunuGuncelle({
+                force: true,
+                recentOnly: !force,
+                replace: Boolean(force)
+            });
             meta = urunKatalogMeta();
         } catch (err) {
             if (!meta) {
-                urunKatalogunuGuncelle({ force: true }).catch(syncErr => console.error("Urun katalogu olusturulamadi:", syncErr.message));
+                urunKatalogunuGuncelle({ force: true, recentOnly: true, replace: false }).catch(syncErr => console.error("Urun katalogu olusturulamadi:", syncErr.message));
                 return res.status(503).json({
                     error: "Ürün kataloğu hazırlanıyor. Birkaç saniye sonra tekrar deneyin.",
                     code: "CATALOG_BUILDING"
@@ -2586,7 +2667,7 @@ app.get("/products/search", async (req, res) => {
     let rows = urunKatalogSatirlariniAra(query, barcode);
     if (!rows.length && barcode && !force) {
         try {
-            await urunKatalogunuGuncelle({ force: true });
+            await urunKatalogunuGuncelle({ force: true, recentOnly: true, replace: false });
             meta = urunKatalogMeta() || meta;
             rows = urunKatalogSatirlariniAra(query, barcode);
         } catch (err) {
