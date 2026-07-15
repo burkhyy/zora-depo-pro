@@ -2559,7 +2559,7 @@ app.get("/products/search", async (req, res) => {
     const barcode = String(req.query.barcode || "").trim().slice(0, 120);
     const force = req.query.refresh === "1" || req.query.force === "1";
     let meta = urunKatalogMeta();
-    if (!meta || force || urunKataloguEskiMi(meta)) {
+    if (!meta || force) {
         try {
             await urunKatalogunuGuncelle({ force: true });
             meta = urunKatalogMeta();
@@ -2573,6 +2573,8 @@ app.get("/products/search", async (req, res) => {
             }
             console.error("Urun katalogu yenilenemedi, mevcut katalog kullaniliyor:", err.message);
         }
+    } else if (urunKataloguEskiMi(meta)) {
+        urunKatalogunuArkaPlandaGuncelle();
     }
     if (!meta) {
         return res.status(503).json({
@@ -2582,7 +2584,7 @@ app.get("/products/search", async (req, res) => {
     }
 
     let rows = urunKatalogSatirlariniAra(query, barcode);
-    if (!rows.length && (barcode || query.length >= 2) && !force) {
+    if (!rows.length && barcode && !force) {
         try {
             await urunKatalogunuGuncelle({ force: true });
             meta = urunKatalogMeta() || meta;

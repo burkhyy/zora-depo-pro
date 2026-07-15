@@ -1705,7 +1705,21 @@ async function apiUrunAraSunucuda(query = "", barcode = "") {
     const params = new URLSearchParams();
     if (query) params.set("q", query);
     if (barcode) params.set("barcode", barcode);
-    const response = await fetch(`/products/search?${params}`, { cache: "no-store" });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), barcode ? 18000 : 6000);
+    let response;
+    try {
+        response = await fetch(`/products/search?${params}`, { cache: "no-store", signal: controller.signal });
+    } catch (err) {
+        if (err.name === "AbortError") {
+            throw new Error(barcode
+                ? "Barkod araması uzun sürdü. Birkaç saniye sonra tekrar okutun; katalog arkada güncelleniyor."
+                : "Ürün araması uzun sürdü. Daha kısa ürün adıyla tekrar arayın.");
+        }
+        throw err;
+    } finally {
+        window.clearTimeout(timeout);
+    }
     const data = await response.json();
     if (!response.ok) {
         const error = new Error(data.error || "Ürün araması yapılamadı.");
