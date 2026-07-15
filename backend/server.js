@@ -1362,6 +1362,7 @@ let fullProductListCache = null;
 let fullProductListPromise = null;
 const productListCacheMs = Math.max(10, Number(process.env.PRODUCT_CACHE_SECONDS || 30)) * 1000;
 const productCatalogRefreshMs = Math.max(30, Number(process.env.PRODUCT_CATALOG_REFRESH_SECONDS || 60)) * 1000;
+const productBarcodeScanLimit = Math.max(50000, Number(process.env.PRODUCT_BARCODE_SCAN_LIMIT || 250000));
 const productImageSave = database.prepare(`
     INSERT INTO product_image_cache (product_id, image_url, source_scope, updated_at)
     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
@@ -2500,6 +2501,59 @@ async function qukaUrunleriniDirektAra(query, barcode) {
     });
 }
 
+async function qukaUrunleriniSayfalardaBarkodlaAra(barcode) {
+    const target = String(barcode || "").trim();
+    if (!target) return [];
+
+    const endpoints = ["/product/lists", "/product/listsV2", "/product/list"];
+    const requestedPageSize = Math.max(100, Number(process.env.PRODUCT_PAGE_SIZE || 500));
+    const concurrency = Math.max(2, Math.min(10, Number(process.env.PRODUCT_PAGE_CONCURRENCY || 6)));
+
+    for (const endpoint of endpoints) {
+        try {
+            const firstUrl = `${endpoint}?pageStart=0&pageSize=${requestedPageSize}&orderBy=id&sort=desc`;
+            const firstResponse = await API.get(firstUrl);
+            const firstList = listeyiBul(firstResponse.data);
+            const firstRecords = firstList.flatMap(katalogKayitlari)
+                .filter(item => item.barcode.toLocaleLowerCase("tr-TR") === target.toLocaleLowerCase("tr-TR"));
+            if (firstRecords.length) return firstRecords;
+
+            const reportedPageSize = Number(
+                firstResponse.data?.result?.pageSize
+                || firstResponse.data?.pageSize
+                || firstList.length
+                || requestedPageSize
+            );
+            const total = Math.min(
+                productBarcodeScanLimit,
+                Math.max(firstList.length, Number(firstResponse.data?.result?.total || firstResponse.data?.total || firstList.length))
+            );
+            const starts = [];
+            for (let start = reportedPageSize; start < total; start += reportedPageSize) {
+                starts.push(start);
+            }
+
+            for (let index = 0; index < starts.length; index += concurrency) {
+                const batch = starts.slice(index, index + concurrency);
+                const pages = await Promise.all(batch.map(async pageStart => {
+                    const url = `${endpoint}?pageStart=${pageStart}&pageSize=${reportedPageSize}&orderBy=id&sort=desc`;
+                    const response = await API.get(url);
+                    return listeyiBul(response.data);
+                }));
+                const records = pages.flat().flatMap(katalogKayitlari)
+                    .filter(item => item.barcode.toLocaleLowerCase("tr-TR") === target.toLocaleLowerCase("tr-TR"));
+                if (records.length) return records;
+            }
+        } catch (err) {
+            if (!err.response || ![400, 404, 405].includes(err.response.status)) {
+                console.error("Quka barkod derin tarama hatasi:", endpoint, err.message);
+            }
+        }
+    }
+
+    return [];
+}
+
 app.get("/products/search", async (req, res) => {
     const query = katalogMetni(req.query.q).slice(0, 120);
     const barcode = String(req.query.barcode || "").trim().slice(0, 120);
@@ -2546,6 +2600,17 @@ app.get("/products/search", async (req, res) => {
             }
         } catch (err) {
             console.error("Quka direkt urun aramasi basarisiz:", err.message);
+        }
+    }
+    if (!rows.length && barcode) {
+        try {
+            const deepRecords = await qukaUrunleriniSayfalardaBarkodlaAra(barcode);
+            if (urunKatalogKayitlariniKaydet(deepRecords)) {
+                rows = urunKatalogSatirlariniAra(query, barcode);
+                meta = urunKatalogMeta() || meta;
+            }
+        } catch (err) {
+            console.error("Quka barkod derin tarama basarisiz:", err.message);
         }
     }
 
