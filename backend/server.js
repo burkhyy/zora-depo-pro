@@ -4141,7 +4141,7 @@ app.put("/shipments/:orderCode", (req, res) => {
     res.json({ result: sevkiyatKaydiniDonustur(row) });
 });
 
-function urunKataloguEskiMi() {
+function eskiUrunKataloguEskiMi() {
     const meta = database.prepare(`SELECT updated_at FROM product_catalog_meta WHERE id = 1`).get();
     if (!meta?.updated_at) return true;
     const missingCodes = database.prepare(`
@@ -4153,14 +4153,9 @@ function urunKataloguEskiMi() {
 }
 
 setTimeout(() => {
-    if (!urunKataloguEskiMi()) return;
-    urunKatalogunuGuncelle().catch(err =>
-        console.error("Ürün kataloğu ilk senkronizasyonu başarısız:", err.message)
-    );
-}, 5000).unref();
-setInterval(() => urunKatalogunuGuncelle().catch(err =>
-    console.error("Ürün kataloğu senkronizasyonu başarısız:", err.message)
-), 6 * 60 * 60 * 1000).unref();
+    if (!eskiUrunKataloguEskiMi()) return;
+    urunKatalogunuArkaPlandaGuncelle();
+}, 45000).unref();
 
 if (process.env.NODE_ENV !== "test") {
     setTimeout(() => aktifSiparisleriGetir().catch(() => {}), 3000).unref();
