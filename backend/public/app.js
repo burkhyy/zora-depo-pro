@@ -119,6 +119,10 @@ function platformAnahtari(deger) {
     return metin.includes("trendyol") ? "trendyol" : "zoombutik";
 }
 
+function platformEtiketi(anahtar) {
+    return anahtar === "trendyol" ? "Trendyol" : "Zoombutik";
+}
+
 function sadeceZoomSiparisleri(liste) {
     return Array.isArray(liste) ? liste : [];
 }
@@ -266,6 +270,27 @@ function siparisSiralamaUygula(liste) {
         return sirali.sort((a, b) => musteriAdi(a).localeCompare(musteriAdi(b), "tr"));
     }
     return sirali;
+}
+
+function siparisKuyrukListeleriniHesapla(liste) {
+    const kargolananListe = liste.filter(item => item.localWorkflowStage === "shipped" || yereldeKargolanmisMi(item));
+    const hazirlanacakListe = liste.filter(item =>
+        !yereldeHazirlanmisMi(item)
+        && !item?.hasOpenIssue
+        && item.localWorkflowStage !== "shipped"
+        && !yereldeKargolanmisMi(item)
+    );
+    const kuyrukListesi = aktifSiparisKuyrugu === "shipped"
+        ? kargolananListe
+        : hazirlanacakListe.filter(item => (item.localWorkflowStage || "new") === aktifSiparisKuyrugu);
+    const kargolananGorunumu = aktifSiparisKuyrugu === "shipped";
+    const platformListesi = siparisSiralamaUygula(kuyrukListesi.filter(item =>
+        platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
+        && (kargolananGorunumu || !aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
+        && siparisRafGrubunaUyuyor(item, aktifSiparisRafGrubu)
+    ));
+
+    return { kargolananListe, hazirlanacakListe, kuyrukListesi, platformListesi };
 }
 
 function urunAdi(urun) {
@@ -1326,23 +1351,9 @@ function listeGoster(liste) {
     document.body.classList.remove("historyMode");
     sekmeDurumuGuncelle();
 
-    const kargolananListe = liste.filter(item => item.localWorkflowStage === "shipped" || yereldeKargolanmisMi(item));
-    const hazirlanacakListe = liste.filter(item =>
-        !yereldeHazirlanmisMi(item)
-        && !item?.hasOpenIssue
-        && item.localWorkflowStage !== "shipped"
-        && !yereldeKargolanmisMi(item)
-    );
-    const kuyrukListesi = aktifSiparisKuyrugu === "shipped"
-        ? kargolananListe
-        : hazirlanacakListe.filter(item => (item.localWorkflowStage || "new") === aktifSiparisKuyrugu);
+    const { kargolananListe, hazirlanacakListe, kuyrukListesi, platformListesi } = siparisKuyrukListeleriniHesapla(liste);
     const kargolananGorunumu = aktifSiparisKuyrugu === "shipped";
     const islemKuyruguGorunumu = !kargolananGorunumu;
-    const platformListesi = siparisSiralamaUygula(kuyrukListesi.filter(item =>
-        platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
-        && (kargolananGorunumu || !aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
-        && siparisRafGrubunaUyuyor(item, aktifSiparisRafGrubu)
-    ));
     const toplamSayfa = Math.max(1, Math.ceil(platformListesi.length / siparisSayfaBoyutu));
     aktifSiparisSayfasi = Math.min(Math.max(1, aktifSiparisSayfasi), toplamSayfa);
     const sayfaBaslangici = (aktifSiparisSayfasi - 1) * siparisSayfaBoyutu;
@@ -1404,6 +1415,15 @@ function listeGoster(liste) {
                 <span>Gösterilen</span>
                 <strong>${temizle(sayfadakiSiparisler.length)} / ${temizle(platformListesi.length)} sipariş</strong>
             </div>
+        </div>
+        <div class="bulkQueueAction" ${aktifSiparisKuyrugu === "preparing" && platformListesi.length ? "" : "hidden"}>
+            <div>
+                <strong>Filtredeki tÃ¼m hazÄ±rlananlarÄ± kargolananlara al</strong>
+                <span>${temizle(platformEtiketi(aktifSiparisPlatformu))} filtresinde ${temizle(platformListesi.length)} sipariÅŸ var. Sayfa sayfa seÃ§meden tamamÄ± taÅŸÄ±nÄ±r.</span>
+            </div>
+            <button class="cargoLabelButton" type="button" data-move-filtered-to-shipped>
+                Filtredeki ${temizle(platformListesi.length)} SipariÅŸi Kargolananlara Al
+            </button>
         </div>
         <div class="bulkLabelControls" ${islemKuyruguGorunumu && aktifSiparisGorunumu !== "batch" ? "" : "hidden"}>
             <div>
@@ -1575,6 +1595,32 @@ async function siparisleriKargolananlaraAl(orders) {
     secilenSiparisKodlari.clear();
     listeGoster(aktifListe);
     return result.count || orders.length;
+}
+
+async function filtredekiHazirlananlariKargolananlaraAl() {
+    const eskiKuyruk = aktifSiparisKuyrugu;
+    aktifSiparisKuyrugu = "preparing";
+    const orders = siparisKuyrukListeleriniHesapla(aktifListe).platformListesi;
+    aktifSiparisKuyrugu = eskiKuyruk;
+
+    if (!orders.length) return 0;
+
+    const confirmation = prompt(`${orders.length} hazÄ±rlanan sipariÅŸ Kargolanan SipariÅŸler sekmesine alÄ±nacak. Devam etmek iÃ§in KARGOLA yazÄ±n.`);
+    if (confirmation !== "KARGOLA") return 0;
+
+    const chunkSize = 250;
+    let toplam = 0;
+    for (let index = 0; index < orders.length; index += chunkSize) {
+        const parca = orders.slice(index, index + chunkSize);
+        const result = await siparisAsamasiniGuncelle(parca, "shipped");
+        toplam += result.count || parca.length;
+        mesajGoster("info", "Toplu taÅŸÄ±ma sÃ¼rÃ¼yor", `${toplam} / ${orders.length} sipariÅŸ kargolananlara alÄ±ndÄ±.`);
+    }
+
+    aktifSiparisKuyrugu = "shipped";
+    secilenSiparisKodlari.clear();
+    listeGoster(aktifListe);
+    return toplam;
 }
 
 function rafKayitlari() {
@@ -5295,6 +5341,23 @@ result.addEventListener("click", async function (event) {
             mesajGoster("success", "Siparişler Kargolanan Siparislere alındı", `${count} sipariş tamamlandı.`);
         } catch (err) {
             mesajGoster("error", "Toplu kargolanan siparislere alma durdu", err.message);
+        }
+        return;
+    }
+
+    const filtreKargolaButonu = event.target.closest("[data-move-filtered-to-shipped]");
+    if (filtreKargolaButonu) {
+        filtreKargolaButonu.disabled = true;
+        try {
+            const count = await filtredekiHazirlananlariKargolananlaraAl();
+            if (count) {
+                mesajGoster("success", "Toplu taÅŸÄ±ma tamamlandÄ±", `${count} sipariÅŸ Kargolanan SipariÅŸler sekmesine alÄ±ndÄ±.`);
+            } else {
+                filtreKargolaButonu.disabled = false;
+            }
+        } catch (err) {
+            filtreKargolaButonu.disabled = false;
+            mesajGoster("error", "Toplu taÅŸÄ±ma tamamlanamadÄ±", err.message);
         }
         return;
     }
