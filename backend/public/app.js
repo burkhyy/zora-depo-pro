@@ -163,6 +163,7 @@ function yereldeKargolanmisMi(item) {
 }
 
 function siparisListeDurumuEtiketi(item) {
+    if (item?.localWorkflowStage === "shipped") return "Kargolandı";
     if (yereldeKargolanmisMi(item)) return "Kargolandı";
     if (yereldeHazirlanmisMi(item)) return "Hazırlandı";
     return siparisDurumu(item);
@@ -1325,8 +1326,13 @@ function listeGoster(liste) {
     document.body.classList.remove("historyMode");
     sekmeDurumuGuncelle();
 
-    const kargolananListe = liste.filter(item => yereldeKargolanmisMi(item));
-    const hazirlanacakListe = liste.filter(item => !yereldeHazirlanmisMi(item) && !item?.hasOpenIssue && !yereldeKargolanmisMi(item));
+    const kargolananListe = liste.filter(item => item.localWorkflowStage === "shipped" || yereldeKargolanmisMi(item));
+    const hazirlanacakListe = liste.filter(item =>
+        !yereldeHazirlanmisMi(item)
+        && !item?.hasOpenIssue
+        && item.localWorkflowStage !== "shipped"
+        && !yereldeKargolanmisMi(item)
+    );
     const kuyrukListesi = aktifSiparisKuyrugu === "shipped"
         ? kargolananListe
         : hazirlanacakListe.filter(item => (item.localWorkflowStage || "new") === aktifSiparisKuyrugu);
@@ -1559,33 +1565,13 @@ async function siparisAsamasiniGuncelle(orders, stage) {
 }
 
 async function siparisleriKargolananlaraAl(orders) {
-    let tamamlanan = 0;
     for (const order of orders) {
         if (order.hasOpenIssue) {
             throw new Error(`${siparisKodu(order)} siparişinde açık eksik/sorun kaydı var.`);
         }
-        await hazirlamaKaydiGonder("complete", order, {
-            scans: [],
-            orderSnapshot: siparisOzeti(order)
-        });
-        const shipment = await sevkiyatDurumuKaydet(order, "shipped");
-        siparisiYereldeHazirIsaretle(order);
-        order.localShipmentStatus = "shipped";
-        order.localShipmentShippedAt = shipment.shippedAt || new Date().toISOString();
-        order.localShipmentUpdatedAt = shipment.updatedAt || order.localShipmentShippedAt;
-        siparisler.forEach(item => {
-            if (siparisKodu(item).toUpperCase() === siparisKodu(order).toUpperCase()) {
-                item.localPreparationStatus = "completed";
-                item.localShipmentStatus = "shipped";
-                item.localShipmentShippedAt = order.localShipmentShippedAt;
-                item.localShipmentUpdatedAt = order.localShipmentUpdatedAt;
-            }
-        });
-        tamamlanan += 1;
     }
-    secilenSiparisKodlari.clear();
-    listeGoster(aktifListe);
-    return tamamlanan;
+    const result = await siparisAsamasiniGuncelle(orders, "shipped");
+    return result.count || orders.length;
 }
 
 function rafKayitlari() {

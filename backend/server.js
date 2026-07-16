@@ -260,7 +260,7 @@ database.exec(`
 
     CREATE TABLE IF NOT EXISTS order_workflow_stages (
         order_code TEXT PRIMARY KEY COLLATE NOCASE,
-        stage TEXT NOT NULL DEFAULT 'new' CHECK (stage IN ('new', 'preparing')),
+        stage TEXT NOT NULL DEFAULT 'new' CHECK (stage IN ('new', 'preparing', 'shipped')),
         updated_by_user_id INTEGER NOT NULL,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id)
@@ -419,6 +419,27 @@ database.exec(`
     CREATE INDEX IF NOT EXISTS idx_barcode_overrides_value
         ON product_barcode_overrides(override_barcode);
 `);
+
+const workflowStageSchema = database.prepare(`
+    SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'order_workflow_stages'
+`).get()?.sql || "";
+
+if (!workflowStageSchema.includes("'shipped'")) {
+    database.exec(`
+        ALTER TABLE order_workflow_stages RENAME TO order_workflow_stages_old;
+        CREATE TABLE order_workflow_stages (
+            order_code TEXT PRIMARY KEY COLLATE NOCASE,
+            stage TEXT NOT NULL DEFAULT 'new' CHECK (stage IN ('new', 'preparing', 'shipped')),
+            updated_by_user_id INTEGER NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (updated_by_user_id) REFERENCES app_users(id)
+        );
+        INSERT INTO order_workflow_stages (order_code, stage, updated_by_user_id, updated_at)
+        SELECT order_code, stage, updated_by_user_id, updated_at
+        FROM order_workflow_stages_old;
+        DROP TABLE order_workflow_stages_old;
+    `);
+}
 
 const issueColumns = new Set(
     database.prepare(`PRAGMA table_info(order_product_issues)`).all().map(column => column.name)
@@ -3978,7 +3999,7 @@ app.put("/order-workflow/stage", (req, res) => {
             .map(code => String(code || "").trim().slice(0, 128))
             .filter(Boolean)
     )].slice(0, 100);
-    if (!["new", "preparing"].includes(stage)) {
+    if (!["new", "preparing", "shipped"].includes(stage)) {
         return res.status(400).json({ error: "Gecersiz siparis asamasi." });
     }
     if (!orderCodes.length) {
