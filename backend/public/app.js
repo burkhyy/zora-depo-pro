@@ -1571,6 +1571,9 @@ async function siparisleriKargolananlaraAl(orders) {
         }
     }
     const result = await siparisAsamasiniGuncelle(orders, "shipped");
+    aktifSiparisKuyrugu = "shipped";
+    secilenSiparisKodlari.clear();
+    listeGoster(aktifListe);
     return result.count || orders.length;
 }
 
@@ -5272,7 +5275,7 @@ result.addEventListener("click", async function (event) {
     const manuelKargolaButonu = event.target.closest("[data-manual-ready-order]");
     if (manuelKargolaButonu) {
         const order = siparisler.find(item => siparisKodu(item) === manuelKargolaButonu.dataset.manualReadyOrder);
-        if (!order || !confirm(`${siparisKodu(order)} siparişi Kargolanan Siparisler listesine alınsın mı?`)) return;
+        if (!order) return;
         manuelKargolaButonu.disabled = true;
         try {
             await siparisleriKargolananlaraAl([order]);
@@ -5286,7 +5289,7 @@ result.addEventListener("click", async function (event) {
 
     if (event.target.closest("[data-manual-ready-selected]")) {
         const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
-        if (!orders.length || !confirm(`${orders.length} sipariş Kargolanan Siparisler listesine alınsın mı?`)) return;
+        if (!orders.length) return;
         try {
             const count = await siparisleriKargolananlaraAl(orders);
             mesajGoster("success", "Siparişler Kargolanan Siparislere alındı", `${count} sipariş tamamlandı.`);
