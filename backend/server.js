@@ -35,8 +35,51 @@ fs.mkdirSync(dataDirectory, { recursive: true });
 
 const databasePath = path.join(dataDirectory, "locations.db");
 const backupDirectory = path.join(dataDirectory, "backups");
-const database = new DatabaseSync(databasePath);
 fs.mkdirSync(backupDirectory, { recursive: true });
+
+function diskBosAlani(pathName) {
+    try {
+        const stat = fs.statfsSync(pathName);
+        return Number(stat.bavail || 0) * Number(stat.bsize || 0);
+    } catch {
+        return Number.MAX_SAFE_INTEGER;
+    }
+}
+
+function baslangicDepolamaTemizligi() {
+    try {
+        const minFreeBytes = Math.max(64, Number(process.env.MIN_FREE_DISK_MB || 256)) * 1024 * 1024;
+        const backups = fs.readdirSync(backupDirectory)
+            .filter(name => /^zoom-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name) || /^zora-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name))
+            .map(name => {
+                const fullPath = path.join(backupDirectory, name);
+                const stat = fs.statSync(fullPath);
+                return { name, fullPath, mtime: stat.mtimeMs };
+            })
+            .sort((a, b) => b.mtime - a.mtime);
+
+        backups.slice(1).forEach(item => {
+            try { fs.unlinkSync(item.fullPath); } catch {}
+        });
+
+        if (diskBosAlani(dataDirectory) < minFreeBytes && backups[0]) {
+            try { fs.unlinkSync(backups[0].fullPath); } catch {}
+        }
+
+        for (const suffix of ["-journal", "-wal", "-shm"]) {
+            const file = `${databasePath}${suffix}`;
+            try {
+                if (fs.existsSync(file)) fs.unlinkSync(file);
+            } catch {}
+        }
+    } catch (err) {
+        console.error("Baslangic depolama temizligi basarisiz:", err.message);
+    }
+}
+
+baslangicDepolamaTemizligi();
+
+const database = new DatabaseSync(databasePath);
 fs.readdirSync(backupDirectory)
     .filter(name => /^zora-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name))
     .forEach(name => {
@@ -301,45 +344,53 @@ const printJobColumns = new Set(
         database.exec(`ALTER TABLE print_jobs ADD COLUMN ${column} ${definition}`);
     }
 });
-database.exec(`
-    CREATE INDEX IF NOT EXISTS idx_print_jobs_preparer
-        ON print_jobs(prepared_by_user_id, status, released_at, created_at);
+try {
+    database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_print_jobs_preparer
+            ON print_jobs(prepared_by_user_id, status, released_at, created_at);
 
-    UPDATE print_jobs
-    SET prepared_by_user_id = (
-            SELECT preparations.completed_by_user_id
-            FROM order_preparations preparations
-            WHERE preparations.order_code = print_jobs.order_code COLLATE NOCASE
-              AND preparations.status = 'completed'
-            ORDER BY preparations.completed_at DESC, preparations.id DESC
-            LIMIT 1
-        ),
-        prepared_by_name = COALESCE((
-            SELECT users.display_name
-            FROM order_preparations preparations
-            JOIN app_users users ON users.id = preparations.completed_by_user_id
-            WHERE preparations.order_code = print_jobs.order_code COLLATE NOCASE
-              AND preparations.status = 'completed'
-            ORDER BY preparations.completed_at DESC, preparations.id DESC
-            LIMIT 1
-        ), prepared_by_name)
-    WHERE prepared_by_user_id IS NULL;
+        UPDATE print_jobs
+        SET prepared_by_user_id = (
+                SELECT preparations.completed_by_user_id
+                FROM order_preparations preparations
+                WHERE preparations.order_code = print_jobs.order_code COLLATE NOCASE
+                  AND preparations.status = 'completed'
+                ORDER BY preparations.completed_at DESC, preparations.id DESC
+                LIMIT 1
+            ),
+            prepared_by_name = COALESCE((
+                SELECT users.display_name
+                FROM order_preparations preparations
+                JOIN app_users users ON users.id = preparations.completed_by_user_id
+                WHERE preparations.order_code = print_jobs.order_code COLLATE NOCASE
+                  AND preparations.status = 'completed'
+                ORDER BY preparations.completed_at DESC, preparations.id DESC
+                LIMIT 1
+            ), prepared_by_name)
+        WHERE prepared_by_user_id IS NULL;
 
-    WITH ranked AS (
-        SELECT id,
-               ROW_NUMBER() OVER (
-                   PARTITION BY prepared_by_user_id
-                   ORDER BY created_at, id
-               ) AS sequence
-        FROM print_jobs
-        WHERE package_sequence IS NULL
-    )
-    UPDATE print_jobs
-    SET package_sequence = (
-        SELECT sequence FROM ranked WHERE ranked.id = print_jobs.id
-    )
-    WHERE package_sequence IS NULL;
-`);
+        WITH ranked AS (
+            SELECT id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY prepared_by_user_id
+                       ORDER BY created_at, id
+                   ) AS sequence
+            FROM print_jobs
+            WHERE package_sequence IS NULL
+        )
+        UPDATE print_jobs
+        SET package_sequence = (
+            SELECT sequence FROM ranked WHERE ranked.id = print_jobs.id
+        )
+        WHERE package_sequence IS NULL;
+    `);
+} catch (err) {
+    if (String(err?.message || "").includes("database or disk is full")) {
+        console.error("Disk dolu oldugu icin print job bakimi atlandi; uygulama calismaya devam ediyor.");
+    } else {
+        throw err;
+    }
+}
 
 const barcodeOverrideSchema = database.prepare(`
     SELECT sql FROM sqlite_master
@@ -1121,7 +1172,7 @@ app.post("/notifications/read", (req, res) => {
     res.status(204).end();
 });
 
-const backupRetentionDays = Math.max(3, Number(process.env.BACKUP_RETENTION_DAYS || 14));
+const backupRetentionDays = Math.max(1, Number(process.env.BACKUP_RETENTION_DAYS || 2));
 const preparationAlertHours = Math.max(1, Number(process.env.PREPARATION_ALERT_HOURS || 2));
 const issueAlertHours = Math.max(1, Number(process.env.ISSUE_ALERT_HOURS || 24));
 const shipmentAlertHours = Math.max(1, Number(process.env.SHIPMENT_ALERT_HOURS || 8));
@@ -1362,8 +1413,8 @@ let fullProductListCache = null;
 let fullProductListPromise = null;
 const productListCacheMs = Math.max(10, Number(process.env.PRODUCT_CACHE_SECONDS || 30)) * 1000;
 const productCatalogRefreshMs = Math.max(30, Number(process.env.PRODUCT_CATALOG_REFRESH_SECONDS || 60)) * 1000;
-const productBarcodeScanLimit = Math.max(50000, Number(process.env.PRODUCT_BARCODE_SCAN_LIMIT || 250000));
-const productCatalogRecentPages = Math.max(1, Number(process.env.PRODUCT_CATALOG_RECENT_PAGES || 8));
+const productBarcodeScanLimit = Math.max(10000, Number(process.env.PRODUCT_BARCODE_SCAN_LIMIT || 50000));
+const productCatalogRecentPages = Math.max(1, Number(process.env.PRODUCT_CATALOG_RECENT_PAGES || 3));
 const productImageSave = database.prepare(`
     INSERT INTO product_image_cache (product_id, image_url, source_scope, updated_at)
     VALUES (?, ?, ?, CURRENT_TIMESTAMP)
