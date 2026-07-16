@@ -1946,8 +1946,8 @@ h1{
 
 .barcodeLabel{
     box-sizing:border-box;
-    width:40mm;
-    height:58mm;
+    width:58mm;
+    height:40mm;
     display:flex;
     flex-direction:column;
     justify-content:center;
@@ -1962,7 +1962,7 @@ h1{
 
 .barcodeLabel:not(.cargoShippingLabel){
     display:grid;
-    grid-template-rows:6mm 16mm 7mm 19mm 6mm;
+    grid-template-rows:5mm 10mm 5mm 13mm 4mm;
     gap:1mm;
     align-items:stretch;
     justify-content:stretch;
@@ -1976,7 +1976,7 @@ h1{
     border-radius:1.5mm;
     background:#000;
     color:#fff;
-    font-size:9pt;
+    font-size:8.5pt;
     font-weight:1000;
     letter-spacing:.4mm;
     line-height:1;
@@ -1988,10 +1988,10 @@ h1{
     -webkit-box-orient:vertical;
     -webkit-line-clamp:3;
     overflow:hidden;
-    font-size:8.3pt;
+    font-size:8pt;
     font-weight:1000;
     letter-spacing:.02mm;
-    line-height:5mm;
+    line-height:3.3mm;
     text-align:center;
     text-overflow:ellipsis;
     white-space:normal;
@@ -2006,7 +2006,7 @@ h1{
     margin:0;
     border-top:.35mm solid #000;
     border-bottom:.35mm solid #000;
-    font-size:7.2pt;
+    font-size:6.8pt;
     font-weight:1000;
     letter-spacing:.01mm;
     line-height:3.1mm;
@@ -2023,7 +2023,7 @@ h1{
     gap:1mm;
     min-width:0;
     margin:0;
-    font-size:7pt;
+    font-size:6.8pt;
     font-weight:1000;
     letter-spacing:.01mm;
     line-height:1.05;
@@ -2038,7 +2038,7 @@ h1{
     grid-row:1 / 3;
     border:1px solid #000;
     border-radius:1.5mm;
-    font-size:20pt;
+    font-size:18pt;
     font-weight:1000;
     line-height:1;
     transform:none;
@@ -2047,7 +2047,7 @@ h1{
 .barcodeLabelLocation{
     border:1px solid #000;
     border-radius:1.5mm;
-    font-size:12pt;
+    font-size:11pt;
     font-weight:1000;
 }
 
@@ -2055,7 +2055,7 @@ h1{
 .barcodeLabelCompany{
     border:1px solid #000;
     border-radius:1.5mm;
-    font-size:6.8pt;
+    font-size:6.4pt;
     font-weight:1000;
 }
 
@@ -3356,7 +3356,7 @@ h1{
 
 @media print{
     @page{
-        size:40mm 58mm;
+        size:58mm 40mm;
         margin:0;
     }
 
@@ -3367,8 +3367,8 @@ h1{
 
     html,
     body{
-        width:40mm !important;
-        height:58mm !important;
+        width:58mm !important;
+        height:40mm !important;
         margin:0 !important;
         padding:0 !important;
         overflow:hidden !important;
@@ -3395,8 +3395,8 @@ h1{
         top:0;
         left:0;
         display:block;
-        width:40mm;
-        height:58mm;
+        width:58mm;
+        height:40mm;
         margin:0;
         padding:0;
         overflow:hidden;
@@ -3404,8 +3404,8 @@ h1{
     }
 
     .barcodePrintDialog{
-        width:40mm;
-        height:58mm;
+        width:58mm;
+        height:40mm;
         margin:0;
         padding:0;
         overflow:hidden;
@@ -3421,8 +3421,8 @@ h1{
 
     .barcodeLabel{
         box-sizing:border-box;
-        width:40mm;
-        height:58mm;
+        width:58mm;
+        height:40mm;
         margin:0;
         border:0;
     }
