@@ -2080,6 +2080,94 @@ h1{
     display:none;
 }
 
+.barcodeLabel:not(.cargoShippingLabel){
+    grid-template-rows:8mm 3.5mm 14mm 4.5mm 5mm;
+    gap:.5mm;
+}
+
+.barcodeLabel:not(.cargoShippingLabel) .barcodeLabelName{
+    font-size:7.8pt;
+    line-height:3.7mm;
+}
+
+.barcodeLabel:not(.cargoShippingLabel) .barcodeLabelCode{
+    border:0;
+    font-size:5.6pt;
+    font-weight:800;
+    line-height:3mm;
+}
+
+.barcodeLabelHero{
+    display:grid;
+    grid-template-columns:1.15fr .85fr;
+    gap:.8mm;
+    min-width:0;
+}
+
+.barcodeLabelHero span,
+.barcodeLabelColor,
+.barcodeLabelFooter{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-width:0;
+    overflow:hidden;
+    border:1px solid #000;
+    border-radius:1.3mm;
+    text-align:center;
+    text-overflow:ellipsis;
+}
+
+.barcodeLabelHero small{
+    display:block;
+    width:100%;
+    font-size:5.8pt;
+    font-weight:1000;
+    line-height:1;
+}
+
+.barcodeLabelHero .barcodeLabelLocation,
+.barcodeLabelHero .barcodeLabelSize{
+    flex-direction:column;
+    padding:.4mm;
+    max-width:none;
+    font-size:18pt;
+    font-weight:1000;
+    line-height:.95;
+    transform:none;
+}
+
+.barcodeLabelHero .barcodeLabelSize{
+    font-size:16pt;
+}
+
+.barcodeLabelColor{
+    padding:.3mm .8mm;
+    font-size:8.2pt;
+    font-weight:1000;
+    white-space:nowrap;
+}
+
+.barcodeLabelFooter{
+    flex-direction:column;
+    border:0;
+    border-radius:0;
+    line-height:1;
+}
+
+.barcodeLabelFooter strong{
+    font-size:8.5pt;
+    font-weight:1000;
+    letter-spacing:.35mm;
+}
+
+.barcodeLabelFooter span{
+    margin-top:.35mm;
+    font-size:6.4pt;
+    font-weight:1000;
+    letter-spacing:.08mm;
+}
+
 .barcodePrintActions{
     display:flex;
     justify-content:flex-end;

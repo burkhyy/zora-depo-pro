@@ -2023,8 +2023,8 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                 }
                 .barcodeLabel {
                     display: grid;
-                    grid-template-rows: 13mm 5.5mm 16mm;
-                    gap: .8mm;
+                    grid-template-rows: 8mm 3.5mm 14mm 4.5mm 5mm;
+                    gap: .5mm;
                     align-items: stretch;
                     position: absolute !important;
                     top: 58mm !important;
@@ -2071,7 +2071,7 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    gap: .8mm;
+                    gap: .5mm;
                     min-width: 0;
                     font-size: 6.5pt;
                     font-weight: 900;
@@ -2101,6 +2101,80 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                     width: 45mm !important;
                     height: 13.6mm !important;
                     min-height: 0;
+                }
+                .barcodeLabel:not(.cargoShippingLabel) .barcodeLabelName {
+                    font-size: 7.8pt;
+                    line-height: 3.7mm;
+                }
+                .barcodeLabel:not(.cargoShippingLabel) .barcodeLabelCode {
+                    border: 0;
+                    font-size: 5.6pt;
+                    font-weight: 800;
+                    line-height: 3mm;
+                }                .barcodeLabelHero {
+                    display: grid;
+                    grid-template-columns: 1.15fr .85fr;
+                    gap: .8mm;
+                    min-width: 0;
+                }
+                .barcodeLabelHero span,
+                .barcodeLabelColor,
+                .barcodeLabelFooter {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-width: 0;
+                    overflow: hidden;
+                    border: 1px solid #000;
+                    border-radius: 1.3mm;
+                    text-align: center;
+                    text-overflow: ellipsis;
+                }
+                .barcodeLabelHero small {
+                    display: block;
+                    width: 100%;
+                    font-size: 5.8pt;
+                    font-weight: 1000;
+                    line-height: 1;
+                }
+                .barcodeLabelHero .barcodeLabelLocation,
+                .barcodeLabelHero .barcodeLabelSize {
+                    flex-direction: column;
+                    padding: .4mm;
+                    max-width: none;
+                    font-size: 18pt;
+                    font-weight: 1000;
+                    line-height: .95;
+                    transform: none;
+                }
+                .barcodeLabelHero .barcodeLabelSize {
+                    font-size: 16pt;
+                }
+                .barcodeLabelColor {
+                    padding: .3mm .8mm;
+                    font-size: 8.2pt;
+                    font-weight: 1000;
+                    white-space: nowrap;
+                }
+                .barcodeLabelFooter {
+                    flex-direction: column;
+                    border: 0;
+                    border-radius: 0;
+                    line-height: 1;
+                }
+                .barcodeLabelFooter strong {
+                    font-size: 8.5pt;
+                    font-weight: 1000;
+                    letter-spacing: .35mm;
+                }
+                .barcodeLabelFooter span {
+                    margin-top: .35mm;
+                    font-size: 6.4pt;
+                    font-weight: 1000;
+                    letter-spacing: .08mm;
+                }
+                .barcodeLabel:not(.cargoShippingLabel) svg {
+                    display: none;
                 }
             </style>
         </head>
@@ -2153,8 +2227,8 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                 }
                 .barcodeLabel {
                     display: grid;
-                    grid-template-rows: 13mm 5.5mm 16mm;
-                    gap: .8mm;
+                    grid-template-rows: 8mm 3.5mm 14mm 4.5mm 5mm;
+                    gap: .5mm;
                     align-items: stretch;
                     position: absolute !important;
                     top: 58mm !important;
@@ -2224,7 +2298,7 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                     grid-template-columns: 1fr 1fr;
                     grid-template-rows: 1fr 1fr;
                     align-items: center;
-                    gap: .8mm;
+                    gap: .5mm;
                     min-width: 0;
                     font-size: 6.5pt;
                     font-weight: 1000;
@@ -2266,6 +2340,80 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                 svg {
                     display: none;
                 }
+                .barcodeLabel:not(.cargoShippingLabel) .barcodeLabelName {
+                    font-size: 7.8pt;
+                    line-height: 3.7mm;
+                }
+                .barcodeLabel:not(.cargoShippingLabel) .barcodeLabelCode {
+                    border: 0;
+                    font-size: 5.6pt;
+                    font-weight: 800;
+                    line-height: 3mm;
+                }                .barcodeLabelHero {
+                    display: grid;
+                    grid-template-columns: 1.15fr .85fr;
+                    gap: .8mm;
+                    min-width: 0;
+                }
+                .barcodeLabelHero span,
+                .barcodeLabelColor,
+                .barcodeLabelFooter {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    min-width: 0;
+                    overflow: hidden;
+                    border: 1px solid #000;
+                    border-radius: 1.3mm;
+                    text-align: center;
+                    text-overflow: ellipsis;
+                }
+                .barcodeLabelHero small {
+                    display: block;
+                    width: 100%;
+                    font-size: 5.8pt;
+                    font-weight: 1000;
+                    line-height: 1;
+                }
+                .barcodeLabelHero .barcodeLabelLocation,
+                .barcodeLabelHero .barcodeLabelSize {
+                    flex-direction: column;
+                    padding: .4mm;
+                    max-width: none;
+                    font-size: 18pt;
+                    font-weight: 1000;
+                    line-height: .95;
+                    transform: none;
+                }
+                .barcodeLabelHero .barcodeLabelSize {
+                    font-size: 16pt;
+                }
+                .barcodeLabelColor {
+                    padding: .3mm .8mm;
+                    font-size: 8.2pt;
+                    font-weight: 1000;
+                    white-space: nowrap;
+                }
+                .barcodeLabelFooter {
+                    flex-direction: column;
+                    border: 0;
+                    border-radius: 0;
+                    line-height: 1;
+                }
+                .barcodeLabelFooter strong {
+                    font-size: 8.5pt;
+                    font-weight: 1000;
+                    letter-spacing: .35mm;
+                }
+                .barcodeLabelFooter span {
+                    margin-top: .35mm;
+                    font-size: 6.4pt;
+                    font-weight: 1000;
+                    letter-spacing: .08mm;
+                }
+                .barcodeLabel:not(.cargoShippingLabel) svg {
+                    display: none;
+                }
             </style>
         </head>
         <body>${etiket.outerHTML}</body>
@@ -2302,10 +2450,14 @@ function barkodEtiketiGoster(kayit) {
             <div class="barcodeLabel" id="barcodeLabel">
                 <strong class="barcodeLabelName">${temizle(kayit.name)}</strong>
                 <span class="barcodeLabelCode">${kayit.code ? `Ürün Kodu: ${temizle(kayit.code)}` : "&nbsp;"}</span>
-                <div class="barcodeLabelVariant">
-                    <span class="barcodeLabelSize">${temizle(kayit.size || "-")}</span>
-                    <span class="barcodeLabelLocation">${temizle(kayit.location || "-")}</span>
-                    <span class="barcodeLabelColor">${temizle(kayit.color || "-")}</span>
+                <div class="barcodeLabelHero">
+                    <span class="barcodeLabelLocation"><small>RAF</small>${temizle(kayit.location || "-")}</span>
+                    <span class="barcodeLabelSize"><small>BEDEN</small>${temizle(kayit.size || "-")}</span>
+                </div>
+                <span class="barcodeLabelColor">RENK: ${temizle(kayit.color || "-")}</span>
+                <div class="barcodeLabelFooter">
+                    <strong>ZOOMBUTİK</strong>
+                    <span>ÖZENLE HAZIRLANDI</span>
                 </div>
             </div>
             <div class="barcodePrintActions">
