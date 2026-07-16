@@ -1928,8 +1928,8 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
     frame.style.position = "fixed";
     frame.style.left = "-10000px";
     frame.style.top = "0";
-    frame.style.width = "48mm";
-    frame.style.height = "28mm";
+    frame.style.width = "40mm";
+    frame.style.height = "58mm";
     frame.style.border = "0";
 
     const temizle = () => {
@@ -1966,17 +1966,17 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
         <html>
         <head>
             <meta charset="utf-8">
-            <title>50x30 Ürün Barkodu</title>
+            <title>40x58 Raf Etiketi</title>
             <style>
-                @page { size: 48mm 28mm; margin: 0; }
+                @page { size: 40mm 58mm; margin: 0; }
                 * { box-sizing: border-box; }
                 html, body {
-                    width: 48mm !important;
-                    min-width: 48mm !important;
-                    max-width: 48mm !important;
-                    height: 28mm !important;
-                    min-height: 28mm !important;
-                    max-height: 28mm !important;
+                    width: 40mm !important;
+                    min-width: 40mm !important;
+                    max-width: 40mm !important;
+                    height: 58mm !important;
+                    min-height: 58mm !important;
+                    max-height: 58mm !important;
                     margin: 0 !important;
                     padding: 0 !important;
                     overflow: hidden !important;
@@ -1988,23 +1988,24 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
                 }
                 .barcodeLabel {
                     display: grid;
-                    grid-template-rows: 4mm 3.4mm 4.2mm minmax(0, 1fr);
-                    align-items: center;
+                    grid-template-rows: 6mm 16mm 7mm 19mm 6mm;
+                    gap: 1mm;
+                    align-items: stretch;
                     position: absolute !important;
                     top: 0 !important;
                     left: 0 !important;
-                    width: 47mm !important;
-                    min-width: 47mm !important;
-                    max-width: 47mm !important;
-                    height: 27mm !important;
-                    min-height: 27mm !important;
-                    max-height: 27mm !important;
+                    width: 40mm !important;
+                    min-width: 40mm !important;
+                    max-width: 40mm !important;
+                    height: 58mm !important;
+                    min-height: 58mm !important;
+                    max-height: 58mm !important;
                     margin: 0 !important;
-                    padding: .6mm 1mm;
+                    padding: 1.2mm;
                     overflow: hidden;
                     background: #fff;
                     color: #000;
-                    font-family: "Arial Black", Arial, sans-serif;
+                    font-family: Arial, "Helvetica Neue", sans-serif;
                 }
                 .barcodeLabelName {
                     display: block;
@@ -2073,7 +2074,7 @@ function urunEtiketiYazdir(etiket, tamamlandi) {
 }
 
 function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
-    const printWindow = window.open("", "zoomProductBarcodePrint", "popup,width=420,height=320");
+    const printWindow = window.open("", "zoomProductBarcodePrint", "popup,width=420,height=620");
     if (!printWindow) {
         tamamlandi();
         mesajGoster("error", "Yazdırma penceresi açılamadı", "Tarayıcının açılır pencere iznini kontrol edin.");
@@ -2093,17 +2094,17 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
         <html>
         <head>
             <meta charset="utf-8">
-            <title>50x30 Ürün Barkodu</title>
+            <title>40x58 Raf Etiketi</title>
             <style>
-                @page { size: 50mm 30mm; margin: 0; }
+                @page { size: 40mm 58mm; margin: 0; }
                 * { box-sizing: border-box; }
                 html, body {
-                    width: 50mm !important;
-                    min-width: 50mm !important;
-                    max-width: 50mm !important;
-                    height: 30mm !important;
-                    min-height: 30mm !important;
-                    max-height: 30mm !important;
+                    width: 40mm !important;
+                    min-width: 40mm !important;
+                    max-width: 40mm !important;
+                    height: 58mm !important;
+                    min-height: 58mm !important;
+                    max-height: 58mm !important;
                     margin: 0 !important;
                     padding: 0 !important;
                     overflow: hidden !important;
@@ -2116,80 +2117,113 @@ function urunEtiketiPenceredeYazdir(etiket, tamamlandi) {
                 }
                 .barcodeLabel {
                     display: grid;
-                    grid-template-rows: 4.2mm 3.5mm 4.4mm minmax(0, 1fr);
-                    align-items: center;
-                    width: 46mm !important;
-                    min-width: 46mm !important;
-                    max-width: 46mm !important;
-                    height: 26mm !important;
-                    min-height: 26mm !important;
-                    max-height: 26mm !important;
+                    grid-template-rows: 6mm 16mm 7mm 19mm 6mm;
+                    gap: 1mm;
+                    align-items: stretch;
+                    width: 40mm !important;
+                    min-width: 40mm !important;
+                    max-width: 40mm !important;
+                    height: 58mm !important;
+                    min-height: 58mm !important;
+                    max-height: 58mm !important;
                     margin: 0 !important;
-                    padding: .45mm .8mm;
+                    padding: 1.2mm;
                     overflow: hidden;
                     background: #fff;
                     color: #000;
-                    font-family: "Arial Black", Arial, sans-serif;
+                    font-family: Arial, "Helvetica Neue", sans-serif;
                     -webkit-print-color-adjust: exact;
                     print-color-adjust: exact;
                 }
+                .barcodeLabelBrand {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border: 1px solid #000;
+                    border-radius: 1.5mm;
+                    background: #000;
+                    color: #fff;
+                    font-size: 9pt;
+                    font-weight: 1000;
+                    letter-spacing: .4mm;
+                    line-height: 1;
+                    text-align: center;
+                }
                 .barcodeLabelName {
-                    display: block;
+                    display: -webkit-box;
+                    -webkit-box-orient: vertical;
+                    -webkit-line-clamp: 3;
                     overflow: hidden;
-                    font-size: 6.5pt;
-                    font-weight: 900;
-                    letter-spacing: .01mm;
-                    line-height: 4.2mm;
+                    font-size: 8.3pt;
+                    font-weight: 1000;
+                    letter-spacing: .02mm;
+                    line-height: 5mm;
                     text-align: center;
                     text-overflow: ellipsis;
-                    white-space: nowrap;
+                    white-space: normal;
                 }
                 .barcodeLabelCode {
-                    display: block;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
                     overflow: hidden;
                     min-width: 0;
-                    font-size: 5.4pt;
-                    font-weight: 900;
+                    border-top: .35mm solid #000;
+                    border-bottom: .35mm solid #000;
+                    font-size: 7.2pt;
+                    font-weight: 1000;
                     letter-spacing: .01mm;
-                    line-height: 3.5mm;
+                    line-height: 3.1mm;
                     text-align: center;
                     text-overflow: ellipsis;
                     white-space: nowrap;
                 }
                 .barcodeLabelVariant {
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    grid-template-rows: 1fr 1fr;
+                    align-items: center;
+                    gap: 1mm;
+                    min-width: 0;
+                    font-size: 7pt;
+                    font-weight: 1000;
+                    letter-spacing: .01mm;
+                    line-height: 1.05;
+                }
+                .barcodeLabelSize {
+                    grid-row: 1 / 3;
+                    border: 1px solid #000;
+                    border-radius: 1.5mm;
+                    font-size: 20pt;
+                    font-weight: 1000;
+                    line-height: 1;
+                }
+                .barcodeLabelLocation {
+                    border: 1px solid #000;
+                    border-radius: 1.5mm;
+                    font-size: 12pt;
+                    font-weight: 1000;
+                }
+                .barcodeLabelColor,
+                .barcodeLabelCompany {
+                    border: 1px solid #000;
+                    border-radius: 1.5mm;
+                    font-size: 6.8pt;
+                    font-weight: 1000;
+                }
+                .barcodeLabelVariant span {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    gap: .8mm;
-                    min-width: 0;
-                    font-size: 5.6pt;
-                    font-weight: 900;
-                    letter-spacing: .01mm;
-                    line-height: 4.4mm;
-                }
-                .barcodeLabelColor,
-                .barcodeLabelLocation {
-                    flex: 0 1 auto;
-                    max-width: 15mm;
-                }
-                .barcodeLabelSize {
-                    flex: 0 0 auto;
-                    font-size: 7.6pt;
-                    font-weight: 900;
-                    transform: translateY(-.15mm);
-                }
-                .barcodeLabelVariant span {
-                    display: block;
                     min-width: 0;
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
+                    padding: .4mm;
+                    text-align: center;
                 }
                 svg {
-                    display: block;
-                    width: 44mm !important;
-                    height: 12.8mm !important;
-                    min-height: 0;
+                    display: none;
                 }
             </style>
         </head>
@@ -2219,20 +2253,21 @@ function barkodEtiketiGoster(kayit) {
         <div class="barcodePrintDialog" role="dialog" aria-modal="true" aria-labelledby="barcodePrintTitle">
             <div class="barcodePrintHeader">
                 <div>
-                    <p class="eyebrow">50 x 30 mm Zebra Etiketi</p>
-                    <h2 id="barcodePrintTitle">Barkod Önizleme</h2>
+                    <p class="eyebrow">40 x 58 mm Termal Etiket</p>
+                    <h2 id="barcodePrintTitle">Raf Etiketi Önizleme</h2>
                 </div>
                 <button class="closePrintModal" type="button" aria-label="Kapat">&times;</button>
             </div>
             <div class="barcodeLabel" id="barcodeLabel">
+                <div class="barcodeLabelBrand">ZOOM DEPO</div>
                 <strong class="barcodeLabelName">${temizle(kayit.name)}</strong>
                 <span class="barcodeLabelCode">${kayit.code ? `Ürün Kodu: ${temizle(kayit.code)}` : "&nbsp;"}</span>
                 <div class="barcodeLabelVariant">
-                    <span class="barcodeLabelColor">${temizle(kayit.color)}</span>
-                    <span class="barcodeLabelSize">${kayit.labelType === "shipment" ? "Sipariş" : "Beden"}: ${temizle(kayit.size)}</span>
-                    <span class="barcodeLabelLocation">Raf: ${temizle(kayit.location || "-")}</span>
+                    <span class="barcodeLabelSize">${temizle(kayit.size || "-")}</span>
+                    <span class="barcodeLabelLocation">${temizle(kayit.location || "-")}</span>
+                    <span class="barcodeLabelColor">${temizle(kayit.color || "-")}</span>
                 </div>
-                <svg id="barcodeLabelSvg" aria-label="${temizle(kayit.barcode)}"></svg>
+                <span class="barcodeLabelCompany">ZOOMBUTIK</span>
             </div>
             <div class="barcodePrintActions">
                 <button class="removeLocationButton closePrintModal" type="button">İptal</button>
@@ -2241,25 +2276,6 @@ function barkodEtiketiGoster(kayit) {
         </div>
     `;
     document.body.appendChild(modal);
-
-    if (typeof JsBarcode !== "function") {
-        modal.remove();
-        mesajGoster("error", "Barkod oluşturulamadı", "Barkod kütüphanesi yüklenemedi.");
-        return;
-    }
-
-    JsBarcode("#barcodeLabelSvg", kayit.barcode, {
-        format: barkodYazdirmaFormati(kayit.barcode),
-        width: 1.35,
-        height: 27,
-        displayValue: true,
-        fontSize: 8,
-        textMargin: 1,
-        marginTop: 0,
-        marginBottom: 0,
-        marginLeft: 4,
-        marginRight: 4
-    });
 
     modal.querySelectorAll(".closePrintModal").forEach(button => {
         button.addEventListener("click", () => modal.remove());
