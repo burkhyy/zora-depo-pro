@@ -543,18 +543,6 @@ function urunAdedi(urun) {
     return Number.isFinite(sayi) && sayi > 0 ? sayi : 1;
 }
 
-function fiyatSayiyaCevir(deger) {
-    if (typeof deger === "number") return Number.isFinite(deger) ? deger : null;
-    const metin = String(deger ?? "").trim();
-    if (!metin || metin === "-") return null;
-    const temiz = metin.replace(/[^\d,.-]/g, "");
-    const normalize = temiz.includes(",")
-        ? temiz.replaceAll(".", "").replace(",", ".")
-        : temiz;
-    const sayi = Number(normalize);
-    return Number.isFinite(sayi) ? sayi : null;
-}
-
 function fiyatYaz(sayi) {
     return new Intl.NumberFormat("tr-TR", {
         style: "currency",
@@ -564,38 +552,8 @@ function fiyatYaz(sayi) {
 }
 
 function urunFiyati(urun) {
-    const tekilFiyat = alanOku(urun, [
-        "unitPrice",
-        "unit_price",
-        "salePrice",
-        "sellingPrice",
-        "discountedPrice",
-        "productPrice",
-        "price",
-        "amountPerUnit",
-        "details.unitPrice",
-        "details.salePrice",
-        "details.sellingPrice",
-        "details.price"
-    ], "");
-    const tekilSayi = fiyatSayiyaCevir(tekilFiyat);
-    if (tekilSayi !== null) return fiyatYaz(tekilSayi);
-
-    const toplamFiyat = alanOku(urun, [
-        "totalPrice",
-        "lineTotal",
-        "total",
-        "amount",
-        "productTotal",
-        "details.totalPrice",
-        "details.lineTotal",
-        "details.total",
-        "details.amount"
-    ], "");
-    const toplamSayi = fiyatSayiyaCevir(toplamFiyat);
-    if (toplamSayi !== null) return fiyatYaz(toplamSayi / urunAdedi(urun));
-
-    return "-";
+    const fiyat = window.ZoomOrderPricing?.customerUnitPrice(urun);
+    return fiyat === null || fiyat === undefined ? "-" : fiyatYaz(fiyat);
 }
 
 function barkodNormalize(barkod) {

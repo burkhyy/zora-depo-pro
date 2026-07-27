@@ -22,10 +22,26 @@ const cloudinaryCloudName = String(process.env.CLOUDINARY_CLOUD_NAME || "").trim
 const cloudinaryApiKey = String(process.env.CLOUDINARY_API_KEY || "").trim();
 const cloudinaryApiSecret = String(process.env.CLOUDINARY_API_SECRET || "").trim();
 const externalProofStorageConfigured = Boolean(cloudinaryCloudName && cloudinaryApiKey && cloudinaryApiSecret);
-const qukaApiUrl = String(process.env.API_URL || "").trim();
+
+function qukaApiAdresiniNormalizeEt(value) {
+    const raw = String(value || "").trim();
+    if (!raw) return "";
+    try {
+        const url = new URL(raw);
+        if (["zoombutik.com", "zorabutik.com"].includes(url.hostname.toLowerCase())) {
+            url.hostname = `www.${url.hostname}`;
+        }
+        return url.href.replace(/\/$/, "");
+    } catch {
+        return raw.replace(/\/$/, "");
+    }
+}
+
+const configuredQukaApiUrl = String(process.env.API_URL || "").trim();
+const qukaApiUrl = qukaApiAdresiniNormalizeEt(configuredQukaApiUrl);
 const qukaApiKey = String(process.env.API_KEY || "").trim();
 const qukaApiSecret = String(process.env.API_SECRET || "").trim();
-const apiDataScope = crypto.createHash("sha256").update(qukaApiUrl).digest("hex").slice(0, 16);
+const apiDataScope = crypto.createHash("sha256").update(configuredQukaApiUrl).digest("hex").slice(0, 16);
 
 if (process.env.RAILWAY_ENVIRONMENT && (!appUsername || !appPassword)) {
     throw new Error("Railway ortaminda APP_USERNAME ve APP_PASSWORD zorunludur.");
@@ -1402,7 +1418,8 @@ setInterval(() => kritikOperasyonlariKontrolEt(), 15 * 60 * 1000).unref();
 
 const API = axios.create({
     baseURL: qukaApiUrl,
-    timeout: Math.max(5000, Number(process.env.API_TIMEOUT_SECONDS || 20) * 1000),
+    timeout: Math.max(10000, Number(process.env.API_TIMEOUT_SECONDS || 45) * 1000),
+    family: 4,
     headers: {
         apikey: qukaApiKey,
         apisecret: qukaApiSecret
@@ -1448,7 +1465,8 @@ const upstreamStatus = {
     healthy: null,
     lastSuccessAt: null,
     lastErrorAt: null,
-    message: "Henüz kontrol edilmedi."
+    message: "Henüz kontrol edilmedi.",
+    consecutiveFailures: 0
 };
 const configuredOrderStatuses = String(process.env.ACTIVE_ORDER_STATUSES || "1,2")
     .split(",")
@@ -1472,8 +1490,9 @@ const suratAccounts = [
 ].filter(account => account.username && account.password);
 const suratPollMs = Math.max(60, Number(process.env.SURAT_POLL_SECONDS || 180)) * 1000;
 const suratTimeoutMs = Math.max(10000, Number(process.env.SURAT_TIMEOUT_SECONDS || 30) * 1000);
-const terminalOrderPageLimit = Math.max(100, Number(process.env.TERMINAL_ORDER_SCAN_LIMIT || 500));
-const orderPageConcurrency = Math.max(2, Math.min(10, Number(process.env.ORDER_PAGE_CONCURRENCY || 6)));
+const terminalOrderPageLimit = Math.max(100, Number(process.env.TERMINAL_ORDER_SCAN_LIMIT || 200));
+const orderPageSize = Math.max(20, Math.min(100, Number(process.env.ORDER_PAGE_SIZE || 50)));
+const orderPageConcurrency = Math.max(2, Math.min(8, Number(process.env.ORDER_PAGE_CONCURRENCY || 4)));
 const orderCheckMs = Math.max(5000, Number(process.env.ORDER_CHECK_SECONDS || 10) * 1000);
 const persistedOrderCache = database.prepare(`SELECT * FROM order_api_cache WHERE id = 1`).get();
 let activeOrderCache = (() => {
@@ -1498,6 +1517,14 @@ const saveOrderCache = database.prepare(`
 
 function apiDurumunuGuncelle(healthy, message = "") {
     const previous = upstreamStatus.healthy;
+    if (healthy) {
+        upstreamStatus.consecutiveFailures = 0;
+    } else {
+        upstreamStatus.consecutiveFailures += 1;
+        upstreamStatus.lastErrorAt = new Date().toISOString();
+        upstreamStatus.message = message || "Qukasoft API bağlantısı kurulamadı.";
+        if (activeOrderCache && upstreamStatus.consecutiveFailures < 2) return;
+    }
     upstreamStatus.healthy = healthy;
     upstreamStatus.message = message || (healthy ? "Qukasoft API bağlantısı çalışıyor." : "Qukasoft API bağlantısı kurulamadı.");
     upstreamStatus[healthy ? "lastSuccessAt" : "lastErrorAt"] = new Date().toISOString();
@@ -1597,17 +1624,23 @@ async function aktifSiparisleriGetir() {
     activeOrderPromise = (async () => {
         qukaApiYapilandirmasiniDogrula();
         const firstPages = await Promise.all(activeOrderStatuses.map(async status => {
-            const url = `/order/listsV2?pageStart=0&pageSize=100&orderBy=id&sort=desc&status=${status}`;
-            const response = await API.get(url);
-            const list = siparisListesi(response.data);
-            return {
-                status,
-                list,
-                total: [3, 6].includes(status)
-                    ? Math.min(Number(response.data?.result?.total || list.length), terminalOrderPageLimit)
-                    : Number(response.data?.result?.total || list.length),
-                pageSize: Number(response.data?.result?.pageSize || list.length || 30)
-            };
+            try {
+                const url = `/order/listsV2?pageStart=0&pageSize=${orderPageSize}&orderBy=id&sort=desc&status=${status}`;
+                const response = await API.get(url);
+                const list = siparisListesi(response.data);
+                return {
+                    status,
+                    list,
+                    total: [3, 6].includes(status)
+                        ? Math.min(Number(response.data?.result?.total || list.length), terminalOrderPageLimit)
+                        : Number(response.data?.result?.total || list.length),
+                    pageSize: Number(response.data?.result?.pageSize || list.length || orderPageSize)
+                };
+            } catch (err) {
+                if (![3, 6].includes(status)) throw err;
+                console.error(`Quka terminal siparis durumu ${status} gecici olarak alinamadi:`, err.message);
+                return { status, list: [], total: 0, pageSize: orderPageSize, partial: true };
+            }
         }));
         const signature = firstPages
             .map(page => `${page.status}:${page.total}:${siparisKimligi(page.list[0])}`)
@@ -1629,11 +1662,17 @@ async function aktifSiparisleriGetir() {
             for (let index = 0; index < starts.length; index += orderPageConcurrency) {
                 const batch = starts.slice(index, index + orderPageConcurrency);
                 const batchPages = await Promise.all(batch.map(async pageStart => {
-                    const url = `/order/listsV2?pageStart=${pageStart}&pageSize=${first.pageSize}&orderBy=id&sort=desc&status=${first.status}`;
-                    const response = await API.get(url);
-                    return { status: first.status, list: siparisListesi(response.data) };
+                    try {
+                        const url = `/order/listsV2?pageStart=${pageStart}&pageSize=${first.pageSize}&orderBy=id&sort=desc&status=${first.status}`;
+                        const response = await API.get(url);
+                        return { status: first.status, list: siparisListesi(response.data) };
+                    } catch (err) {
+                        if (![3, 6].includes(first.status)) throw err;
+                        console.error(`Quka terminal siparis sayfasi ${first.status}/${pageStart} gecici olarak alinamadi:`, err.message);
+                        return null;
+                    }
                 }));
-                allPages.push(...batchPages);
+                allPages.push(...batchPages.filter(Boolean));
             }
         }
 
