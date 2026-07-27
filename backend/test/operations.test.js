@@ -12,7 +12,7 @@ const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "zoom-depo-test-"));
 let server;
 
 async function waitForServer() {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
         try {
             const response = await fetch(`${baseUrl}/health`);
             if (response.ok) return;

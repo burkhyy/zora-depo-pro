@@ -1491,6 +1491,7 @@ const suratAccounts = [
 const suratPollMs = Math.max(60, Number(process.env.SURAT_POLL_SECONDS || 180)) * 1000;
 const suratTimeoutMs = Math.max(10000, Number(process.env.SURAT_TIMEOUT_SECONDS || 30) * 1000);
 const terminalOrderPageLimit = Math.max(100, Number(process.env.TERMINAL_ORDER_SCAN_LIMIT || 200));
+const recentOrderScanLimit = Math.max(100, Number(process.env.RECENT_ORDER_SCAN_LIMIT || 300));
 const orderPageSize = Math.max(20, Math.min(100, Number(process.env.ORDER_PAGE_SIZE || 50)));
 const orderPageConcurrency = Math.max(2, Math.min(8, Number(process.env.ORDER_PAGE_CONCURRENCY || 4)));
 const orderCheckMs = Math.max(5000, Number(process.env.ORDER_CHECK_SECONDS || 10) * 1000);
@@ -1579,6 +1580,11 @@ function siparisKimligi(item) {
     return String(item?.order?.code || item?.code || item?.orderCode || item?.order?.id || item?.id || "");
 }
 
+function siparisDurumKodu(item) {
+    const status = Number(item?.order?.status ?? item?.status);
+    return Number.isInteger(status) ? status : null;
+}
+
 function zoomSiparisiMi(item) {
     const platform = String(item?.order?.platform || item?.platform || "").toLocaleLowerCase("tr-TR");
     return !platform.includes("trendyol") && !siparisKimligi(item).toUpperCase().startsWith("TY");
@@ -1623,28 +1629,47 @@ async function aktifSiparisleriGetir() {
 
     activeOrderPromise = (async () => {
         qukaApiYapilandirmasiniDogrula();
-        const firstPages = await Promise.all(activeOrderStatuses.map(async status => {
-            try {
-                const url = `/order/listsV2?pageStart=0&pageSize=${orderPageSize}&orderBy=id&sort=desc&status=${status}`;
-                const response = await API.get(url);
-                const list = siparisListesi(response.data);
-                return {
-                    status,
-                    list,
-                    total: [3, 6].includes(status)
-                        ? Math.min(Number(response.data?.result?.total || list.length), terminalOrderPageLimit)
-                        : Number(response.data?.result?.total || list.length),
-                    pageSize: Number(response.data?.result?.pageSize || list.length || orderPageSize)
-                };
-            } catch (err) {
-                if (![3, 6].includes(status)) throw err;
-                console.error(`Quka terminal siparis durumu ${status} gecici olarak alinamadi:`, err.message);
-                return { status, list: [], total: 0, pageSize: orderPageSize, partial: true };
-            }
-        }));
-        const signature = firstPages
-            .map(page => `${page.status}:${page.total}:${siparisKimligi(page.list[0])}`)
-            .join("|");
+        const [firstPages, recentFirstPage] = await Promise.all([
+            Promise.all(activeOrderStatuses.map(async status => {
+                try {
+                    const url = `/order/listsV2?pageStart=0&pageSize=${orderPageSize}&orderBy=id&sort=desc&status=${status}`;
+                    const response = await API.get(url);
+                    const list = siparisListesi(response.data);
+                    return {
+                        status,
+                        list,
+                        total: [3, 6].includes(status)
+                            ? Math.min(Number(response.data?.result?.total || list.length), terminalOrderPageLimit)
+                            : Number(response.data?.result?.total || list.length),
+                        pageSize: Number(response.data?.result?.pageSize || list.length || orderPageSize)
+                    };
+                } catch (err) {
+                    if (![3, 6].includes(status)) throw err;
+                    console.error(`Quka terminal siparis durumu ${status} gecici olarak alinamadi:`, err.message);
+                    return { status, list: [], total: 0, pageSize: orderPageSize, partial: true };
+                }
+            })),
+            (async () => {
+                try {
+                    const url = `/order/listsV2?pageStart=0&pageSize=${orderPageSize}&orderBy=id&sort=desc&status=0`;
+                    const response = await API.get(url);
+                    const list = siparisListesi(response.data);
+                    return {
+                        list,
+                        total: Math.min(Number(response.data?.result?.total || list.length), recentOrderScanLimit),
+                        pageSize: Number(response.data?.result?.pageSize || list.length || orderPageSize)
+                    };
+                } catch (err) {
+                    console.error("Quka son siparisler yedek akisi gecici olarak alinamadi:", err.message);
+                    return { list: [], total: 0, pageSize: orderPageSize, partial: true };
+                }
+            })()
+        ]);
+        const signature = [
+            "complete-sync-v2",
+            ...firstPages.map(page => `${page.status}:${page.total}:${siparisKimligi(page.list[0])}`),
+            `recent:${recentFirstPage.total}:${siparisKimligi(recentFirstPage.list[0])}:${siparisKimligi(recentFirstPage.list.at(-1))}`
+        ].join("|");
 
         if (activeOrderCache?.signature === signature) {
             nextOrderCheckAt = Date.now() + orderCheckMs;
@@ -1676,6 +1701,43 @@ async function aktifSiparisleriGetir() {
             }
         }
 
+        const requiredStatuses = new Set(configuredOrderStatuses);
+        firstPages.filter(page => requiredStatuses.has(page.status)).forEach(first => {
+            const fetchedCount = new Set(
+                allPages
+                    .filter(page => page.status === first.status)
+                    .flatMap(page => page.list)
+                    .map(siparisKimligi)
+                    .filter(Boolean)
+            ).size;
+            if (fetchedCount < first.total) {
+                throw new Error(`Quka siparis listesi eksik geldi: durum ${first.status}, beklenen ${first.total}, alinan ${fetchedCount}.`);
+            }
+        });
+
+        const recentPages = [recentFirstPage.list];
+        if (!recentFirstPage.partial) {
+            const starts = [];
+            for (let start = recentFirstPage.pageSize; start < recentFirstPage.total; start += recentFirstPage.pageSize) {
+                starts.push(start);
+            }
+            for (let index = 0; index < starts.length; index += orderPageConcurrency) {
+                const batch = starts.slice(index, index + orderPageConcurrency);
+                const pages = await Promise.all(batch.map(async pageStart => {
+                    try {
+                        const url = `/order/listsV2?pageStart=${pageStart}&pageSize=${recentFirstPage.pageSize}&orderBy=id&sort=desc&status=0`;
+                        const response = await API.get(url);
+                        return siparisListesi(response.data);
+                    } catch (err) {
+                        console.error(`Quka son siparisler sayfasi ${pageStart} gecici olarak alinamadi:`, err.message);
+                        return [];
+                    }
+                }));
+                recentPages.push(...pages);
+            }
+        }
+        const recentOrders = recentPages.flat();
+
         const unique = new Map(
             (activeOrderCache?.result?.list || [])
                 .map(item => [siparisKimligi(item), item])
@@ -1688,6 +1750,11 @@ async function aktifSiparisleriGetir() {
                 .map(siparisKimligi)
                 .filter(Boolean)
         );
+        recentOrders
+            .filter(item => siparisDurumKodu(item) === 6)
+            .map(siparisKimligi)
+            .filter(Boolean)
+            .forEach(code => cancelledCodes.add(code));
         cancelledCodes.forEach(code => unique.delete(code));
         allPages.filter(page => ![3, 6].includes(page.status)).forEach(page => {
             page.list.forEach(item => {
@@ -1695,6 +1762,16 @@ async function aktifSiparisleriGetir() {
                 if (!key) return;
                 unique.set(key, item);
             });
+        });
+        recentOrders.forEach(item => {
+            const key = siparisKimligi(item);
+            const status = siparisDurumKodu(item);
+            if (!key) return;
+            if (requiredStatuses.has(status)) {
+                unique.set(key, item);
+            } else if (status === 3 && unique.has(key)) {
+                unique.set(key, item);
+            }
         });
         allPages.filter(page => page.status === 3).forEach(page => {
             page.list.forEach(item => {

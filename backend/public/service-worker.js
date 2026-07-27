@@ -1,8 +1,8 @@
-const CACHE_NAME = "zoom-depo-v3.13.0";
+const CACHE_NAME = "zoom-depo-v3.13.1";
 const STATIC_ASSETS = [
-    "/style.css?v=3.13.0",
-    "/order-pricing.js?v=3.13.0",
-    "/app.js?v=3.13.0",
+    "/style.css?v=3.13.1",
+    "/order-pricing.js?v=3.13.1",
+    "/app.js?v=3.13.1",
     "/manifest.webmanifest",
     "/icons/zoom-depo-192.png",
     "/icons/zoom-depo-512.png"
