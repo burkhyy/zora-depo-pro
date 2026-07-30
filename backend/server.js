@@ -1444,8 +1444,9 @@ API.interceptors.response.use(
 );
 const productImageCache = new Map(
     database.prepare(`SELECT product_id, image_url FROM product_image_cache WHERE source_scope = ?`).all(apiDataScope)
-        .map(item => [Number(item.product_id), item.image_url])
+        .map(item => [String(item.product_id), item.image_url || ""])
 );
+const productImageResolvePromises = new Map();
 const productPageCache = new Map();
 let fullProductListCache = null;
 let fullProductListPromise = null;
@@ -2063,21 +2064,47 @@ function urunGorselUrliniBul(product) {
     if (Array.isArray(product)) {
         return product.map(urunGorselUrliniBul).find(Boolean) || "";
     }
-    const images = Array.isArray(product?.images) ? product.images : [];
-    const first = images[0];
+    if (!product || typeof product !== "object") return "";
 
-    if (typeof first === "string") {
-        return first;
+    const candidates = [
+        product?.images,
+        product?.imageList,
+        product?.pictures,
+        product?.photos,
+        product?.gallery,
+        product?.variants,
+        product?.variant,
+        product?.product,
+        product?.stock,
+        product?.parent
+    ];
+
+    for (const key of [
+        "imagesUrl",
+        "imageUrl",
+        "imageURL",
+        "image_url",
+        "url",
+        "image",
+        "photo",
+        "photoUrl",
+        "picture",
+        "pictureUrl",
+        "thumbnail",
+        "thumbnailUrl",
+        "mainImage",
+        "mainImageUrl"
+    ]) {
+        const value = product?.[key];
+        if (typeof value === "string" && /^https?:\/\//i.test(value)) return value;
     }
 
-    return first?.imagesUrl
-        || first?.imageUrl
-        || first?.url
-        || product?.imagesUrl
-        || product?.imageUrl
-        || product?.image
-        || product?.variant?.images?.[0]?.imagesUrl
-        || "";
+    for (const candidate of candidates) {
+        const found = urunGorselUrliniBul(candidate);
+        if (found) return found;
+    }
+
+    return "";
 }
 
 async function urunSayfasiniGetir(pageStart) {
@@ -2094,8 +2121,8 @@ async function urunSayfasiniGetir(pageStart) {
 }
 
 async function urunGorselleriniGetir(productIds) {
-    const ids = [...new Set(productIds.map(id => Number(id)).filter(Number.isFinite))];
-    const missing = ids.filter(id => !productImageCache.get(id));
+    const ids = [...new Set(productIds.map(id => String(id || "").trim()).filter(Boolean))];
+    const missing = ids.filter(id => !productImageCache.has(id));
 
     if (missing.length) {
         const firstPage = await urunSayfasiniGetir(0);
@@ -2103,6 +2130,7 @@ async function urunGorselleriniGetir(productIds) {
         const candidateStarts = new Set([0]);
 
         missing.forEach(id => {
+            if (!Number.isFinite(Number(id))) return;
             const estimated = Math.max(0, Math.floor(Math.max(0, highestId - id) / 100) * 100);
             candidateStarts.add(estimated);
             candidateStarts.add(Math.max(0, estimated - 100));
@@ -2111,28 +2139,33 @@ async function urunGorselleriniGetir(productIds) {
 
         const pages = await Promise.all([...candidateStarts].map(urunSayfasiniGetir));
         pages.flat().forEach(product => {
-            const id = Number(product.id);
+            const id = String(product.id ?? product.productId ?? "").trim();
 
-            if (Number.isFinite(id)) {
+            if (id) {
                 const imageUrl = urunGorselUrliniBul(product);
                 productImageCache.set(id, imageUrl);
 
                 if (imageUrl) {
-                    productImageSave.run(String(id), imageUrl, apiDataScope);
+                    productImageSave.run(id, imageUrl, apiDataScope);
                 }
             }
         });
 
-        const unresolved = missing.filter(id => !productImageCache.get(id));
+        const unresolved = missing.filter(id => !productImageCache.has(id));
         for (let index = 0; index < unresolved.length; index += 6) {
             const batch = unresolved.slice(index, index + 6);
             await Promise.all(batch.map(async id => {
                 try {
-                    const detail = await urunDetayiniGetir(id);
-                    const product = detail?.result || detail?.raw || detail;
-                    const imageUrl = urunGorselUrliniBul(product);
-                    productImageCache.set(id, imageUrl);
-                    if (imageUrl) productImageSave.run(String(id), imageUrl, apiDataScope);
+                    if (!productImageResolvePromises.has(id)) {
+                        productImageResolvePromises.set(id, (async () => {
+                            const detail = await urunDetayiniGetir(id);
+                            const product = detail?.result || detail?.raw || detail;
+                            return urunGorselUrliniBul(product);
+                        })().finally(() => productImageResolvePromises.delete(id)));
+                    }
+                    const imageUrl = await productImageResolvePromises.get(id);
+                    productImageCache.set(id, imageUrl || "");
+                    if (imageUrl) productImageSave.run(id, imageUrl, apiDataScope);
                 } catch {
                     productImageCache.set(id, "");
                 }

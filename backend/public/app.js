@@ -330,22 +330,57 @@ function urunBarkodu(urun) {
 }
 
 function urunProductId(urun) {
-    return alanOku(urun, ["productId", "product.id", "id"], "");
+    return alanOku(urun, [
+        "productId",
+        "productID",
+        "product_id",
+        "product.id",
+        "product.productId",
+        "id",
+        "stock.productId",
+        "variant.productId",
+        "parent.id",
+        "parent.productId"
+    ], "");
 }
 
 function urunGorseli(urun) {
     const dogrudanDeger = alanOku(urun, [
         "imageUrl",
+        "imageURL",
+        "image_url",
         "image",
+        "photo",
+        "photoUrl",
+        "picture",
+        "pictureUrl",
+        "thumbnail",
+        "thumbnailUrl",
+        "mainImage",
+        "mainImageUrl",
+        "product.imageUrl",
+        "product.image",
+        "product.images.0.imagesUrl",
+        "product.images.0.imageUrl",
+        "product.images.0.url",
+        "variant.imageUrl",
+        "variant.image",
+        "variant.images.0.imagesUrl",
+        "variant.images.0.imageUrl",
+        "variant.images.0.url",
+        "stock.imageUrl",
+        "stock.image",
         "images.0.imagesUrl",
         "images.0.imageUrl",
         "images.0.url"
     ], "");
     const dogrudan = typeof dogrudanDeger === "string" ? dogrudanDeger : "";
+    if (/^https?:\/\//i.test(dogrudan)) return dogrudan;
 
     const productId = urunProductId(urun);
-    const resolved = dogrudan || urunGorselleri[String(productId)] || "";
-    return resolved && productId ? `/product-image/${encodeURIComponent(productId)}` : resolved;
+    const cached = urunGorselleri[String(productId)] || "";
+    if (/^https?:\/\//i.test(cached)) return `/product-image/${encodeURIComponent(productId)}`;
+    return dogrudan || cached || (productId ? `/product-image/${encodeURIComponent(productId)}` : "");
 }
 
 async function urunGorselleriniYukle() {
@@ -354,7 +389,28 @@ async function urunGorselleriniYukle() {
     }
 
     const ids = [...new Set(
-        siparisler.flatMap(siparis => siparis.products || []).map(urunProductId).filter(Boolean)
+        siparisler.flatMap(siparis => siparis.products || [])
+            .filter(urun => !/^https?:\/\//i.test(String(alanOku(urun, [
+                "imageUrl",
+                "imageURL",
+                "image_url",
+                "image",
+                "photoUrl",
+                "pictureUrl",
+                "thumbnailUrl",
+                "mainImageUrl",
+                "product.imageUrl",
+                "product.images.0.imagesUrl",
+                "product.images.0.imageUrl",
+                "variant.imageUrl",
+                "variant.images.0.imagesUrl",
+                "variant.images.0.imageUrl",
+                "images.0.imagesUrl",
+                "images.0.imageUrl",
+                "images.0.url"
+            ], ""))))
+            .map(urunProductId)
+            .filter(Boolean)
     )];
 
     if (!ids.length) {
@@ -3144,10 +3200,7 @@ async function siparisFisiYazdir(siparisVeyaListe) {
             </div>
             <main>
                 ${urunler.map(urun => {
-                    const productId = urunProductId(urun);
-                    const gorsel = productId
-                        ? `/product-image/${encodeURIComponent(productId)}`
-                        : urunGorseli(urun);
+                    const gorsel = urunGorseli(urun);
                     return `
                         <article class="product">
                             <div class="photo">${gorsel
@@ -3222,14 +3275,13 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
             .filter(urun => !hizmetUrunuMu(urun))
             .slice(0, 3)
             .map(urun => {
-                const productId = urunProductId(urun);
                 return {
                     name: urunAdi(urun),
                     size: urunBedeni(urun),
                     color: urunRengi(urun),
                     quantity: urunAdedi(urun),
                     shelf: urunRafKodu(urun),
-                    image: productId ? `/product-image/${encodeURIComponent(productId)}` : urunGorseli(urun)
+                    image: urunGorseli(urun)
                 };
             });
         const toplamAdet = (order.products || [])
