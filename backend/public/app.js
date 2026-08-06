@@ -3146,7 +3146,9 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                 .product { display: grid; grid-template-columns: 24mm 20mm minmax(0, 1fr) 18mm; gap: 3mm; align-items: center; min-height: 30mm; padding: 2.5mm 0; border-top: 1px solid #d0d5dd; break-inside: avoid; page-break-inside: avoid; }
                 .photo { display: flex; align-items: center; justify-content: center; width: 24mm; height: 24mm; overflow: hidden; border: 1px solid #d0d5dd; border-radius: 2mm; color: #98a2b3; font-size: 7pt; text-align: center; }
                 .photo img { width: 100%; height: 100%; object-fit: contain; }
-                .shelf { display: flex; align-items: center; justify-content: center; min-height: 18mm; padding: 1mm; border: 2px solid #101828; border-radius: 2mm; font-size: 14pt; font-weight: 900; text-align: center; }
+                .shelf { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 18mm; padding: 1mm; border: 2px solid #101828; border-radius: 2mm; text-align: center; }
+                .shelf b { display: block; font-size: 14pt; line-height: 1; font-weight: 900; }
+                .shelf small { display: block; margin-top: 1mm; font-size: 6.5pt; line-height: 1; font-weight: 900; letter-spacing: .04em; }
                 .product h2 { margin: 0 0 1mm; font-size: 11pt; }
                 .details { display: grid; grid-template-columns: minmax(0, 1fr) 25mm; grid-template-rows: auto auto; gap: 1mm 4mm; align-items: center; color: #344054; font-size: 8.5pt; }
                 .details b { color: #101828; }
@@ -3206,7 +3208,7 @@ async function siparisFisiYazdir(siparisVeyaListe) {
                             <div class="photo">${gorsel
                                 ? `<img src="${temizle(gorsel)}" alt="${temizle(urunAdi(urun))}">`
                                 : "Görsel yok"}</div>
-                            <div class="shelf">${temizle(urunRafKodu(urun))}</div>
+                            <div class="shelf"><b>${temizle(urunRafKodu(urun))}</b><small>ALT / ÜST BAK</small></div>
                             <div>
                                 <h2>${temizle(urunAdi(urun))}</h2>
                                 <div class="details">
