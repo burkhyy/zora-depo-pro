@@ -74,19 +74,15 @@ function baslangicDepolamaTemizligi() {
             })
             .sort((a, b) => b.mtime - a.mtime);
 
-        backups.slice(1).forEach(item => {
+        backups.slice(5).forEach(item => {
             try { fs.unlinkSync(item.fullPath); } catch {}
         });
 
         if (diskBosAlani(dataDirectory) < minFreeBytes && backups[0]) {
-            try { fs.unlinkSync(backups[0].fullPath); } catch {}
-        }
-
-        for (const suffix of ["-journal", "-wal", "-shm"]) {
-            const file = `${databasePath}${suffix}`;
-            try {
-                if (fs.existsSync(file)) fs.unlinkSync(file);
-            } catch {}
+            backups.slice(1).reverse().forEach(item => {
+                if (diskBosAlani(dataDirectory) >= minFreeBytes) return;
+                try { fs.unlinkSync(item.fullPath); } catch {}
+            });
         }
     } catch (err) {
         console.error("Baslangic depolama temizligi basarisiz:", err.message);
