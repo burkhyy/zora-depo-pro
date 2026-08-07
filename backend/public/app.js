@@ -263,6 +263,21 @@ function siparisToplamAdedi(item) {
         .reduce((toplam, urun) => toplam + urunAdedi(urun), 0);
 }
 
+function baskiGecmisiSatiri(kayit, baslik) {
+    if (!kayit) return "";
+    const ilkBaski = tarihSaatGoster(kayit.firstPrintedAt);
+    const sonBaski = tarihSaatGoster(kayit.lastPrintedAt);
+    const tekrarMetni = Number(kayit.printCount || 0) > 1
+        ? ` · İlk: ${temizle(ilkBaski)}`
+        : "";
+    return `
+        <span>
+            <b>${temizle(baslik)}</b>
+            ${temizle(sonBaski)} · ${temizle(kayit.lastPrintedBy || "-")} · ${temizle(kayit.printCount || 1)} kez${tekrarMetni}
+        </span>
+    `;
+}
+
 function tarihDegeriniOku(item, alanlar) {
     const deger = alanOku(item, alanlar, "");
     return deger === "-" ? "" : deger;
@@ -1619,6 +1634,8 @@ function listeGoster(liste) {
     sayfadakiSiparisler.forEach(item => {
         const kod = siparisKodu(item);
         const urunSayisi = (item.products || []).filter(urun => !hizmetUrunuMu(urun)).length;
+        const etiketKaydi = etiketBaskiKaydi(item);
+        const fisKaydi = siparisFisiBaskiKaydi(item);
         result.innerHTML += `
             <article class="orderCard">
                 <div class="cardTop">
@@ -1630,14 +1647,14 @@ function listeGoster(liste) {
                     <div class="orderCardIdentity">
                         <h2>${temizle(musteriAdi(item))}</h2>
                         <p>Sipariş No: <strong>${temizle(kod)}</strong></p>
-                        ${etiketBaskiKaydi(item) ? `
-                            <span class="printedLabelBadge" title="${temizle(etiketBaskiKaydi(item).lastPrintedBy)} · ${temizle(tarihSaatGoster(etiketBaskiKaydi(item).lastPrintedAt))}">
-                                ✓ Yazdırıldı · ${temizle(etiketBaskiKaydi(item).printCount)} kez
+                        ${etiketKaydi ? `
+                            <span class="printedLabelBadge" title="${temizle(etiketKaydi.lastPrintedBy)} · ${temizle(tarihSaatGoster(etiketKaydi.lastPrintedAt))}">
+                                ✓ Yazdırıldı · ${temizle(etiketKaydi.printCount)} kez
                             </span>
                         ` : ""}
-                        ${siparisFisiBaskiKaydi(item) ? `
-                            <span class="printedLabelBadge" title="${temizle(siparisFisiBaskiKaydi(item).lastPrintedBy)} · ${temizle(tarihSaatGoster(siparisFisiBaskiKaydi(item).lastPrintedAt))}">
-                                ✓ A4 Fiş Yazdırıldı · ${temizle(siparisFisiBaskiKaydi(item).printCount)} kez
+                        ${fisKaydi ? `
+                            <span class="printedLabelBadge" title="${temizle(fisKaydi.lastPrintedBy)} · ${temizle(tarihSaatGoster(fisKaydi.lastPrintedAt))}">
+                                ✓ A4 Fiş Yazdırıldı · ${temizle(fisKaydi.printCount)} kez
                             </span>
                         ` : ""}
                     </div>
@@ -1651,6 +1668,12 @@ function listeGoster(liste) {
                     <span><b>Tutar</b>${temizle(toplamTutar(item))}</span>
                     <span><b>${aktifSiparisKuyrugu === "preparing" ? "Hazırlamaya Alınma" : aktifSiparisKuyrugu === "shipped" ? "Kargo Kaydı" : "Sipariş Tarihi"}</b>${temizle(tarihSaatGoster(siparisFiltreTarihDegeri(item)))}</span>
                 </div>
+                ${etiketKaydi || fisKaydi ? `
+                    <div class="printHistoryMeta">
+                        ${baskiGecmisiSatiri(etiketKaydi, "Son kargo etiketi")}
+                        ${baskiGecmisiSatiri(fisKaydi, "Son A4 fiş")}
+                    </div>
+                ` : ""}
 
                 <div class="orderCardActions">
                     <button class="cargoLabelButton" type="button" data-print-order-slip="${temizle(kod)}">
