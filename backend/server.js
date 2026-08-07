@@ -53,6 +53,64 @@ const databasePath = path.join(dataDirectory, "locations.db");
 const backupDirectory = path.join(dataDirectory, "backups");
 fs.mkdirSync(backupDirectory, { recursive: true });
 
+function sqliteDosyasiSaglamMi(filePath) {
+    if (!fs.existsSync(filePath)) return true;
+    let testDatabase;
+    try {
+        testDatabase = new DatabaseSync(filePath, { readOnly: true });
+        const result = testDatabase.prepare("PRAGMA quick_check").get();
+        const value = Object.values(result || {})[0];
+        return String(value || "").toLowerCase() === "ok";
+    } catch (err) {
+        console.error(`SQLite saglik kontrolu basarisiz (${path.basename(filePath)}):`, err.message);
+        return false;
+    } finally {
+        try { testDatabase?.close(); } catch {}
+    }
+}
+
+function yedekAdaylariniListele() {
+    return fs.readdirSync(backupDirectory)
+        .filter(name => /^zoom-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name) || /^zora-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name))
+        .map(name => {
+            const fullPath = path.join(backupDirectory, name);
+            const stat = fs.statSync(fullPath);
+            return { name, fullPath, mtime: stat.mtimeMs };
+        })
+        .sort((a, b) => b.mtime - a.mtime);
+}
+
+function bozukVeritabaniniKurtar() {
+    if (sqliteDosyasiSaglamMi(databasePath)) return;
+
+    const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+    const corruptPath = path.join(backupDirectory, `corrupt-locations-${stamp.slice(0, 8)}-${stamp.slice(8)}.db`);
+    try {
+        fs.copyFileSync(databasePath, corruptPath);
+        console.error(`Bozuk veritabani yedeklendi: ${corruptPath}`);
+    } catch (err) {
+        console.error("Bozuk veritabani kopyalanamadi:", err.message);
+    }
+
+    for (const item of yedekAdaylariniListele()) {
+        if (!sqliteDosyasiSaglamMi(item.fullPath)) continue;
+        fs.copyFileSync(item.fullPath, databasePath);
+        for (const suffix of ["-journal", "-wal", "-shm"]) {
+            try { fs.rmSync(`${databasePath}${suffix}`, { force: true }); } catch {}
+        }
+        console.error(`Veritabani saglam yedekten geri yuklendi: ${item.name}`);
+        return;
+    }
+
+    const unusablePath = path.join(backupDirectory, `unusable-locations-${stamp.slice(0, 8)}-${stamp.slice(8)}.db`);
+    try {
+        fs.renameSync(databasePath, unusablePath);
+        console.error(`Saglam yedek bulunamadi; uygulama yeni veritabaniyla baslayacak. Eski dosya: ${unusablePath}`);
+    } catch (err) {
+        console.error("Bozuk veritabani tasinamadi:", err.message);
+    }
+}
+
 function diskBosAlani(pathName) {
     try {
         const stat = fs.statfsSync(pathName);
@@ -65,34 +123,24 @@ function diskBosAlani(pathName) {
 function baslangicDepolamaTemizligi() {
     try {
         const minFreeBytes = Math.max(64, Number(process.env.MIN_FREE_DISK_MB || 256)) * 1024 * 1024;
-        const backups = fs.readdirSync(backupDirectory)
-            .filter(name => /^zoom-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name) || /^zora-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name))
-            .map(name => {
-                const fullPath = path.join(backupDirectory, name);
-                const stat = fs.statSync(fullPath);
-                return { name, fullPath, mtime: stat.mtimeMs };
-            })
-            .sort((a, b) => b.mtime - a.mtime);
+        const backups = yedekAdaylariniListele();
 
-        backups.slice(1).forEach(item => {
+        backups.slice(5).forEach(item => {
             try { fs.unlinkSync(item.fullPath); } catch {}
         });
 
         if (diskBosAlani(dataDirectory) < minFreeBytes && backups[0]) {
-            try { fs.unlinkSync(backups[0].fullPath); } catch {}
-        }
-
-        for (const suffix of ["-journal", "-wal", "-shm"]) {
-            const file = `${databasePath}${suffix}`;
-            try {
-                if (fs.existsSync(file)) fs.unlinkSync(file);
-            } catch {}
+            backups.slice(1).reverse().forEach(item => {
+                if (diskBosAlani(dataDirectory) >= minFreeBytes) return;
+                try { fs.unlinkSync(item.fullPath); } catch {}
+            });
         }
     } catch (err) {
         console.error("Baslangic depolama temizligi basarisiz:", err.message);
     }
 }
 
+bozukVeritabaniniKurtar();
 baslangicDepolamaTemizligi();
 
 const database = new DatabaseSync(databasePath);
