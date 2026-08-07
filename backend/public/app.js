@@ -29,7 +29,8 @@ let aktifSiparisRafGrubu = "";
 let aktifSiparisGorunumu = "single";
 let aktifSiparisKuyrugu = "new";
 let aktifSiparisTarihFiltresi = "";
-let aktifSiparisOzelTarih = "";
+let aktifSiparisBaslangicTarihi = "";
+let aktifSiparisBitisTarihi = "";
 let aktifSiparisSaatBaslangic = "";
 let aktifSiparisSaatBitis = "";
 let aktifTopluGruplar = [];
@@ -318,20 +319,30 @@ function yerelSaatAnahtari(deger) {
     return `${String(tarih.getHours()).padStart(2, "0")}:${String(tarih.getMinutes()).padStart(2, "0")}`;
 }
 
-function aktifSiparisTarihAnahtari() {
-    if (aktifSiparisTarihFiltresi === "today") return bugunTarihAnahtari(0);
-    if (aktifSiparisTarihFiltresi === "yesterday") return bugunTarihAnahtari(-1);
-    if (aktifSiparisTarihFiltresi === "custom") return aktifSiparisOzelTarih;
-    return "";
+function aktifSiparisTarihAraligi() {
+    if (aktifSiparisTarihFiltresi === "today") {
+        const bugun = bugunTarihAnahtari(0);
+        return { baslangic: bugun, bitis: bugun };
+    }
+    if (aktifSiparisTarihFiltresi === "yesterday") {
+        const dun = bugunTarihAnahtari(-1);
+        return { baslangic: dun, bitis: dun };
+    }
+    return {
+        baslangic: aktifSiparisBaslangicTarihi,
+        bitis: aktifSiparisBitisTarihi
+    };
 }
 
 function siparisTarihFiltresineUyuyor(item) {
     const deger = siparisFiltreTarihDegeri(item);
-    const hedefTarih = aktifSiparisTarihAnahtari();
-    if (!hedefTarih && !aktifSiparisSaatBaslangic && !aktifSiparisSaatBitis) return true;
+    const { baslangic, bitis } = aktifSiparisTarihAraligi();
+    if (!baslangic && !bitis && !aktifSiparisSaatBaslangic && !aktifSiparisSaatBitis) return true;
     if (!deger) return false;
 
-    if (hedefTarih && yerelTarihAnahtari(deger) !== hedefTarih) return false;
+    const tarih = yerelTarihAnahtari(deger);
+    if (baslangic && (!tarih || tarih < baslangic)) return false;
+    if (bitis && (!tarih || tarih > bitis)) return false;
 
     const saat = yerelSaatAnahtari(deger);
     if (aktifSiparisSaatBaslangic && (!saat || saat < aktifSiparisSaatBaslangic)) return false;
@@ -1512,12 +1523,16 @@ function listeGoster(liste) {
                     <option value="" ${aktifSiparisTarihFiltresi === "" ? "selected" : ""}>Tüm tarihler</option>
                     <option value="today" ${aktifSiparisTarihFiltresi === "today" ? "selected" : ""}>Bugün</option>
                     <option value="yesterday" ${aktifSiparisTarihFiltresi === "yesterday" ? "selected" : ""}>Dün</option>
-                    <option value="custom" ${aktifSiparisTarihFiltresi === "custom" ? "selected" : ""}>Tarih seç</option>
+                    <option value="range" ${aktifSiparisTarihFiltresi === "range" ? "selected" : ""}>Tarih aralığı</option>
                 </select>
             </label>
-            <label ${aktifSiparisTarihFiltresi === "custom" ? "" : "hidden"}>
-                <span>Tarih</span>
-                <input id="orderCustomDate" type="date" value="${temizle(aktifSiparisOzelTarih)}">
+            <label ${aktifSiparisTarihFiltresi === "range" ? "" : "hidden"}>
+                <span>Başlangıç tarihi</span>
+                <input id="orderDateFrom" type="date" value="${temizle(aktifSiparisBaslangicTarihi)}">
+            </label>
+            <label ${aktifSiparisTarihFiltresi === "range" ? "" : "hidden"}>
+                <span>Bitiş tarihi</span>
+                <input id="orderDateTo" type="date" value="${temizle(aktifSiparisBitisTarihi)}">
             </label>
             <label>
                 <span>Başlangıç saati</span>
@@ -1533,7 +1548,7 @@ function listeGoster(liste) {
                     ${[10, 30, 50].map(size => `<option value="${size}" ${siparisSayfaBoyutu === size ? "selected" : ""}>${size} sipariş</option>`).join("")}
                 </select>
             </label>
-            <button class="clearOrderDateFilter" type="button" id="clearOrderDateFilter" ${aktifSiparisTarihFiltresi || aktifSiparisSaatBaslangic || aktifSiparisSaatBitis ? "" : "hidden"}>
+            <button class="clearOrderDateFilter" type="button" id="clearOrderDateFilter" ${aktifSiparisTarihFiltresi || aktifSiparisBaslangicTarihi || aktifSiparisBitisTarihi || aktifSiparisSaatBaslangic || aktifSiparisSaatBitis ? "" : "hidden"}>
                 Tarih/Saat Temizle
             </button>
             <div class="orderResultCount">
@@ -5640,7 +5655,8 @@ result.addEventListener("click", async function (event) {
 
     if (event.target.closest("#clearOrderDateFilter")) {
         aktifSiparisTarihFiltresi = "";
-        aktifSiparisOzelTarih = "";
+        aktifSiparisBaslangicTarihi = "";
+        aktifSiparisBitisTarihi = "";
         aktifSiparisSaatBaslangic = "";
         aktifSiparisSaatBitis = "";
         aktifSiparisSayfasi = 1;
@@ -6701,15 +6717,26 @@ result.addEventListener("change", function (event) {
 
     if (event.target.id === "orderDateFilter") {
         aktifSiparisTarihFiltresi = event.target.value;
-        if (aktifSiparisTarihFiltresi !== "custom") aktifSiparisOzelTarih = "";
+        if (aktifSiparisTarihFiltresi !== "range") {
+            aktifSiparisBaslangicTarihi = "";
+            aktifSiparisBitisTarihi = "";
+        }
         aktifSiparisSayfasi = 1;
         listeGoster(aktifListe);
         return;
     }
 
-    if (event.target.id === "orderCustomDate") {
-        aktifSiparisOzelTarih = event.target.value;
-        aktifSiparisTarihFiltresi = aktifSiparisOzelTarih ? "custom" : "";
+    if (event.target.id === "orderDateFrom") {
+        aktifSiparisBaslangicTarihi = event.target.value;
+        aktifSiparisTarihFiltresi = aktifSiparisBaslangicTarihi || aktifSiparisBitisTarihi ? "range" : "";
+        aktifSiparisSayfasi = 1;
+        listeGoster(aktifListe);
+        return;
+    }
+
+    if (event.target.id === "orderDateTo") {
+        aktifSiparisBitisTarihi = event.target.value;
+        aktifSiparisTarihFiltresi = aktifSiparisBaslangicTarihi || aktifSiparisBitisTarihi ? "range" : "";
         aktifSiparisSayfasi = 1;
         listeGoster(aktifListe);
         return;
