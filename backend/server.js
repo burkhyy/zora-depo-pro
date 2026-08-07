@@ -51,7 +51,80 @@ fs.mkdirSync(dataDirectory, { recursive: true });
 
 const databasePath = path.join(dataDirectory, "locations.db");
 const backupDirectory = path.join(dataDirectory, "backups");
+const restoreRequestPath = path.join(dataDirectory, "restore-request.json");
 fs.mkdirSync(backupDirectory, { recursive: true });
+
+function kurtarmaDosyaAdiGuvenliMi(name) {
+    return name === "locations.db"
+        || /^zoom-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name)
+        || /^zora-depo-\d{8}-\d{6}(?:-[a-z]+)?\.db$/i.test(name)
+        || /^corrupt-locations-\d{8}-\d{6}\.db$/i.test(name)
+        || /^unusable-locations-\d{8}-\d{6}\.db$/i.test(name);
+}
+
+function kurtarmaDosyaYolu(name) {
+    const safeName = path.basename(String(name || ""));
+    if (!kurtarmaDosyaAdiGuvenliMi(safeName)) return null;
+    if (safeName === "locations.db") return databasePath;
+    return path.join(backupDirectory, safeName);
+}
+
+function sqliteDosyaOzeti(filePath) {
+    let checkDb;
+    const counts = {};
+    try {
+        checkDb = new DatabaseSync(filePath, { readOnly: true });
+        const check = checkDb.prepare("PRAGMA quick_check").get();
+        const quickCheck = String(Object.values(check || {})[0] || "");
+        const tables = new Set(
+            checkDb.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(row => row.name)
+        );
+        [
+            "order_workflow_stages",
+            "order_preparations",
+            "order_shipments",
+            "order_label_prints",
+            "order_slip_prints",
+            "print_jobs",
+            "order_api_cache"
+        ].forEach(table => {
+            if (!tables.has(table)) return;
+            counts[table] = checkDb.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count;
+        });
+        return { ok: quickCheck.toLowerCase() === "ok", quickCheck, counts };
+    } catch (err) {
+        return { ok: false, quickCheck: err.message, counts };
+    } finally {
+        try { checkDb?.close(); } catch {}
+    }
+}
+
+function bekleyenGeriYuklemeyiUygula() {
+    if (!fs.existsSync(restoreRequestPath)) return;
+    try {
+        const request = JSON.parse(fs.readFileSync(restoreRequestPath, "utf8"));
+        const source = kurtarmaDosyaYolu(request.name);
+        if (!source || !fs.existsSync(source) || source === databasePath) {
+            throw new Error("Geri yukleme dosyasi bulunamadi.");
+        }
+        const health = sqliteDosyaOzeti(source);
+        if (!health.ok) {
+            throw new Error(`Geri yuklenecek dosya saglam degil: ${health.quickCheck}`);
+        }
+        const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+        const beforeRestore = path.join(backupDirectory, `before-restore-${stamp.slice(0, 8)}-${stamp.slice(8)}.db`);
+        if (fs.existsSync(databasePath)) fs.copyFileSync(databasePath, beforeRestore);
+        fs.copyFileSync(source, databasePath);
+        for (const suffix of ["-journal", "-wal", "-shm"]) {
+            try { fs.rmSync(`${databasePath}${suffix}`, { force: true }); } catch {}
+        }
+        fs.unlinkSync(restoreRequestPath);
+        console.error(`Veritabani admin istegiyle geri yuklendi: ${request.name}`);
+    } catch (err) {
+        console.error("Bekleyen veritabani geri yukleme uygulanamadi:", err.message);
+        try { fs.unlinkSync(restoreRequestPath); } catch {}
+    }
+}
 
 function diskBosAlani(pathName) {
     try {
@@ -89,6 +162,7 @@ function baslangicDepolamaTemizligi() {
     }
 }
 
+bekleyenGeriYuklemeyiUygula();
 baslangicDepolamaTemizligi();
 
 const database = new DatabaseSync(databasePath);
@@ -1365,6 +1439,58 @@ app.get("/admin/backups/:name", yoneticiGerekli, (req, res) => {
     }
     denetimKaydiOlustur(req, "backup.download", "system", name, "Veritabanı yedeği indirildi");
     res.download(path.join(backupDirectory, name), name);
+});
+
+app.get("/admin/database/recovery-files", yoneticiGerekli, (req, res) => {
+    const candidates = [
+        { name: "locations.db", fullPath: databasePath, current: true },
+        ...fs.readdirSync(backupDirectory)
+            .filter(kurtarmaDosyaAdiGuvenliMi)
+            .map(name => ({ name, fullPath: path.join(backupDirectory, name), current: false }))
+    ].filter(item => fs.existsSync(item.fullPath));
+
+    const result = candidates.map(item => {
+        const stat = fs.statSync(item.fullPath);
+        return {
+            name: item.name,
+            current: item.current,
+            size: stat.size,
+            updatedAt: stat.mtime.toISOString(),
+            ...sqliteDosyaOzeti(item.fullPath)
+        };
+    }).sort((a, b) => Number(b.current) - Number(a.current) || b.updatedAt.localeCompare(a.updatedAt));
+
+    res.json({ result });
+});
+
+app.get("/admin/database/recovery-files/:name", yoneticiGerekli, (req, res) => {
+    const name = path.basename(String(req.params.name || ""));
+    const filePath = kurtarmaDosyaYolu(name);
+    if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ error: "Dosya bulunamadı." });
+    }
+    denetimKaydiOlustur(req, "database.recovery_download", "system", name, "Kurtarma veritabanı indirildi");
+    res.download(filePath, name);
+});
+
+app.post("/admin/database/restore-request", yoneticiGerekli, (req, res) => {
+    const name = path.basename(String(req.body?.name || ""));
+    const filePath = kurtarmaDosyaYolu(name);
+    if (!filePath || !fs.existsSync(filePath) || filePath === databasePath) {
+        return res.status(400).json({ error: "Geri yüklenecek dosya bulunamadı." });
+    }
+    const health = sqliteDosyaOzeti(filePath);
+    if (!health.ok) {
+        return res.status(400).json({ error: `Bu dosya sağlam değil: ${health.quickCheck}` });
+    }
+    fs.writeFileSync(restoreRequestPath, JSON.stringify({
+        name,
+        requestedBy: req.user.id,
+        requestedAt: new Date().toISOString()
+    }));
+    denetimKaydiOlustur(req, "database.restore_request", "system", name, "Veritabanı geri yükleme isteği oluşturuldu", health);
+    res.json({ ok: true, restart: true, name, health });
+    setTimeout(() => process.exit(0), 750).unref();
 });
 
 app.get("/admin/operations/status", yoneticiGerekli, (req, res) => {
