@@ -2771,6 +2771,7 @@ app.get("/test", async (req, res) => {
 function yerelHazirlamaDurumlariniEkle(data) {
     const latestStatuses = new Map();
     const latestPreparations = new Map();
+    const orderSnapshots = new Map();
     const workflowStages = new Map(
         database.prepare(`SELECT order_code, stage FROM order_workflow_stages`)
             .all()
@@ -2800,7 +2801,7 @@ function yerelHazirlamaDurumlariniEkle(data) {
         ])
     );
     database.prepare(`
-        SELECT order_code, status, started_at, completed_at
+        SELECT order_code, customer_name, platform, status, started_at, completed_at, order_snapshot
         FROM order_preparations
         ORDER BY id DESC
     `).all().forEach(row => {
@@ -2808,6 +2809,12 @@ function yerelHazirlamaDurumlariniEkle(data) {
         if (key && !latestStatuses.has(key)) {
             latestStatuses.set(key, row.status);
             latestPreparations.set(key, row);
+        }
+        if (key && row.order_snapshot && !orderSnapshots.has(key)) {
+            try {
+                const snapshot = JSON.parse(row.order_snapshot);
+                if (snapshot && typeof snapshot === "object") orderSnapshots.set(key, snapshot);
+            } catch {}
         }
     });
     database.prepare(`
@@ -2820,7 +2827,34 @@ function yerelHazirlamaDurumlariniEkle(data) {
         if (key && !shipmentStatuses.has(key)) shipmentStatuses.set(key, row);
     });
 
-    const list = Array.isArray(data?.result?.list) ? data.result.list : [];
+    const apiList = Array.isArray(data?.result?.list) ? data.result.list : [];
+    const listByCode = new Map();
+    apiList.forEach(order => {
+        const key = siparisKimligi(order).toUpperCase();
+        if (key) listByCode.set(key, order);
+    });
+
+    for (const [orderKey, stage] of workflowStages.entries()) {
+        if ((stage === "preparing" || stage === "shipped") && !listByCode.has(orderKey)) {
+            const snapshot = orderSnapshots.get(orderKey);
+            if (snapshot) listByCode.set(orderKey, {
+                ...snapshot,
+                __localArchiveOnly: true
+            });
+        }
+    }
+
+    for (const [orderKey, shipment] of shipmentStatuses.entries()) {
+        if (shipment?.status === "shipped" && !listByCode.has(orderKey)) {
+            const snapshot = orderSnapshots.get(orderKey);
+            if (snapshot) listByCode.set(orderKey, {
+                ...snapshot,
+                __localArchiveOnly: true
+            });
+        }
+    }
+
+    const list = Array.from(listByCode.values());
     return {
         ...data,
         result: {
