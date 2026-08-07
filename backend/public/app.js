@@ -320,14 +320,6 @@ function yerelSaatAnahtari(deger) {
 }
 
 function aktifSiparisTarihAraligi() {
-    if (aktifSiparisTarihFiltresi === "today") {
-        const bugun = bugunTarihAnahtari(0);
-        return { baslangic: bugun, bitis: bugun };
-    }
-    if (aktifSiparisTarihFiltresi === "yesterday") {
-        const dun = bugunTarihAnahtari(-1);
-        return { baslangic: dun, bitis: dun };
-    }
     return {
         baslangic: aktifSiparisBaslangicTarihi,
         bitis: aktifSiparisBitisTarihi
@@ -1518,19 +1510,10 @@ function listeGoster(liste) {
                 </select>
             </label>
             <label>
-                <span>${aktifSiparisKuyrugu === "preparing" ? "Hazırlama tarihi" : aktifSiparisKuyrugu === "shipped" ? "Kargo tarihi" : "Sipariş tarihi"}</span>
-                <select id="orderDateFilter">
-                    <option value="" ${aktifSiparisTarihFiltresi === "" ? "selected" : ""}>Tüm tarihler</option>
-                    <option value="today" ${aktifSiparisTarihFiltresi === "today" ? "selected" : ""}>Bugün</option>
-                    <option value="yesterday" ${aktifSiparisTarihFiltresi === "yesterday" ? "selected" : ""}>Dün</option>
-                    <option value="range" ${aktifSiparisTarihFiltresi === "range" ? "selected" : ""}>Tarih aralığı</option>
-                </select>
-            </label>
-            <label ${aktifSiparisTarihFiltresi === "range" ? "" : "hidden"}>
                 <span>Başlangıç tarihi</span>
                 <input id="orderDateFrom" type="date" value="${temizle(aktifSiparisBaslangicTarihi)}">
             </label>
-            <label ${aktifSiparisTarihFiltresi === "range" ? "" : "hidden"}>
+            <label>
                 <span>Bitiş tarihi</span>
                 <input id="orderDateTo" type="date" value="${temizle(aktifSiparisBitisTarihi)}">
             </label>
@@ -1548,7 +1531,7 @@ function listeGoster(liste) {
                     ${[10, 30, 50].map(size => `<option value="${size}" ${siparisSayfaBoyutu === size ? "selected" : ""}>${size} sipariş</option>`).join("")}
                 </select>
             </label>
-            <button class="clearOrderDateFilter" type="button" id="clearOrderDateFilter" ${aktifSiparisTarihFiltresi || aktifSiparisBaslangicTarihi || aktifSiparisBitisTarihi || aktifSiparisSaatBaslangic || aktifSiparisSaatBitis ? "" : "hidden"}>
+            <button class="clearOrderDateFilter" type="button" id="clearOrderDateFilter" ${aktifSiparisBaslangicTarihi || aktifSiparisBitisTarihi || aktifSiparisSaatBaslangic || aktifSiparisSaatBitis ? "" : "hidden"}>
                 Tarih/Saat Temizle
             </button>
             <div class="orderResultCount">
@@ -6715,20 +6698,9 @@ result.addEventListener("change", function (event) {
         return;
     }
 
-    if (event.target.id === "orderDateFilter") {
-        aktifSiparisTarihFiltresi = event.target.value;
-        if (aktifSiparisTarihFiltresi !== "range") {
-            aktifSiparisBaslangicTarihi = "";
-            aktifSiparisBitisTarihi = "";
-        }
-        aktifSiparisSayfasi = 1;
-        listeGoster(aktifListe);
-        return;
-    }
-
     if (event.target.id === "orderDateFrom") {
         aktifSiparisBaslangicTarihi = event.target.value;
-        aktifSiparisTarihFiltresi = aktifSiparisBaslangicTarihi || aktifSiparisBitisTarihi ? "range" : "";
+        aktifSiparisTarihFiltresi = "";
         aktifSiparisSayfasi = 1;
         listeGoster(aktifListe);
         return;
@@ -6736,7 +6708,7 @@ result.addEventListener("change", function (event) {
 
     if (event.target.id === "orderDateTo") {
         aktifSiparisBitisTarihi = event.target.value;
-        aktifSiparisTarihFiltresi = aktifSiparisBaslangicTarihi || aktifSiparisBitisTarihi ? "range" : "";
+        aktifSiparisTarihFiltresi = "";
         aktifSiparisSayfasi = 1;
         listeGoster(aktifListe);
         return;
