@@ -99,6 +99,33 @@ function sqliteDosyaOzeti(filePath) {
     }
 }
 
+function tabloVarMi(db, table) {
+    return Boolean(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?").get(table));
+}
+
+function tabloKolonlari(db, table) {
+    return db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name);
+}
+
+function kurtarmaTablosunuIceriAktar(sourceDb, table) {
+    if (!tabloVarMi(sourceDb, table) || !tabloVarMi(database, table)) {
+        return { table, skipped: true, count: 0 };
+    }
+    const sourceColumns = new Set(tabloKolonlari(sourceDb, table));
+    const columns = tabloKolonlari(database, table).filter(column => sourceColumns.has(column));
+    if (!columns.length) return { table, skipped: true, count: 0 };
+
+    const quotedColumns = columns.map(column => `"${column}"`).join(", ");
+    const placeholders = columns.map(() => "?").join(", ");
+    const rows = sourceDb.prepare(`SELECT ${quotedColumns} FROM ${table}`).all();
+    const insert = database.prepare(`
+        INSERT OR REPLACE INTO ${table} (${quotedColumns})
+        VALUES (${placeholders})
+    `);
+    rows.forEach(row => insert.run(...columns.map(column => row[column])));
+    return { table, skipped: false, count: rows.length };
+}
+
 function bekleyenGeriYuklemeyiUygula() {
     if (!fs.existsSync(restoreRequestPath)) return;
     try {
@@ -1491,6 +1518,62 @@ app.post("/admin/database/restore-request", yoneticiGerekli, (req, res) => {
     denetimKaydiOlustur(req, "database.restore_request", "system", name, "Veritabanı geri yükleme isteği oluşturuldu", health);
     res.json({ ok: true, restart: true, name, health });
     setTimeout(() => process.exit(0), 750).unref();
+});
+
+app.get("/admin/database/import-from-recovery/:name", yoneticiGerekli, (req, res, next) => {
+    try {
+        if (String(req.query.confirm || "") !== "IMPORT") {
+            return res.status(400).json({ error: "Import için ?confirm=IMPORT gerekir." });
+        }
+        const name = path.basename(String(req.params.name || ""));
+        const filePath = kurtarmaDosyaYolu(name);
+        if (!filePath || !fs.existsSync(filePath) || filePath === databasePath) {
+            return res.status(400).json({ error: "İçe aktarılacak dosya bulunamadı." });
+        }
+        const sourceDb = new DatabaseSync(filePath, { readOnly: true });
+        const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+        const beforeImport = path.join(backupDirectory, `before-import-${stamp.slice(0, 8)}-${stamp.slice(8)}.db`);
+        fs.copyFileSync(databasePath, beforeImport);
+
+        const tables = [
+            "app_users",
+            "product_locations",
+            "order_preparations",
+            "order_product_issues",
+            "app_notifications",
+            "notification_reads",
+            "product_image_cache",
+            "audit_logs",
+            "operation_alert_keys",
+            "preparation_scans",
+            "order_label_prints",
+            "order_slip_prints",
+            "order_workflow_stages",
+            "product_search_catalog",
+            "product_barcode_overrides",
+            "product_catalog_meta",
+            "order_api_cache",
+            "print_agent_config",
+            "print_jobs",
+            "order_shipments"
+        ];
+        const result = [];
+        database.exec("BEGIN IMMEDIATE");
+        try {
+            tables.forEach(table => result.push(kurtarmaTablosunuIceriAktar(sourceDb, table)));
+            database.exec("COMMIT");
+        } catch (err) {
+            database.exec("ROLLBACK");
+            throw err;
+        } finally {
+            try { sourceDb.close(); } catch {}
+        }
+
+        denetimKaydiOlustur(req, "database.recovery_import", "system", name, "Bozuk veritabanından kayıtlar içeri aktarıldı", { result });
+        res.json({ ok: true, source: name, beforeImport: path.basename(beforeImport), result });
+    } catch (err) {
+        next(err);
+    }
 });
 
 app.get("/admin/operations/status", yoneticiGerekli, (req, res) => {
