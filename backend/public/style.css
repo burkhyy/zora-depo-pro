@@ -294,7 +294,7 @@ h1{
 
 .orderListControls{
     display:grid;
-    grid-template-columns:repeat(5,minmax(130px,1fr)) auto;
+    grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
     align-items:end;
     gap:10px;
     margin-bottom:14px;
@@ -312,7 +312,8 @@ h1{
     font-weight:800;
 }
 
-.orderListControls select{
+.orderListControls select,
+.orderListControls input{
     width:100%;
     min-height:42px;
     border:1px solid #d0d5dd;
@@ -321,6 +322,15 @@ h1{
     background:#fff;
     color:#101828;
     font-weight:700;
+}
+
+.clearOrderDateFilter{
+    min-height:42px;
+    border:1px solid #f97066;
+    border-radius:7px;
+    background:#fff;
+    color:#b42318;
+    font-weight:900;
 }
 
 .orderResultCount{

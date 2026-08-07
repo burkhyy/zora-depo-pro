@@ -28,6 +28,10 @@ let aktifSiparisDurumFiltresi = "";
 let aktifSiparisRafGrubu = "";
 let aktifSiparisGorunumu = "single";
 let aktifSiparisKuyrugu = "new";
+let aktifSiparisTarihFiltresi = "";
+let aktifSiparisOzelTarih = "";
+let aktifSiparisSaatBaslangic = "";
+let aktifSiparisSaatBitis = "";
 let aktifTopluGruplar = [];
 let aktifTopluSiparisler = [];
 let aktifTopluSiparisIndex = 0;
@@ -258,6 +262,84 @@ function siparisToplamAdedi(item) {
         .reduce((toplam, urun) => toplam + urunAdedi(urun), 0);
 }
 
+function tarihDegeriniOku(item, alanlar) {
+    const deger = alanOku(item, alanlar, "");
+    return deger === "-" ? "" : deger;
+}
+
+function siparisTarihDegeri(item) {
+    return tarihDegeriniOku(item, [
+        "order.createdAt",
+        "order.created_at",
+        "order.createDate",
+        "order.createdDate",
+        "order.orderDate",
+        "order.date",
+        "createdAt",
+        "created_at",
+        "createDate",
+        "createdDate",
+        "orderDate",
+        "date"
+    ]);
+}
+
+function siparisFiltreTarihDegeri(item) {
+    if (aktifSiparisKuyrugu === "preparing") {
+        return item.localPreparationStartedAt || siparisTarihDegeri(item);
+    }
+    if (aktifSiparisKuyrugu === "shipped") {
+        return item.localShipmentShippedAt || item.localShipmentCarrierAcceptedAt || item.localShipmentUpdatedAt || siparisTarihDegeri(item);
+    }
+    return siparisTarihDegeri(item);
+}
+
+function tarihObjesineCevir(deger) {
+    if (!deger) return null;
+    const metin = String(deger);
+    const tarih = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(metin)
+        ? metin
+        : `${metin.replace(" ", "T")}Z`);
+    return Number.isNaN(tarih.getTime()) ? null : tarih;
+}
+
+function bugunTarihAnahtari(gunFarki = 0) {
+    const tarih = new Date();
+    tarih.setDate(tarih.getDate() + gunFarki);
+    const yil = tarih.getFullYear();
+    const ay = String(tarih.getMonth() + 1).padStart(2, "0");
+    const gun = String(tarih.getDate()).padStart(2, "0");
+    return `${yil}-${ay}-${gun}`;
+}
+
+function yerelSaatAnahtari(deger) {
+    const tarih = tarihObjesineCevir(deger);
+    if (!tarih) return "";
+    return `${String(tarih.getHours()).padStart(2, "0")}:${String(tarih.getMinutes()).padStart(2, "0")}`;
+}
+
+function aktifSiparisTarihAnahtari() {
+    if (aktifSiparisTarihFiltresi === "today") return bugunTarihAnahtari(0);
+    if (aktifSiparisTarihFiltresi === "yesterday") return bugunTarihAnahtari(-1);
+    if (aktifSiparisTarihFiltresi === "custom") return aktifSiparisOzelTarih;
+    return "";
+}
+
+function siparisTarihFiltresineUyuyor(item) {
+    const deger = siparisFiltreTarihDegeri(item);
+    const hedefTarih = aktifSiparisTarihAnahtari();
+    if (!hedefTarih && !aktifSiparisSaatBaslangic && !aktifSiparisSaatBitis) return true;
+    if (!deger) return false;
+
+    if (hedefTarih && yerelTarihAnahtari(deger) !== hedefTarih) return false;
+
+    const saat = yerelSaatAnahtari(deger);
+    if (aktifSiparisSaatBaslangic && (!saat || saat < aktifSiparisSaatBaslangic)) return false;
+    if (aktifSiparisSaatBitis && (!saat || saat > aktifSiparisSaatBitis)) return false;
+
+    return true;
+}
+
 function siparisSiralamaUygula(liste) {
     const sirali = [...liste];
     if (aktifSiparisSiralama === "amount") {
@@ -269,7 +351,11 @@ function siparisSiralamaUygula(liste) {
     if (aktifSiparisSiralama === "customer") {
         return sirali.sort((a, b) => musteriAdi(a).localeCompare(musteriAdi(b), "tr"));
     }
-    return sirali;
+    return sirali.sort((a, b) => {
+        const tarihA = tarihObjesineCevir(siparisFiltreTarihDegeri(a))?.getTime() || 0;
+        const tarihB = tarihObjesineCevir(siparisFiltreTarihDegeri(b))?.getTime() || 0;
+        return tarihB - tarihA;
+    });
 }
 
 function siparisKuyrukListeleriniHesapla(liste) {
@@ -288,6 +374,7 @@ function siparisKuyrukListeleriniHesapla(liste) {
         platformAnahtari(platformAdi(item)) === aktifSiparisPlatformu
         && (kargolananGorunumu || !aktifSiparisDurumFiltresi || String(alanOku(item, ["order.status", "status"], "")) === aktifSiparisDurumFiltresi)
         && siparisRafGrubunaUyuyor(item, aktifSiparisRafGrubu)
+        && siparisTarihFiltresineUyuyor(item)
     ));
 
     return { kargolananListe, hazirlanacakListe, kuyrukListesi, platformListesi };
@@ -1420,11 +1507,35 @@ function listeGoster(liste) {
                 </select>
             </label>
             <label>
+                <span>${aktifSiparisKuyrugu === "preparing" ? "Hazırlama tarihi" : aktifSiparisKuyrugu === "shipped" ? "Kargo tarihi" : "Sipariş tarihi"}</span>
+                <select id="orderDateFilter">
+                    <option value="" ${aktifSiparisTarihFiltresi === "" ? "selected" : ""}>Tüm tarihler</option>
+                    <option value="today" ${aktifSiparisTarihFiltresi === "today" ? "selected" : ""}>Bugün</option>
+                    <option value="yesterday" ${aktifSiparisTarihFiltresi === "yesterday" ? "selected" : ""}>Dün</option>
+                    <option value="custom" ${aktifSiparisTarihFiltresi === "custom" ? "selected" : ""}>Tarih seç</option>
+                </select>
+            </label>
+            <label ${aktifSiparisTarihFiltresi === "custom" ? "" : "hidden"}>
+                <span>Tarih</span>
+                <input id="orderCustomDate" type="date" value="${temizle(aktifSiparisOzelTarih)}">
+            </label>
+            <label>
+                <span>Başlangıç saati</span>
+                <input id="orderTimeFrom" type="time" value="${temizle(aktifSiparisSaatBaslangic)}">
+            </label>
+            <label>
+                <span>Bitiş saati</span>
+                <input id="orderTimeTo" type="time" value="${temizle(aktifSiparisSaatBitis)}">
+            </label>
+            <label>
                 <span>Sayfa boyutu</span>
                 <select id="orderPageSize">
                     ${[10, 30, 50].map(size => `<option value="${size}" ${siparisSayfaBoyutu === size ? "selected" : ""}>${size} sipariş</option>`).join("")}
                 </select>
             </label>
+            <button class="clearOrderDateFilter" type="button" id="clearOrderDateFilter" ${aktifSiparisTarihFiltresi || aktifSiparisSaatBaslangic || aktifSiparisSaatBitis ? "" : "hidden"}>
+                Tarih/Saat Temizle
+            </button>
             <div class="orderResultCount">
                 <span>Gösterilen</span>
                 <strong>${temizle(sayfadakiSiparisler.length)} / ${temizle(platformListesi.length)} sipariş</strong>
@@ -1540,6 +1651,7 @@ function listeGoster(liste) {
                     <span><b>Ürün Sayısı</b>${temizle(urunSayisi)}</span>
                     <span><b>Ödeme</b>${temizle(odemeYontemi(item))}</span>
                     <span><b>Tutar</b>${temizle(toplamTutar(item))}</span>
+                    <span><b>${aktifSiparisKuyrugu === "preparing" ? "Hazırlamaya Alınma" : aktifSiparisKuyrugu === "shipped" ? "Kargo Kaydı" : "Sipariş Tarihi"}</b>${temizle(tarihSaatGoster(siparisFiltreTarihDegeri(item)))}</span>
                 </div>
 
                 <div class="orderCardActions">
@@ -5526,6 +5638,16 @@ result.addEventListener("click", async function (event) {
         return;
     }
 
+    if (event.target.closest("#clearOrderDateFilter")) {
+        aktifSiparisTarihFiltresi = "";
+        aktifSiparisOzelTarih = "";
+        aktifSiparisSaatBaslangic = "";
+        aktifSiparisSaatBitis = "";
+        aktifSiparisSayfasi = 1;
+        listeGoster(aktifListe);
+        return;
+    }
+
     const siparisFisiButonu = event.target.closest("[data-print-order-slip]");
     if (siparisFisiButonu) {
         const kod = String(siparisFisiButonu.dataset.printOrderSlip || "").toUpperCase();
@@ -6572,6 +6694,36 @@ result.addEventListener("change", function (event) {
 
     if (event.target.id === "orderShelfGroup") {
         aktifSiparisRafGrubu = event.target.value;
+        aktifSiparisSayfasi = 1;
+        listeGoster(aktifListe);
+        return;
+    }
+
+    if (event.target.id === "orderDateFilter") {
+        aktifSiparisTarihFiltresi = event.target.value;
+        if (aktifSiparisTarihFiltresi !== "custom") aktifSiparisOzelTarih = "";
+        aktifSiparisSayfasi = 1;
+        listeGoster(aktifListe);
+        return;
+    }
+
+    if (event.target.id === "orderCustomDate") {
+        aktifSiparisOzelTarih = event.target.value;
+        aktifSiparisTarihFiltresi = aktifSiparisOzelTarih ? "custom" : "";
+        aktifSiparisSayfasi = 1;
+        listeGoster(aktifListe);
+        return;
+    }
+
+    if (event.target.id === "orderTimeFrom") {
+        aktifSiparisSaatBaslangic = event.target.value;
+        aktifSiparisSayfasi = 1;
+        listeGoster(aktifListe);
+        return;
+    }
+
+    if (event.target.id === "orderTimeTo") {
+        aktifSiparisSaatBitis = event.target.value;
         aktifSiparisSayfasi = 1;
         listeGoster(aktifListe);
         return;

@@ -2565,6 +2565,7 @@ app.get("/test", async (req, res) => {
 
 function yerelHazirlamaDurumlariniEkle(data) {
     const latestStatuses = new Map();
+    const latestPreparations = new Map();
     const workflowStages = new Map(
         database.prepare(`SELECT order_code, stage FROM order_workflow_stages`)
             .all()
@@ -2594,12 +2595,15 @@ function yerelHazirlamaDurumlariniEkle(data) {
         ])
     );
     database.prepare(`
-        SELECT order_code, status
+        SELECT order_code, status, started_at, completed_at
         FROM order_preparations
         ORDER BY id DESC
     `).all().forEach(row => {
         const key = String(row.order_code || "").trim().toUpperCase();
-        if (key && !latestStatuses.has(key)) latestStatuses.set(key, row.status);
+        if (key && !latestStatuses.has(key)) {
+            latestStatuses.set(key, row.status);
+            latestPreparations.set(key, row);
+        }
     });
     database.prepare(`
         SELECT order_code, status, carrier, tracking_number, tracking_url,
@@ -2621,6 +2625,7 @@ function yerelHazirlamaDurumlariniEkle(data) {
             list: list.map(order => {
                 const orderKey = siparisKimligi(order).toUpperCase();
                 const shipment = shipmentStatuses.get(orderKey);
+                const preparation = latestPreparations.get(orderKey);
                 return {
                 ...order,
                 products: (order.products || []).map(product => {
@@ -2638,6 +2643,8 @@ function yerelHazirlamaDurumlariniEkle(data) {
                     };
                 }),
                 localPreparationStatus: latestStatuses.get(orderKey) || "",
+                localPreparationStartedAt: preparation?.started_at || "",
+                localPreparationCompletedAt: preparation?.completed_at || "",
                 hasOpenIssue: openIssueOrderCodes.has(orderKey),
                 localWorkflowStage: workflowStages.get(orderKey) || "new",
                 localShipmentStatus: shipment?.status || "",
