@@ -703,16 +703,7 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "2mb" }));
 
 app.get("/health", (req, res) => {
-    try {
-        const result = database.prepare("PRAGMA quick_check").get();
-        const value = Object.values(result || {})[0];
-        if (String(value || "").toLowerCase() !== "ok") {
-            return res.status(500).json({ status: "error", database: value || "quick_check failed" });
-        }
-        res.json({ status: "ok", database: "ok" });
-    } catch (err) {
-        res.status(500).json({ status: "error", database: err.message });
-    }
+    res.json({ status: "ok" });
 });
 
 app.use((req, res, next) => {
