@@ -1786,6 +1786,15 @@ function siparisKimligi(item) {
     return String(item?.order?.code || item?.code || item?.orderCode || item?.order?.id || item?.id || "");
 }
 
+function jsonParseEt(value, fallback = {}) {
+    try {
+        const parsed = JSON.parse(value || "");
+        return parsed && typeof parsed === "object" ? parsed : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
 function siparisDurumKodu(item) {
     const status = Number(item?.order?.status ?? item?.status);
     return Number.isInteger(status) ? status : null;
@@ -2772,6 +2781,7 @@ function yerelHazirlamaDurumlariniEkle(data) {
     const latestStatuses = new Map();
     const latestPreparations = new Map();
     const orderSnapshots = new Map();
+    const printPayloads = new Map();
     const workflowStages = new Map(
         database.prepare(`SELECT order_code, stage FROM order_workflow_stages`)
             .all()
@@ -2826,6 +2836,54 @@ function yerelHazirlamaDurumlariniEkle(data) {
         const key = String(row.order_code || "").trim().toUpperCase();
         if (key && !shipmentStatuses.has(key)) shipmentStatuses.set(key, row);
     });
+    database.prepare(`
+        SELECT order_code, payload_json
+        FROM print_jobs
+        ORDER BY updated_at DESC, id DESC
+    `).all().forEach(row => {
+        const key = String(row.order_code || "").trim().toUpperCase();
+        if (key && row.payload_json && !printPayloads.has(key)) {
+            printPayloads.set(key, jsonParseEt(row.payload_json, {}));
+        }
+    });
+
+    function arsivSiparisiOlustur(orderKey, stage) {
+        const snapshot = orderSnapshots.get(orderKey);
+        const preparation = latestPreparations.get(orderKey);
+        const shipment = shipmentStatuses.get(orderKey);
+        const payload = printPayloads.get(orderKey) || {};
+        const platform = snapshot?.platform
+            || snapshot?.order?.platform
+            || preparation?.platform
+            || shipment?.platform
+            || payload.platform
+            || (orderKey.startsWith("TY") ? "Trendyol" : "Zoombutik");
+
+        return {
+            ...(snapshot || {}),
+            order: {
+                ...(snapshot?.order || {}),
+                code: snapshot?.order?.code || snapshot?.code || snapshot?.orderCode || payload.orderCode || orderKey,
+                platform: snapshot?.order?.platform || platform
+            },
+            orderCode: snapshot?.orderCode || snapshot?.code || snapshot?.order?.code || payload.orderCode || orderKey,
+            code: snapshot?.code || snapshot?.orderCode || snapshot?.order?.code || payload.orderCode || orderKey,
+            customerName: snapshot?.customerName
+                || snapshot?.customer?.name
+                || preparation?.customer_name
+                || shipment?.customer_name
+                || payload.customerName
+                || orderKey,
+            platform,
+            products: Array.isArray(snapshot?.products)
+                ? snapshot.products
+                : (Array.isArray(payload.products) ? payload.products : []),
+            total: snapshot?.total || snapshot?.totalPrice || snapshot?.grandTotal || payload.total || payload.totalPrice || "",
+            paymentMethod: snapshot?.paymentMethod || payload.paymentMethod || payload.payment || "",
+            __localArchiveOnly: true,
+            __localArchiveStage: stage
+        };
+    }
 
     const apiList = Array.isArray(data?.result?.list) ? data.result.list : [];
     const listByCode = new Map();
@@ -2836,21 +2894,9 @@ function yerelHazirlamaDurumlariniEkle(data) {
 
     for (const [orderKey, stage] of workflowStages.entries()) {
         if ((stage === "preparing" || stage === "shipped") && !listByCode.has(orderKey)) {
-            const snapshot = orderSnapshots.get(orderKey);
-            if (snapshot) listByCode.set(orderKey, {
-                ...snapshot,
-                __localArchiveOnly: true
-            });
-        }
-    }
-
-    for (const [orderKey, shipment] of shipmentStatuses.entries()) {
-        if (shipment?.status === "shipped" && !listByCode.has(orderKey)) {
-            const snapshot = orderSnapshots.get(orderKey);
-            if (snapshot) listByCode.set(orderKey, {
-                ...snapshot,
-                __localArchiveOnly: true
-            });
+            const shipment = shipmentStatuses.get(orderKey);
+            if (shipment?.carrier_accepted_at && stage !== "shipped") continue;
+            listByCode.set(orderKey, arsivSiparisiOlustur(orderKey, stage));
         }
     }
 
