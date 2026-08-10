@@ -3428,7 +3428,8 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
     )) return;
 
     try {
-        await etiketBaskisiniKaydet(printable);
+        etiketBaskisiniKaydet(printable)
+            .catch(err => mesajGoster("error", "BaskÄ± kaydÄ± oluÅŸturulamadÄ±", err.message));
         kargoBarkoduButonlariniGuncelle(printable);
     } catch (err) {
         mesajGoster("error", "Baskı kaydı oluşturulamadı", err.message);
