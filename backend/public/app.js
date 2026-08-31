@@ -3537,10 +3537,10 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         JsBarcode(svg, code, {
             format: "CODE128",
-            width: 2.05,
-            height: 52,
+            width: 1.55,
+            height: 42,
             displayValue: true,
-            fontSize: 15,
+            fontSize: 12,
             margin: 0
         });
         const urunler = (order.products || [])
@@ -3614,7 +3614,7 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
             <meta charset="utf-8">
             <title>100x100 Kargo Barkodu</title>
             <style>
-                @page { size: 100mm 100mm portrait; margin: 0; }
+                @page { size: 100mm 100mm; margin: 0; }
                 * { box-sizing: border-box; }
                 html, body {
                     width: 100mm !important;
@@ -3638,8 +3638,8 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                 }
                 .cargoBarcodeOnlyLabel {
                     display: grid;
-                    grid-template-rows: 14mm 8mm 24mm 36mm 8mm;
-                    gap: 1.6mm;
+                    grid-template-rows: 13mm 8mm 32mm 30mm 7mm;
+                    gap: 1.2mm;
                     align-items: stretch;
                     position: relative;
                     width: 100mm !important;
@@ -3649,7 +3649,7 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     min-height: 100mm !important;
                     max-height: 100mm !important;
                     margin: 0 !important;
-                    padding: 3.5mm;
+                    padding: 3.5mm 4mm;
                     overflow: hidden;
                     page-break-after: always;
                     break-after: page;
@@ -3665,7 +3665,7 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    font-size: 18pt;
+                    font-size: 17pt;
                     font-weight: 900;
                     line-height: .95;
                     text-align: center;
@@ -3686,13 +3686,13 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     grid-template-columns: repeat(3, 1fr);
                     gap: 1.5mm;
                     min-height: 0;
-                    height: 24mm;
+                    height: 32mm;
                     margin: 0;
                     overflow: hidden;
                 }
                 .pickProduct {
                     display: grid;
-                    grid-template-rows: 10mm minmax(0, 1fr);
+                    grid-template-rows: 18mm minmax(0, 1fr);
                     min-width: 0;
                     border: 1.2px solid #101828;
                     border-radius: 1.5mm;
@@ -3705,7 +3705,7 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     background: #fff;
                     border-bottom: 1px solid #101828;
                     color: #667085;
-                    font-size: 5.8pt;
+                    font-size: 6pt;
                     font-weight: 800;
                     text-align: center;
                 }
@@ -3716,9 +3716,9 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                 }
                 .pickInfo {
                     display: grid;
-                    gap: .2mm;
+                    gap: .35mm;
                     padding: .7mm;
-                    font-size: 6.2pt;
+                    font-size: 6.5pt;
                     font-weight: 800;
                     line-height: 1;
                     overflow: hidden;
@@ -3728,7 +3728,7 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     -webkit-line-clamp: 2;
                     -webkit-box-orient: vertical;
                     overflow: hidden;
-                    font-size: 5.8pt;
+                    font-size: 6.3pt;
                 }
                 .pickMeta {
                     display: flex;
@@ -3749,10 +3749,10 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     overflow: hidden;
                 }
                 .barcodeBox svg {
-                    width: 91mm !important;
-                    height: 33mm !important;
-                    max-width: 91mm !important;
-                    max-height: 33mm !important;
+                    width: 88mm !important;
+                    height: 26mm !important;
+                    max-width: 88mm !important;
+                    max-height: 26mm !important;
                 }
                 .platformLine {
                     display: flex;
@@ -3760,7 +3760,7 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     justify-content: space-between;
                     gap: 2mm;
                     min-height: 0;
-                    font-size: 9.5pt;
+                    font-size: 8.8pt;
                     font-weight: 900;
                     border-top: 1.2px solid #101828;
                     padding-top: .8mm;
