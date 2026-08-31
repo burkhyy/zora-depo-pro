@@ -3002,29 +3002,120 @@ function sevkiyatBarkodu(siparis) {
     return `ZOOM-ORDER-${siparisKodu(siparis)}`;
 }
 
+function kargoBarkoduDegeriUygunMu(siparis, deger) {
+    const kod = String(deger || "").trim();
+    if (!kod) return false;
+    if (/^https?:\/\//i.test(kod)) return false;
+    if (kod.length < 5 || kod.length > 80) return false;
+
+    const orderCode = String(siparisKodu(siparis) || "").trim();
+    if (orderCode && kod.toUpperCase() === orderCode.toUpperCase()) return false;
+    if (kod.toUpperCase().startsWith("ZOOM-ORDER-")) return false;
+
+    const urunBarkodlari = new Set((siparis.products || [])
+        .map(urun => String(urun.barcode || urun.barCode || urun.productBarcode || "").trim().toUpperCase())
+        .filter(Boolean));
+    if (urunBarkodlari.has(kod.toUpperCase())) return false;
+
+    return true;
+}
+
+function kargoBarkoduAdaylariniTopla(kaynak, kok = "", adaylar = []) {
+    if (!kaynak || typeof kaynak !== "object") return adaylar;
+    if (Array.isArray(kaynak)) {
+        kaynak.forEach((item, index) => kargoBarkoduAdaylariniTopla(item, `${kok}.${index}`, adaylar));
+        return adaylar;
+    }
+
+    Object.entries(kaynak).forEach(([anahtar, deger]) => {
+        const yol = kok ? `${kok}.${anahtar}` : anahtar;
+        const sadeYol = aramaNormalize(yol);
+        const kargoAlani = /(cargo|kargo|shipment|shipping|track|gonderi|gönderi|parcel|package)/i.test(sadeYol);
+        const kodAlani = /(barcode|barkod|code|kod|number|numara|no|tracking)/i.test(sadeYol);
+        const dislananAlan = /(url|link|firm|firma|company|provider|carrier|status|date|time|amount|price|total)/i.test(sadeYol);
+
+        if (deger && typeof deger === "object") {
+            kargoBarkoduAdaylariniTopla(deger, yol, adaylar);
+        } else if (kargoAlani && kodAlani && !dislananAlan) {
+            adaylar.push(deger);
+        }
+    });
+
+    return adaylar;
+}
+
 function kargoGonderiKodu(siparis) {
-    return String(alanOku(siparis, [
+    const kargoAlanlari = [
         "order.cargoBarcode",
         "order.shipmentBarcode",
         "order.shippingBarcode",
+        "order.cargo.barcode",
+        "order.cargo.barcodeNo",
+        "order.cargo.barcodeNumber",
+        "order.shipping.barcode",
+        "order.shipment.barcode",
         "order.shipmentCode",
         "order.shipmentCode2",
+        "order.cargoCode",
+        "order.cargo.code",
+        "order.cargo.trackingNumber",
+        "order.cargo.trackingCode",
         "order.cargoTrackingNumber",
         "order.cargoTrackingCode",
+        "order.shippingTrackingNumber",
+        "order.shippingTrackingCode",
         "order.trackingNumber",
         "order.trackingCode",
-        "order.barcode",
+        "order.packageBarcode",
+        "order.packageCode",
+        "order.parcelBarcode",
+        "order.parcelCode",
+        "order.gonderiKodu",
+        "order.gonderiBarkodu",
+        "order.gönderiKodu",
+        "order.gönderiBarkodu",
         "cargoBarcode",
         "shipmentBarcode",
         "shippingBarcode",
+        "cargo.barcode",
+        "cargo.barcodeNo",
+        "cargo.barcodeNumber",
+        "shipping.barcode",
+        "shipment.barcode",
         "shipmentCode",
+        "shipmentCode2",
         "cargoCode",
+        "cargo.code",
+        "cargo.trackingNumber",
+        "cargo.trackingCode",
         "cargoTrackingNumber",
         "cargoTrackingCode",
+        "shippingTrackingNumber",
+        "shippingTrackingCode",
         "trackingNumber",
         "trackingCode",
+        "packageBarcode",
+        "packageCode",
+        "parcelBarcode",
+        "parcelCode",
+        "gonderiKodu",
+        "gonderiBarkodu",
+        "gönderiKodu",
+        "gönderiBarkodu",
+        "localTrackingNumber"
+    ];
+    const genelBarkodAlanlari = [
+        "order.barcode",
         "barcode"
-    ], "")).trim();
+    ];
+    const adaylar = [
+        ...kargoAlanlari.map(alan => alanOku(siparis, [alan], "")),
+        ...kargoBarkoduAdaylariniTopla(siparis),
+        ...(platformAnahtari(platformAdi(siparis)) === "trendyol"
+            ? []
+            : genelBarkodAlanlari.map(alan => alanOku(siparis, [alan], "")))
+    ];
+    return String(adaylar.find(deger => kargoBarkoduDegeriUygunMu(siparis, deger)) || "").trim();
 }
 
 function ean13KontrolHanesi(base12) {
