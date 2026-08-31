@@ -3532,15 +3532,40 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
         return;
     }
 
+    const svgSatirlaraBol = (deger, satirUzunlugu, limit) => {
+        const kelimeler = String(deger || "-").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+        const satirlar = [];
+        kelimeler.forEach(kelime => {
+            const son = satirlar[satirlar.length - 1] || "";
+            if (!son) {
+                satirlar.push(kelime);
+            } else if (`${son} ${kelime}`.length <= satirUzunlugu) {
+                satirlar[satirlar.length - 1] = `${son} ${kelime}`;
+            } else {
+                satirlar.push(kelime);
+            }
+        });
+        if (!satirlar.length) satirlar.push("-");
+        if (satirlar.length > limit) {
+            satirlar.length = limit;
+            satirlar[limit - 1] = `${satirlar[limit - 1].slice(0, Math.max(0, satirUzunlugu - 1))}…`;
+        }
+        return satirlar;
+    };
+    const svgMetinSatirlari = (satirlar, x, y, satirYuksekligi, boyut, kalinlik = 800, anchor = "middle") =>
+        satirlar.map((satir, index) =>
+            `<text x="${x}" y="${y + (index * satirYuksekligi)}" text-anchor="${anchor}" font-size="${boyut}" font-weight="${kalinlik}" font-family="Arial, sans-serif">${temizle(satir)}</text>`
+        ).join("");
+
     const etiketler = printable.map(order => {
         const code = kargoEtiketiBarkodu(order);
         const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         JsBarcode(svg, code, {
             format: "CODE128",
-            width: 2.05,
-            height: 52,
+            width: 1.45,
+            height: 72,
             displayValue: true,
-            fontSize: 15,
+            fontSize: 18,
             margin: 0
         });
         const urunler = (order.products || [])
@@ -3559,7 +3584,35 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
         const toplamAdet = (order.products || [])
             .filter(urun => !hizmetUrunuMu(urun))
             .reduce((toplam, urun) => toplam + urunAdedi(urun), 0);
-        return { order, code, barcode: svg.outerHTML, urunler, toplamAdet };
+        const musteriSatirlari = svgSatirlaraBol(musteriAdi(order), 22, 2);
+        const urunSatirlari = urunler.length ? urunler : [{ name: "Ürün bilgisi yok", size: "-", color: "-", quantity: 1, shelf: "-" }];
+        const urunHtml = urunSatirlari.map((urun, index) => {
+            const y = 265 + (index * 120);
+            return `
+                <g>
+                    <rect x="35" y="${y - 34}" width="930" height="104" rx="14" fill="#fff" stroke="#101828" stroke-width="5"/>
+                    ${svgMetinSatirlari(svgSatirlaraBol(urun.name, 42, 2), 55, y - 2, 32, 25, 800, "start")}
+                    <text x="55" y="${y + 49}" font-size="28" font-weight="900" font-family="Arial, sans-serif">Beden: ${temizle(urun.size || "-")}</text>
+                    <text x="315" y="${y + 49}" font-size="26" font-weight="900" font-family="Arial, sans-serif">Renk: ${temizle(urun.color || "-")}</text>
+                    <text x="690" y="${y + 49}" font-size="30" font-weight="900" font-family="Arial, sans-serif">Raf: ${temizle(urun.shelf || "-")}</text>
+                    <text x="915" y="${y + 49}" text-anchor="end" font-size="32" font-weight="900" font-family="Arial, sans-serif">${temizle(urun.quantity || 1)}×</text>
+                </g>
+            `;
+        }).join("");
+        const etiketHtml = `
+            <svg class="cargoBarcodeOnlyLabel" xmlns="http://www.w3.org/2000/svg" width="100mm" height="100mm" viewBox="0 0 1000 1000" preserveAspectRatio="none">
+                <rect x="0" y="0" width="1000" height="1000" fill="#fff"/>
+                ${svgMetinSatirlari(musteriSatirlari, 500, 72, 58, 54, 900)}
+                <text x="500" y="180" text-anchor="middle" font-size="40" font-weight="900" font-family="Arial, sans-serif">Sipariş No: ${temizle(siparisKodu(order))}</text>
+                <line x1="35" y1="215" x2="965" y2="215" stroke="#101828" stroke-width="6"/>
+                ${urunHtml}
+                <rect x="35" y="635" width="930" height="245" rx="14" fill="#fff" stroke="#101828" stroke-width="5"/>
+                <svg x="65" y="662" width="870" height="185" preserveAspectRatio="xMidYMid meet">${svg.innerHTML}</svg>
+                <text x="55" y="940" font-size="32" font-weight="900" font-family="Arial, sans-serif">${temizle(kargoFirmaEtiketi(order))}</text>
+                <text x="945" y="940" text-anchor="end" font-size="30" font-weight="900" font-family="Arial, sans-serif">${temizle(urunler.length)} çeşit · ${temizle(toplamAdet)} adet</text>
+            </svg>
+        `;
+        return { etiketHtml };
     });
 
     const frame = document.createElement("iframe");
@@ -3615,45 +3668,23 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
             <title>100x100 Kargo Barkodu</title>
             <style>
                 @page { size: 100mm 100mm portrait; margin: 0; }
-                * { box-sizing: border-box; }
                 html, body {
                     width: 100mm !important;
-                    min-width: 100mm !important;
-                    max-width: 100mm !important;
                     height: 100mm !important;
-                    min-height: 100mm !important;
-                    max-height: 100mm !important;
                     margin: 0 !important;
                     padding: 0 !important;
                     overflow: hidden !important;
                     background: #fff !important;
-                    color: #101828;
-                    font-family: Arial, sans-serif;
-                    break-after: auto !important;
-                    page-break-after: auto !important;
-                }
-                body {
-                    display: block !important;
-                    position: relative !important;
                 }
                 .cargoBarcodeOnlyLabel {
-                    display: grid;
-                    grid-template-rows: 14mm 8mm 24mm 36mm 8mm;
-                    gap: 1.6mm;
-                    align-items: stretch;
-                    position: relative;
+                    display: block;
                     width: 100mm !important;
-                    min-width: 100mm !important;
-                    max-width: 100mm !important;
                     height: 100mm !important;
-                    min-height: 100mm !important;
-                    max-height: 100mm !important;
                     margin: 0 !important;
-                    padding: 3.5mm;
-                    overflow: hidden;
+                    padding: 0 !important;
+                    overflow: hidden !important;
                     page-break-after: always;
                     break-after: page;
-                    border: 0;
                     background: #fff;
                     transform: none !important;
                 }
@@ -3661,140 +3692,10 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     page-break-after: auto;
                     break-after: auto;
                 }
-                .customerName {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    font-size: 18pt;
-                    font-weight: 900;
-                    line-height: .95;
-                    text-align: center;
-                    overflow-wrap: anywhere;
-                    text-transform: uppercase;
-                }
-                .orderCodeText {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    margin: 0;
-                    font-size: 13pt;
-                    font-weight: 900;
-                    text-align: center;
-                }
-                .pickProducts {
-                    display: grid;
-                    grid-template-columns: repeat(3, 1fr);
-                    gap: 1.5mm;
-                    min-height: 0;
-                    height: 24mm;
-                    margin: 0;
-                    overflow: hidden;
-                }
-                .pickProduct {
-                    display: grid;
-                    grid-template-rows: 10mm minmax(0, 1fr);
-                    min-width: 0;
-                    border: 1.2px solid #101828;
-                    border-radius: 1.5mm;
-                    overflow: hidden;
-                }
-                .pickPhoto {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: #fff;
-                    border-bottom: 1px solid #101828;
-                    color: #667085;
-                    font-size: 5.8pt;
-                    font-weight: 800;
-                    text-align: center;
-                }
-                .pickPhoto img {
-                    width: 100%;
-                    height: 100%;
-                    object-fit: contain;
-                }
-                .pickInfo {
-                    display: grid;
-                    gap: .2mm;
-                    padding: .7mm;
-                    font-size: 6.2pt;
-                    font-weight: 800;
-                    line-height: 1;
-                    overflow: hidden;
-                }
-                .pickInfo strong {
-                    display: -webkit-box;
-                    -webkit-line-clamp: 2;
-                    -webkit-box-orient: vertical;
-                    overflow: hidden;
-                    font-size: 5.8pt;
-                }
-                .pickMeta {
-                    display: flex;
-                    justify-content: space-between;
-                    gap: .6mm;
-                    font-size: 7.6pt;
-                    font-weight: 900;
-                }
-                .barcodeBox {
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    width: 100%;
-                    min-height: 0;
-                    border: 1.2px solid #101828;
-                    border-radius: 1.5mm;
-                    padding: 1mm;
-                    overflow: hidden;
-                }
-                .barcodeBox svg {
-                    width: 91mm !important;
-                    height: 33mm !important;
-                    max-width: 91mm !important;
-                    max-height: 33mm !important;
-                }
-                .platformLine {
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    gap: 2mm;
-                    min-height: 0;
-                    font-size: 9.5pt;
-                    font-weight: 900;
-                    border-top: 1.2px solid #101828;
-                    padding-top: .8mm;
-                    overflow: hidden;
-                    white-space: nowrap;
-                }
             </style>
         </head>
         <body>
-            ${etiketler.map(({ order, barcode, urunler, toplamAdet }) => `
-                <section class="cargoBarcodeOnlyLabel">
-                    <div class="customerName">${temizle(musteriAdi(order))}</div>
-                    <div class="orderCodeText">Sipariş No: ${temizle(siparisKodu(order))}</div>
-                    <div class="pickProducts">
-                        ${urunler.map(urun => `
-                            <article class="pickProduct">
-                                <div class="pickPhoto">${urun.image
-                                    ? `<img src="${temizle(urun.image)}" alt="${temizle(urun.name)}">`
-                                    : "Görsel yok"}</div>
-                                <div class="pickInfo">
-                                    <strong>${temizle(urun.name)}</strong>
-                                    <div class="pickMeta"><span>${temizle(urun.size)}</span><span>${temizle(urun.quantity)}×</span></div>
-                                    <div class="pickMeta"><span>${temizle(urun.color)}</span><span>${temizle(urun.shelf)}</span></div>
-                                </div>
-                            </article>
-                        `).join("")}
-                    </div>
-                    <div class="barcodeBox">${barcode}</div>
-                    <div class="platformLine">
-                        <span>${temizle(kargoFirmaEtiketi(order))}</span>
-                        <span>${temizle(urunler.length)} çeşit · ${temizle(toplamAdet)} adet</span>
-                    </div>
-                </section>
-            `).join("")}
+            ${etiketler.map(({ etiketHtml }) => etiketHtml).join("")}
         </body>
         </html>
     `;
