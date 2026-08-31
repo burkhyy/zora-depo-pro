@@ -3620,12 +3620,11 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     width: 100mm !important;
                     min-width: 100mm !important;
                     max-width: 100mm !important;
-                    height: 100mm !important;
+                    height: auto !important;
                     min-height: 100mm !important;
-                    max-height: 100mm !important;
                     margin: 0 !important;
                     padding: 0 !important;
-                    overflow: hidden !important;
+                    overflow: visible !important;
                     background: #fff !important;
                     color: #101828;
                     font-family: Arial, sans-serif;
