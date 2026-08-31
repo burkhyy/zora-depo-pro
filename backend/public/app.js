@@ -3588,12 +3588,20 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
         const urunSatirlari = urunler.length ? urunler : [{ name: "Ürün bilgisi yok", size: "-", color: "-", quantity: 1, shelf: "-" }];
         const urunHtml = urunSatirlari.map((urun, index) => {
             const y = 265 + (index * 120);
+            const gorsel = urun.image ? `
+                    <clipPath id="cargoProductPhotoClip${index}"><rect x="48" y="${y - 22}" width="132" height="80" rx="10"/></clipPath>
+                    <image href="${temizle(urun.image)}" x="48" y="${y - 22}" width="132" height="80" preserveAspectRatio="xMidYMid meet" clip-path="url(#cargoProductPhotoClip${index})"/>
+                ` : `
+                    <text x="114" y="${y + 14}" text-anchor="middle" font-size="22" font-weight="900" font-family="Arial, sans-serif" fill="#667085">Görsel yok</text>
+                `;
             return `
                 <g>
                     <rect x="35" y="${y - 34}" width="930" height="104" rx="14" fill="#fff" stroke="#101828" stroke-width="5"/>
-                    ${svgMetinSatirlari(svgSatirlaraBol(urun.name, 42, 2), 55, y - 2, 32, 25, 800, "start")}
-                    <text x="55" y="${y + 49}" font-size="28" font-weight="900" font-family="Arial, sans-serif">Beden: ${temizle(urun.size || "-")}</text>
-                    <text x="315" y="${y + 49}" font-size="26" font-weight="900" font-family="Arial, sans-serif">Renk: ${temizle(urun.color || "-")}</text>
+                    <rect x="48" y="${y - 22}" width="132" height="80" rx="10" fill="#fff" stroke="#d0d5dd" stroke-width="3"/>
+                    ${gorsel}
+                    ${svgMetinSatirlari(svgSatirlaraBol(urun.name, 34, 2), 200, y - 2, 32, 25, 800, "start")}
+                    <text x="200" y="${y + 49}" font-size="28" font-weight="900" font-family="Arial, sans-serif">Beden: ${temizle(urun.size || "-")}</text>
+                    <text x="430" y="${y + 49}" font-size="26" font-weight="900" font-family="Arial, sans-serif">Renk: ${temizle(urun.color || "-")}</text>
                     <text x="690" y="${y + 49}" font-size="30" font-weight="900" font-family="Arial, sans-serif">Raf: ${temizle(urun.shelf || "-")}</text>
                     <text x="915" y="${y + 49}" text-anchor="end" font-size="32" font-weight="900" font-family="Arial, sans-serif">${temizle(urun.quantity || 1)}×</text>
                 </g>
