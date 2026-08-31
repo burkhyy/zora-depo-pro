@@ -2105,6 +2105,7 @@ function barkodYazdirmaFormati(barkod) {
 }
 
 function urunEtiketiYazdir(etiket, tamamlandi) {
+    const frameHeightMm = Math.max(100, etiketler.length * 100);
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.position = "fixed";
@@ -3259,7 +3260,7 @@ function manuelKargoEtiketleriniYazdir(etiketler) {
     frame.style.left = "-10000px";
     frame.style.top = "0";
     frame.style.width = "100mm";
-    frame.style.height = "100mm";
+    frame.style.height = `${frameHeightMm}mm`;
     frame.style.border = "0";
 
     const temizleFrame = () => frame.remove();
@@ -3620,8 +3621,8 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     width: 100mm !important;
                     min-width: 100mm !important;
                     max-width: 100mm !important;
-                    height: auto !important;
-                    min-height: 100mm !important;
+                    height: ${frameHeightMm}mm !important;
+                    min-height: ${frameHeightMm}mm !important;
                     margin: 0 !important;
                     padding: 0 !important;
                     overflow: visible !important;
@@ -3652,6 +3653,8 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     overflow: hidden;
                     page-break-after: always;
                     break-after: page;
+                    page-break-inside: avoid;
+                    break-inside: avoid;
                     border: 0;
                     background: #fff;
                     transform: none !important;
@@ -3659,6 +3662,10 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                 .cargoBarcodeOnlyLabel:last-child {
                     page-break-after: auto;
                     break-after: auto;
+                }
+                .cargoBarcodeOnlyLabel + .cargoBarcodeOnlyLabel {
+                    page-break-before: always;
+                    break-before: page;
                 }
                 .customerName {
                     display: flex;
