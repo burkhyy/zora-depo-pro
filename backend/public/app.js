@@ -2105,7 +2105,6 @@ function barkodYazdirmaFormati(barkod) {
 }
 
 function urunEtiketiYazdir(etiket, tamamlandi) {
-    const frameHeightMm = Math.max(100, etiketler.length * 100);
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.position = "fixed";
@@ -3254,6 +3253,7 @@ async function siparisFisiBaskisiniKaydet(orders) {
 
 function manuelKargoEtiketleriniYazdir(etiketler) {
     const etiketHtml = etiketler.map(etiket => etiket.outerHTML).join("");
+    const frameHeightMm = Math.max(100, etiketler.length * 100);
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.position = "fixed";
@@ -3563,13 +3563,14 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
         return { order, code, barcode: svg.outerHTML, urunler, toplamAdet };
     });
 
+    const frameHeightMm = Math.max(100, etiketler.length * 100);
     const frame = document.createElement("iframe");
     frame.setAttribute("aria-hidden", "true");
     frame.style.position = "fixed";
     frame.style.left = "-10000px";
     frame.style.top = "0";
     frame.style.width = "100mm";
-    frame.style.height = "100mm";
+    frame.style.height = `${frameHeightMm}mm`;
     frame.style.border = "0";
 
     const temizleFrame = () => frame.remove();
