@@ -3563,53 +3563,14 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
         return { order, code, barcode: svg.outerHTML, urunler, toplamAdet };
     });
 
-    const frameHeightMm = Math.max(100, etiketler.length * 100);
-    const frame = document.createElement("iframe");
-    frame.setAttribute("aria-hidden", "true");
-    frame.style.position = "fixed";
-    frame.style.left = "-10000px";
-    frame.style.top = "0";
-    frame.style.width = "100mm";
-    frame.style.height = `${frameHeightMm}mm`;
-    frame.style.border = "0";
+    const printWindow = window.open("", "zoomCargoBarcodePrint", "popup,width=720,height=720");
+    if (!printWindow) {
+        mesajGoster("error", "Kargo barkodu açılamadı", "Tarayıcının açılır pencere iznini kontrol edin.");
+        return;
+    }
 
-    const temizleFrame = () => frame.remove();
-    frame.addEventListener("load", () => {
-        const printWindow = frame.contentWindow;
-        if (!printWindow) {
-            temizleFrame();
-            mesajGoster("error", "Kargo barkodu açılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
-            return;
-        }
-
-        printWindow.addEventListener("afterprint", temizleFrame, { once: true });
-        const yazdirmayiBaslat = () => {
-            printWindow.requestAnimationFrame(() => {
-                printWindow.requestAnimationFrame(() => {
-                    window.setTimeout(() => {
-                        try {
-                            printWindow.focus();
-                            printWindow.print();
-                        } catch {
-                            temizleFrame();
-                            mesajGoster("error", "Kargo barkodu yazdırılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
-                        }
-                    }, 250);
-                });
-            });
-        };
-        const gorseller = [...printWindow.document.images];
-        Promise.all(gorseller.map(img => img.complete
-            ? Promise.resolve()
-            : new Promise(resolve => {
-                img.addEventListener("load", resolve, { once: true });
-                img.addEventListener("error", resolve, { once: true });
-                window.setTimeout(resolve, 700);
-            })
-        )).then(yazdirmayiBaslat, yazdirmayiBaslat);
-    }, { once: true });
-
-    frame.srcdoc = `
+    printWindow.document.open();
+    printWindow.document.write(`
         <!doctype html>
         <html lang="tr">
         <head>
@@ -3622,8 +3583,8 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
                     width: 100mm !important;
                     min-width: 100mm !important;
                     max-width: 100mm !important;
-                    height: ${frameHeightMm}mm !important;
-                    min-height: ${frameHeightMm}mm !important;
+                    height: auto !important;
+                    min-height: 100mm !important;
                     margin: 0 !important;
                     padding: 0 !important;
                     overflow: visible !important;
@@ -3804,8 +3765,32 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
             `).join("")}
         </body>
         </html>
-    `;
-    document.body.appendChild(frame);
+    `);
+    printWindow.document.close();
+
+    const yazdirmayiBaslat = () => {
+        printWindow.requestAnimationFrame(() => {
+            printWindow.requestAnimationFrame(() => {
+                printWindow.setTimeout(() => {
+                    try {
+                        printWindow.focus();
+                        printWindow.print();
+                    } catch {
+                        mesajGoster("error", "Kargo barkodu yazdırılamadı", "Tarayıcının yazdırma iznini kontrol edin.");
+                    }
+                }, 250);
+            });
+        });
+    };
+    const gorseller = [...printWindow.document.images];
+    Promise.all(gorseller.map(img => img.complete
+        ? Promise.resolve()
+        : new Promise(resolve => {
+            img.addEventListener("load", resolve, { once: true });
+            img.addEventListener("error", resolve, { once: true });
+            window.setTimeout(resolve, 700);
+        })
+    )).then(yazdirmayiBaslat, yazdirmayiBaslat);
 }
 
 function kargoCikisEtiketiGoster(siparis) {
