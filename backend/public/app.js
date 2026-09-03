@@ -115,6 +115,22 @@ function siparisKodu(item) {
     return alanOku(item, ["order.code", "code", "orderCode"]);
 }
 
+function siparisKodunuNormalizeEt(code) {
+    return String(code || "").trim().toUpperCase();
+}
+
+function siparisBul(code, ekListe = []) {
+    const hedefKod = siparisKodunuNormalizeEt(code);
+    if (!hedefKod) return null;
+    return [
+        aktifSiparis,
+        ...aktifTopluSiparisler,
+        ...ekListe,
+        ...aktifListe,
+        ...siparisler
+    ].find(item => item && siparisKodunuNormalizeEt(siparisKodu(item)) === hedefKod) || null;
+}
+
 function platformAdi(item) {
     return alanOku(item, ["order.platform", "platform"]);
 }
@@ -3191,7 +3207,7 @@ async function etiketBaskiKayitlariniGetir() {
 }
 
 function etiketBaskiKaydi(order) {
-    return etiketBaskiKayitlari[siparisKodu(order).toUpperCase()] || null;
+    return etiketBaskiKayitlari[siparisKodunuNormalizeEt(siparisKodu(order))] || null;
 }
 
 function kargoBarkoduButonMetni(order) {
@@ -3217,6 +3233,9 @@ async function etiketBaskisiniKaydet(orders) {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "Etiket baskısı kaydedilemedi.");
     await etiketBaskiKayitlariniGetir();
+    if (aktifSekme === "orders" && !document.body.classList.contains("detailMode")) {
+        listeGoster(aktifListe);
+    }
 }
 
 async function siparisFisiBaskiKayitlariniGetir() {
@@ -3229,7 +3248,7 @@ async function siparisFisiBaskiKayitlariniGetir() {
 }
 
 function siparisFisiBaskiKaydi(order) {
-    return siparisFisiBaskiKayitlari[siparisKodu(order).toUpperCase()] || null;
+    return siparisFisiBaskiKayitlari[siparisKodunuNormalizeEt(siparisKodu(order))] || null;
 }
 
 function siparisFisiButonMetni(order, kisa = false) {
@@ -5754,7 +5773,7 @@ result.addEventListener("click", async function (event) {
 
     const hazirlananlaraAlButonu = event.target.closest("[data-move-to-preparing]");
     if (hazirlananlaraAlButonu) {
-        const order = siparisler.find(item => siparisKodu(item) === hazirlananlaraAlButonu.dataset.moveToPreparing);
+        const order = siparisBul(hazirlananlaraAlButonu.dataset.moveToPreparing);
         if (!order) return;
         hazirlananlaraAlButonu.disabled = true;
         try {
@@ -5768,7 +5787,9 @@ result.addEventListener("click", async function (event) {
     }
 
     if (event.target.closest("[data-move-selected-to-preparing]")) {
-        const orders = siparisler.filter(order => secilenSiparisKodlari.has(siparisKodu(order)));
+        const orders = Array.from(secilenSiparisKodlari)
+            .map(code => siparisBul(code))
+            .filter(Boolean);
         if (!orders.length) return;
         try {
             await siparisAsamasiniGuncelle(orders, "preparing");
@@ -5985,9 +6006,7 @@ result.addEventListener("click", async function (event) {
     const cargoBarcodeButton = event.target.closest("[data-print-cargo-barcode]");
     if (cargoBarcodeButton) {
         const code = cargoBarcodeButton.dataset.printCargoBarcode;
-        const order = aktifTopluSiparisler.find(item => siparisKodu(item) === code)
-            || siparisler.find(item => siparisKodu(item) === code)
-            || (aktifSiparis && siparisKodu(aktifSiparis) === code ? aktifSiparis : null);
+        const order = siparisBul(code);
         if (!order) {
             mesajGoster("error", "Sipariş bulunamadı", code);
             return;
@@ -5999,9 +6018,7 @@ result.addEventListener("click", async function (event) {
     const cargoPrintButton = event.target.closest("[data-print-cargo-order]");
     if (cargoPrintButton) {
         const code = cargoPrintButton.dataset.printCargoOrder;
-        const order = aktifTopluSiparisler.find(item => siparisKodu(item) === code)
-            || siparisler.find(item => siparisKodu(item) === code)
-            || (aktifSiparis && siparisKodu(aktifSiparis) === code ? aktifSiparis : null);
+        const order = siparisBul(code);
         if (!order) {
             mesajGoster("error", "Sipariş bulunamadı", code);
             return;
