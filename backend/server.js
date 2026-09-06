@@ -3761,6 +3761,8 @@ app.get("/reports/preparations.pdf", (req, res) => {
     doc.end();
 });
 
+require("./day-end-shortages")(app, database);
+
 function sorunKaydiniDonustur(row) {
     return {
         id: row.id,

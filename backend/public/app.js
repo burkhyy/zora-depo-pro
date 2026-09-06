@@ -5118,6 +5118,10 @@ function sorunDuzenlemeFormuGoster(issue) {
 }
 
 async function sorunluSiparislerEkraniGoster() {
+    return gunSonuEksikleriGoster();
+}
+
+async function oncekiEksikUrunKayitlariGoster() {
     scannerDurdur();
     aktifSekme = "issues";
     searchInput.disabled = true;
@@ -5178,7 +5182,8 @@ async function sorunluSiparislerEkraniGoster() {
                 <div class="locationHeader">
                     <div>
                         <p class="eyebrow">Bekleyen İşler</p>
-                        <h2>Eksik Siparişler</h2>
+                        <h2>Önceki Ürün Kayıtları</h2>
+                        <button type="button" data-day-end-back>Gün Sonu Eksiklerine Dön</button>
                         <p>${temizle(siparisGruplari.length)} sipariş · ${temizle(platformSorunlari.length)} açık sorun</p>
                     </div>
                 </div>
@@ -6205,7 +6210,7 @@ result.addEventListener("click", async function (event) {
             listeGoster(aktifListe);
         } else if (scope === "issues") {
             aktifEksikPlatformu = platform;
-            await sorunluSiparislerEkraniGoster();
+            await oncekiEksikUrunKayitlariGoster();
         } else if (scope === "shipments") {
             aktifSevkiyatPlatformu = platform;
             sevkiyatListeleriniGoster();
@@ -6291,7 +6296,7 @@ result.addEventListener("click", async function (event) {
                 throw new Error(data.error || "Sorun kaydı kapatılamadı.");
             }
 
-            await sorunluSiparislerEkraniGoster();
+            await oncekiEksikUrunKayitlariGoster();
         } catch (err) {
             sorunCozButonu.disabled = false;
             alert(err.message);
@@ -6602,7 +6607,7 @@ result.addEventListener("submit", async function (event) {
             }
 
             document.getElementById("issueDialog")?.remove();
-            await sorunluSiparislerEkraniGoster();
+            await oncekiEksikUrunKayitlariGoster();
         } catch (err) {
             button.disabled = false;
             alert(err.message);

@@ -273,6 +273,43 @@ test("yerel sevkiyat işlemi Quka kargo durumundan önce siparişi gizlemez", as
     assert.equal(afterCarrierAcceptance.data.result.list.some(item => item.order.code === "CACHED-ORDER"), false);
 });
 
+test("Gun sonu eksikleri siparis akisindan bagimsiz saklanir", async () => {
+    assert.equal((await request('/issues/day-end')).response.status, 401);
+    const cookie = await login('testadmin', 'TestPassword123!');
+    const db = new DatabaseSync(path.join(dataDir, 'locations.db'));
+    const snapshot = () => JSON.stringify(['order_preparations', 'order_workflow_stages',
+        'order_shipments', 'order_label_prints', 'order_slip_prints', 'order_product_issues', 'order_api_cache']
+        .map(table => db.prepare(`SELECT * FROM ${table}`).all()));
+    try {
+        const before = snapshot();
+        const payload = { orders: [{ orderCode: 'DAY-END-1', platform: 'Zoombutik', customerName: 'Test' }],
+            workDate: '2026-09-06', note: 'L beden 1 adet eksik' };
+        const post = body => request('/issues/day-end', { method: 'POST', body: JSON.stringify(body) }, cookie);
+        assert.equal((await post({ ...payload, workDate: '2026-02-30' })).response.status, 400);
+        assert.equal((await post({ ...payload, orders: [...payload.orders, {}] })).response.status, 400);
+        assert.equal((await request('/issues/day-end', {}, cookie)).data.result.length, 0);
+        assert.equal((await post(payload)).data.added, 1);
+        assert.equal((await post({ ...payload, orders: [{ ...payload.orders[0], orderCode: 'day-end-1' }] })).data.skipped, 1);
+        let rows = (await request('/issues/day-end', {}, cookie)).data.result;
+        assert.equal(rows.length, 1);
+        assert.equal(rows[0].note, payload.note);
+        assert.ok(rows[0].created_by_name);
+        const id = rows[0].id;
+        assert.equal((await request(`/issues/day-end/${id}`, { method: 'PATCH',
+            body: JSON.stringify({ action: 'edit', note: '2 adet eksik' }) }, cookie)).response.status, 200);
+        assert.equal((await request('/issues/day-end', {}, cookie)).data.result[0].note, '2 adet eksik');
+        assert.equal((await request(`/issues/day-end/${id}`, { method: 'PATCH',
+            body: JSON.stringify({ action: 'resolve' }) }, cookie)).response.status, 200);
+        rows = (await request('/issues/day-end', {}, cookie)).data.result;
+        assert.equal(rows[0].status, 'resolved');
+        assert.ok(rows[0].resolved_at);
+        assert.ok(rows[0].resolved_by_name);
+        assert.equal((await post(payload)).data.added, 1);
+        assert.equal(db.prepare('SELECT COUNT(*) AS count FROM day_end_shortages').get().count, 2);
+        assert.equal(snapshot(), before);
+    } finally { db.close(); }
+});
+
 test.after(async () => {
     if (server && server.exitCode === null) {
         const exited = new Promise(resolve => server.once("exit", resolve));
