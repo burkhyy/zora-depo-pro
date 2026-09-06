@@ -6,6 +6,7 @@ COPY backend/package.json backend/package-lock.json ./
 RUN npm ci --omit=dev
 
 COPY backend/server.js ./
+COPY backend/day-end-shortages.js ./
 COPY backend/public ./public
 
 RUN mkdir -p /app/data
