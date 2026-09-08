@@ -4441,7 +4441,10 @@ app.put("/order-workflow/stage", (req, res) => {
         (Array.isArray(req.body.orderCodes) ? req.body.orderCodes : [])
             .map(code => String(code || "").trim().slice(0, 128))
             .filter(Boolean)
-    )].slice(0, 100);
+    )];
+    if (orderCodes.length > 100) {
+        return res.status(400).json({ error: "Tek istekte en fazla 100 sipariş taşınabilir." });
+    }
     if (!["new", "preparing", "shipped"].includes(stage)) {
         return res.status(400).json({ error: "Gecersiz siparis asamasi." });
     }

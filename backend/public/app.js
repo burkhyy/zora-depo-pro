@@ -49,6 +49,8 @@ let bildirimZamanlayici = null;
 let apiDurumZamanlayici = null;
 let siparisYenilemeZamanlayici = null;
 let siparisYenileniyor = false;
+let siparisAsamasiDegisiyor = false;
+let siparisAsamasiSurumu = 0;
 let urunGorselleri = {};
 let urunGorselleriPromise = null;
 let denetimAramaZamanlayici = null;
@@ -1003,7 +1005,11 @@ function ekranVurgula(tur) {
 }
 
 function mesajGoster(tur, baslik, detay = "") {
-    const mesaj = document.getElementById("scanMessage");
+    let mesaj = document.getElementById("scanMessage");
+    if (!mesaj && aktifSekme === "orders") {
+        result.insertAdjacentHTML("afterbegin", '<div id="scanMessage" role="status" aria-live="polite"></div>');
+        mesaj = document.getElementById("scanMessage");
+    }
 
     if (!mesaj) {
         return;
@@ -1423,13 +1429,15 @@ async function yukle() {
 }
 
 async function siparisleriSessizYenile() {
-    if (!aktifKullanici || siparisYenileniyor || document.hidden) return;
+    if (!aktifKullanici || siparisYenileniyor || siparisAsamasiDegisiyor || document.hidden) return;
+    const asamaSurumu = siparisAsamasiSurumu;
     siparisYenileniyor = true;
 
     try {
         const response = await fetch("/orders", { cache: "no-store" });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Siparişler yenilenemedi.");
+        if (siparisAsamasiDegisiyor || asamaSurumu !== siparisAsamasiSurumu) return;
 
         const qukaListesi = sadeceZoomSiparisleri(data?.result?.list);
         const eskiKodlar = new Set(siparisler.map(siparisKodu));
@@ -1729,22 +1737,41 @@ function secimKontrolleriniGuncelle() {
 }
 
 async function siparisAsamasiniGuncelle(orders, stage) {
-    const response = await fetch("/order-workflow/stage", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            orderCodes: orders.map(siparisKodu).filter(Boolean),
-            stage
-        })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Sipariş aşaması güncellenemedi.");
-    orders.forEach(order => {
-        order.localWorkflowStage = stage;
-    });
-    secilenSiparisKodlari.clear();
-    listeGoster(aktifListe);
-    return data.result;
+    if (siparisAsamasiDegisiyor) throw new Error("Önceki taşıma işlemi devam ediyor.");
+    const codes = [...new Set(orders.map(order => siparisKodunuNormalizeEt(siparisKodu(order))).filter(Boolean))];
+    if (!codes.length) throw new Error("Taşınacak sipariş seçilmedi.");
+    siparisAsamasiDegisiyor = true;
+    siparisAsamasiSurumu += 1;
+    const completed = [];
+    try {
+        for (let index = 0; index < codes.length; index += 100) {
+            const batch = codes.slice(index, index + 100);
+            const response = await fetch("/order-workflow/stage", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ orderCodes: batch, stage })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || "Sipariş aşaması güncellenemedi.");
+            const confirmed = new Set((data.result?.orderCodes || []).map(siparisKodunuNormalizeEt).filter(code => batch.includes(code)));
+            if (data.result?.stage !== stage) throw new Error("Sunucu sipariş aşamasını doğrulamadı.");
+            for (const order of [aktifSiparis, ...orders, ...siparisler, ...aktifListe, ...aktifTopluSiparisler]) {
+                if (order && confirmed.has(siparisKodunuNormalizeEt(siparisKodu(order)))) order.localWorkflowStage = stage;
+            }
+            for (const selected of secilenSiparisKodlari) {
+                if (confirmed.has(siparisKodunuNormalizeEt(selected))) secilenSiparisKodlari.delete(selected);
+            }
+            completed.push(...confirmed);
+            if (confirmed.size !== batch.length) throw new Error("Sunucu seçilen siparişlerin tümünü kaydetmedi.");
+        }
+        return { orderCodes: completed, stage, count: completed.length };
+    } catch (error) {
+        throw new Error(`${completed.length} / ${codes.length} sipariş taşındı. ${error.message} Kalan siparişlerin seçimi korunuyor.`);
+    } finally {
+        siparisAsamasiDegisiyor = false;
+        siparisAsamasiSurumu += 1;
+        if (aktifSekme === "orders" && !document.body.classList.contains("detailMode")) listeGoster(aktifListe);
+    }
 }
 
 async function siparisleriKargolananlaraAl(orders) {

@@ -310,6 +310,21 @@ test("Gun sonu eksikleri siparis akisindan bagimsiz saklanir", async () => {
     } finally { db.close(); }
 });
 
+test('Toplu asama endpointi sinir disindaki istegi sessizce kesmez', async () => {
+    const cookie = await login('testadmin', 'TestPassword123!');
+    const codes = Array.from({ length: 101 }, (_, index) => `WORKFLOW-${index}`);
+    const update = orderCodes => request('/order-workflow/stage', { method: 'PUT',
+        body: JSON.stringify({ orderCodes, stage: 'preparing' }) }, cookie);
+    assert.equal((await update(codes)).response.status, 400);
+    const db = new DatabaseSync(path.join(dataDir, 'locations.db'));
+    try {
+        assert.equal(db.prepare("SELECT COUNT(*) AS count FROM order_workflow_stages WHERE order_code LIKE 'WORKFLOW-%'").get().count, 0);
+        assert.equal((await update(codes.slice(0, 100))).data.result.count, 100);
+        assert.equal((await update(codes.slice(100))).data.result.count, 1);
+        assert.equal(db.prepare("SELECT COUNT(*) AS count FROM order_workflow_stages WHERE order_code LIKE 'WORKFLOW-%' AND stage = 'preparing'").get().count, 101);
+    } finally { db.close(); }
+});
+
 test.after(async () => {
     if (server && server.exitCode === null) {
         const exited = new Promise(resolve => server.once("exit", resolve));
