@@ -397,8 +397,7 @@ function siparisSiralamaUygula(liste) {
 function siparisKuyrukListeleriniHesapla(liste) {
     const kargolananListe = liste.filter(item => item.localWorkflowStage === "shipped" || yereldeKargolanmisMi(item));
     const hazirlanacakListe = liste.filter(item =>
-        !yereldeHazirlanmisMi(item)
-        && !item?.hasOpenIssue
+        (item.localWorkflowStage === "preparing" || (!yereldeHazirlanmisMi(item) && !item?.hasOpenIssue))
         && item.localWorkflowStage !== "shipped"
         && !yereldeKargolanmisMi(item)
     );
@@ -1392,10 +1391,11 @@ async function oturumuBaslat() {
 
 async function yukle() {
     try {
+        const baskiHatalari = [];
         const [response] = await Promise.all([
             fetch("/orders"),
-            etiketBaskiKayitlariniGetir(),
-            siparisFisiBaskiKayitlariniGetir()
+            etiketBaskiKayitlariniGetir().catch(error => baskiHatalari.push(error.message)),
+            siparisFisiBaskiKayitlariniGetir().catch(error => baskiHatalari.push(error.message))
         ]);
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Siparişler yüklenemedi.");
@@ -1406,6 +1406,7 @@ async function yukle() {
 
         if (aktifSekme === "orders") {
             listeGoster(aktifListe);
+            if (baskiHatalari.length) mesajGoster("error", "Yazdırma geçmişi yüklenemedi", baskiHatalari.join(" "));
             if (data.stale) {
                 result.insertAdjacentHTML("afterbegin", `
                     <div class="staleOrdersNotice">
@@ -3226,10 +3227,11 @@ async function etiketBaskiKayitlariniGetir() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || "Etiket geçmişi alınamadı.");
         etiketBaskiKayitlari = Object.fromEntries(
-            (data.result || []).map(item => [String(item.orderCode).toUpperCase(), item])
+            (data.result || []).map(item => [siparisKodunuNormalizeEt(item.orderCode), item])
         );
     } catch (err) {
         console.error(err);
+        throw err;
     }
 }
 
@@ -3250,15 +3252,25 @@ function kargoBarkoduButonlariniGuncelle(kaynakListe = []) {
     });
 }
 
+async function baskiKayitlariniTopluKaydet(endpoint, orders) {
+    const codes = [...new Set(orders.map(order => siparisKodunuNormalizeEt(siparisKodu(order))).filter(Boolean))];
+    if (!codes.length) throw new Error("Yazdırılacak sipariş seçilmedi.");
+    for (let index = 0; index < codes.length; index += 100) {
+        const batch = codes.slice(index, index + 100);
+        const response = await fetch(endpoint, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderCodes: batch })
+        });
+        if (response.status === 401) throw new Error("Oturum süresi doldu. Yeniden giriş yapın.");
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Baskı kaydı oluşturulamadı.");
+        const confirmed = new Set((data.result?.orderCodes || []).map(siparisKodunuNormalizeEt));
+        if (!batch.every(code => confirmed.has(code))) throw new Error("Bazı baskı kayıtları sunucu tarafından doğrulanmadı.");
+    }
+}
+
 async function etiketBaskisiniKaydet(orders) {
-    const orderCodes = orders.map(siparisKodu).filter(Boolean);
-    const response = await fetch("/label-prints", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderCodes })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Etiket baskısı kaydedilemedi.");
+    await baskiKayitlariniTopluKaydet("/label-prints", orders);
     await etiketBaskiKayitlariniGetir();
     if (aktifSekme === "orders" && !document.body.classList.contains("detailMode")) {
         listeGoster(aktifListe);
@@ -3270,7 +3282,7 @@ async function siparisFisiBaskiKayitlariniGetir() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "A4 fiş geçmişi alınamadı.");
     siparisFisiBaskiKayitlari = Object.fromEntries(
-        (data.result || []).map(item => [String(item.orderCode).toUpperCase(), item])
+        (data.result || []).map(item => [siparisKodunuNormalizeEt(item.orderCode), item])
     );
 }
 
@@ -3284,13 +3296,7 @@ function siparisFisiButonMetni(order, kisa = false) {
 }
 
 async function siparisFisiBaskisiniKaydet(orders) {
-    const response = await fetch("/order-slip-prints", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderCodes: orders.map(siparisKodu).filter(Boolean) })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "A4 fiş baskısı kaydedilemedi.");
+    await baskiKayitlariniTopluKaydet("/order-slip-prints", orders);
     await siparisFisiBaskiKayitlariniGetir();
     if (aktifSekme === "orders" && !document.body.classList.contains("detailMode")) {
         listeGoster(aktifListe);
@@ -3387,9 +3393,12 @@ function manuelKargoEtiketleriniYazdir(etiketler) {
 async function siparisFisiYazdir(siparisVeyaListe) {
     const fisSiparisleri = (Array.isArray(siparisVeyaListe) ? siparisVeyaListe : [siparisVeyaListe]).filter(Boolean);
     if (!fisSiparisleri.length) return;
-    siparisFisiBaskisiniKaydet(fisSiparisleri).catch(err => {
+    try {
+        await siparisFisiBaskisiniKaydet(fisSiparisleri);
+    } catch (err) {
         mesajGoster("error", "A4 fiş baskısı işaretlenemedi", err.message);
-    });
+        return;
+    }
     const fisBarkodlari = new Map(fisSiparisleri.map(siparis => {
         const barkod = kargoEtiketiBarkodu(siparis);
         if (!barkod || typeof JsBarcode !== "function") return [siparis, ""];
@@ -3566,8 +3575,7 @@ async function kargoBarkodEtiketleriniYazdir(siparisVeyaListe) {
     )) return;
 
     try {
-        etiketBaskisiniKaydet(printable)
-            .catch(err => mesajGoster("error", "BaskÄ± kaydÄ± oluÅŸturulamadÄ±", err.message));
+        await etiketBaskisiniKaydet(printable);
         kargoBarkoduButonlariniGuncelle(printable);
     } catch (err) {
         mesajGoster("error", "Baskı kaydı oluşturulamadı", err.message);

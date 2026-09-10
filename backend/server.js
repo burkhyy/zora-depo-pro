@@ -4392,7 +4392,6 @@ app.get("/label-prints", (req, res) => {
         FROM order_label_prints prints
         JOIN app_users users ON users.id = prints.last_printed_by_user_id
         ORDER BY prints.last_printed_at DESC
-        LIMIT 5000
     `).all();
     res.json({
         result: rows.map(row => ({
@@ -4410,7 +4409,8 @@ app.post("/label-prints", (req, res) => {
         (Array.isArray(req.body.orderCodes) ? req.body.orderCodes : [])
             .map(code => String(code || "").trim().slice(0, 128))
             .filter(Boolean)
-    )].slice(0, 100);
+    )];
+    if (orderCodes.length > 100) return res.status(400).json({ error: "Tek istekte en fazla 100 baskı kaydı gönderilebilir." });
     if (!orderCodes.length) return res.status(400).json({ error: "Sipariş kodu gerekli." });
 
     const save = database.prepare(`
@@ -4481,7 +4481,6 @@ app.get("/order-slip-prints", (req, res) => {
         FROM order_slip_prints prints
         JOIN app_users users ON users.id = prints.last_printed_by_user_id
         ORDER BY prints.last_printed_at DESC
-        LIMIT 5000
     `).all();
     res.json({
         result: rows.map(row => ({
@@ -4499,7 +4498,8 @@ app.post("/order-slip-prints", (req, res) => {
         (Array.isArray(req.body.orderCodes) ? req.body.orderCodes : [])
             .map(code => String(code || "").trim().slice(0, 128))
             .filter(Boolean)
-    )].slice(0, 100);
+    )];
+    if (orderCodes.length > 100) return res.status(400).json({ error: "Tek istekte en fazla 100 baskı kaydı gönderilebilir." });
     if (!orderCodes.length) return res.status(400).json({ error: "Siparis kodu gerekli." });
 
     const save = database.prepare(`

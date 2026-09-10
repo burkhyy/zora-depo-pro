@@ -22,6 +22,30 @@ function setup(count, fetch) {
 }
 const ok = body => ({ ok: true, json: async () => ({ result: { orderCodes: body.orderCodes, stage: body.stage } }) });
 
+test('Baski kaydi 250 siparisin tamamini kaydeder ve eksik onayi reddeder', async () => {
+    const batches = [];
+    const c = setup(250, async (_, options) => { const body = JSON.parse(options.body); batches.push(body.orderCodes.length); return ok(body); });
+    vm.runInContext(section('async function baskiKayitlariniTopluKaydet(', 'async function etiketBaskisiniKaydet('), c);
+    await c.baskiKayitlariniTopluKaydet('/label-prints', c.siparisler);
+    assert.deepEqual(batches, [100, 100, 50]);
+    c.fetch = async () => ok({ orderCodes: [] });
+    await assert.rejects(c.baskiKayitlariniTopluKaydet('/label-prints', c.siparisler), /doğrulanmadı/);
+});
+
+test('Acikca hazirlananlara tasinan tamamlanmis siparis listeden gizlenmez', () => {
+    const c = setup(1, async () => {});
+    Object.assign(c, { yereldeKargolanmisMi: o => o.localShipmentStatus === 'shipped',
+        yereldeHazirlanmisMi: o => o.localPreparationStatus === 'completed', aktifSiparisKuyrugu: 'preparing',
+        aktifSiparisPlatformu: 'zoombutik', aktifSiparisDurumFiltresi: '', aktifSiparisRafGrubu: '',
+        siparisSiralamaUygula: x => x, platformAnahtari: () => 'zoombutik', platformAdi: () => 'Zoombutik',
+        siparisRafGrubunaUyuyor: () => true, siparisTarihFiltresineUyuyor: () => true });
+    vm.runInContext(section('function siparisKuyrukListeleriniHesapla(', 'function urunAdi('), c);
+    const order = { code: 'X', localWorkflowStage: 'preparing', localPreparationStatus: 'completed' };
+    assert.equal(c.siparisKuyrukListeleriniHesapla([order]).platformListesi.length, 1);
+    order.localShipmentStatus = 'shipped';
+    assert.equal(c.siparisKuyrukListeleriniHesapla([order]).platformListesi.length, 0);
+});
+
 test('Toplu tasima 250 siparisin tamamini sunucu limitine uygun kaydeder', async () => {
     const batches = [];
     const c = setup(250, async (_, options) => { const body = JSON.parse(options.body); batches.push(body.orderCodes.length); return ok(body); });

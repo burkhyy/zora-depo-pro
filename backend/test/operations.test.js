@@ -325,6 +325,28 @@ test('Toplu asama endpointi sinir disindaki istegi sessizce kesmez', async () =>
     } finally { db.close(); }
 });
 
+test('Eski baski kayitlari 5000 sinirinda kaybolmaz ve toplu istek kesilmez', async () => {
+    const cookie = await login('testadmin', 'TestPassword123!');
+    const db = new DatabaseSync(path.join(dataDir, 'locations.db'));
+    try {
+        const userId = db.prepare("SELECT id FROM app_users WHERE username = 'testadmin'").get().id;
+        for (const [table, endpoint] of [['order_label_prints', '/label-prints'], ['order_slip_prints', '/order-slip-prints']]) {
+            const save = db.prepare(`INSERT INTO ${table}(order_code, last_printed_by_user_id) VALUES (?, ?)`);
+            db.exec('BEGIN');
+            for (let i = 0; i < 5001; i++) save.run(`PRINT-REGRESSION-${i}`, userId);
+            db.exec('COMMIT');
+            const records = await request(endpoint, {}, cookie);
+            assert.equal(records.data.result.filter(r => r.orderCode.startsWith('PRINT-REGRESSION-')).length, 5001);
+            const codes = Array.from({ length: 101 }, (_, i) => `PRINT-BATCH-${i}`);
+            const post = orderCodes => request(endpoint, { method: 'POST', body: JSON.stringify({ orderCodes }) }, cookie);
+            assert.equal((await post(codes)).response.status, 400);
+            assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE order_code LIKE 'PRINT-BATCH-%'`).get().count, 0);
+            assert.equal((await post(codes.slice(0, 100))).data.result.count, 100);
+            assert.equal((await post(codes.slice(100))).data.result.count, 1);
+        }
+    } finally { db.close(); }
+});
+
 test.after(async () => {
     if (server && server.exitCode === null) {
         const exited = new Promise(resolve => server.once("exit", resolve));
